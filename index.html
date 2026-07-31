@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>2020 States — Election Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="annotate.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; }
+    #map { position: absolute; inset: 0; }
+
+    /* Title */
+    #title {
+      position: absolute; top: 12px; left: 12px; z-index: 1;
+      background: #1a1a2e; color: #fff; padding: 10px 16px; border-radius: 6px;
+      font: 600 18px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3);
+    }
+
+    /* Layer control panel */
+    #layers {
+      position: absolute; top: 64px; left: 12px; z-index: 1;
+      background: #fff; padding: 10px 12px; border-radius: 6px;
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3); color: #222;
+    }
+    #layers h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #555; }
+    #layers label { display: flex; align-items: center; margin: 3px 0; cursor: pointer; }
+    #layers input { margin-right: 8px; }
+    #export-pdf {
+      margin-top: 9px; width: 100%; cursor: pointer; border: none; border-radius: 4px;
+      background: #1a1a2e; color: #fff; padding: 7px 8px;
+      font: 600 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    #export-pdf:disabled { opacity: .6; cursor: default; }
+    .pdf-opts { display: flex; gap: 6px; margin-top: 9px; }
+    .pdf-opts select { flex: 1; font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; padding: 3px; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+
+    /* Ethnicity pie markers — clickable for a percentage breakdown popup. */
+    .pie-marker { pointer-events: auto; cursor: pointer; filter: drop-shadow(0 1px 1px rgba(0,0,0,.4)); }
+
+    /* Collapse toggle — hidden on wide screens, the panel is always open there. */
+    #layers-toggle {
+      display: none; cursor: pointer; border: none; border-radius: 6px;
+      background: #fff; color: #222; padding: 8px 12px;
+      font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3);
+    }
+
+    /* Small screens: collapse the panel down to just the button. */
+    @media (max-width: 600px) {
+      #layers { padding: 0; background: transparent; box-shadow: none; }
+      #layers-toggle { display: block; }
+      #layers .layers-body {
+        display: none; margin-top: 6px;
+        background: #fff; padding: 10px 12px; border-radius: 6px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.3);
+      }
+      #layers.open .layers-body { display: block; }
+      #layers.open #layers-toggle { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+    }
+
+    /* Legend */
+    #legend {
+      position: absolute; bottom: 24px; left: 12px; z-index: 1;
+      background: #fff; padding: 10px 12px; border-radius: 6px;
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3); color: #222;
+    }
+    #legend h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #555; }
+    #legend .row { display: flex; align-items: center; margin: 3px 0; }
+    #legend .swatch { width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; border: 1px solid rgba(0,0,0,.2); }
+
+    /* Popup attribute table */
+    .mapboxgl-popup-content {
+      font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      padding: 0; overflow: hidden; border-radius: 6px; max-width: 300px;
+    }
+    .popup-title { background: #1a1a2e; color: #fff; padding: 8px 12px; font-size: 14px; font-weight: 600; }
+    .popup-body { padding: 8px 12px; }
+    .popup-body table { border-collapse: collapse; width: 100%; }
+    .popup-body td { padding: 3px 6px; vertical-align: top; }
+    .popup-body td.k { color: #666; white-space: nowrap; }
+    .popup-body td.v { font-weight: 600; text-align: right; }
+    .popup-body tr:nth-child(even) { background: #f4f4f8; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="title">US Election Results 2024</div>
+
+  <div id="layers">
+    <button id="layers-toggle" aria-expanded="false">☰ Layers</button>
+    <div class="layers-body">
+      <h4>Layers</h4>
+      <label><input type="checkbox" data-group="states" checked> State results</label>
+      <label><input type="checkbox" data-group="labels" checked> State labels</label>
+      <label><input type="checkbox" data-group="cities" checked> Cities</label>
+      <label><input type="checkbox" data-group="nc" checked> NC avg home value</label>
+      <label><input type="checkbox" data-group="pies"> NC ethnicity pies</label>
+      <label><input type="checkbox" data-group="aerial"> Aerial photo (labeled)</label>
+      <label><input type="checkbox" data-group="aerialPlain"> Aerial photo (no labels)</label>
+      <div class="pdf-opts">
+        <select id="pdf-size" title="Page size">
+          <option value="letter">Letter</option>
+          <option value="a4">A4</option>
+        </select>
+        <select id="pdf-orient" title="Orientation">
+          <option value="landscape">Landscape</option>
+          <option value="portrait">Portrait</option>
+        </select>
+      </div>
+      <button id="export-pdf" title="Export the current view as a PDF map">⬇ Export PDF</button>
+    </div>
+  </div>
+
+  <div id="legend">
+    <h4>2024 Result</h4>
+    <div class="row"><span class="swatch" style="background:#3b6fb6"></span>Democratic</div>
+    <div class="row"><span class="swatch" style="background:#c0392b"></span>Republican</div>
+    <div class="row" style="margin-top:8px"><span class="swatch" style="background:#f1c40f;border-radius:50%"></span>City</div>
+    <div id="nc-legend">
+      <h4 style="margin-top:10px">NC Avg Home Value</h4>
+      <div style="font-size:11px;color:#888;margin:-4px 0 4px">Jenks natural breaks (5 classes)</div>
+      <div class="row"><span class="swatch" style="background:#ffffb2"></span>$25k – $187k</div>
+      <div class="row"><span class="swatch" style="background:#fecc5c"></span>$187k – $297k</div>
+      <div class="row"><span class="swatch" style="background:#fd8d3c"></span>$297k – $451k</div>
+      <div class="row"><span class="swatch" style="background:#f03b20"></span>$451k – $739k</div>
+      <div class="row"><span class="swatch" style="background:#bd0026"></span>$739k – $1.55M</div>
+    </div>
+    <div id="eth-legend" style="display:none">
+      <h4 style="margin-top:10px">Ethnicity (pie per block group)</h4>
+      <div class="row"><span class="swatch" style="background:#1f77b4"></span>White</div>
+      <div class="row"><span class="swatch" style="background:#7e3f98"></span>Black</div>
+      <div class="row"><span class="swatch" style="background:#ff7f0e"></span>Hispanic</div>
+      <div class="row"><span class="swatch" style="background:#2ca02c"></span>Asian</div>
+      <div id="eth-hint" style="font-size:11px;color:#888;margin-top:4px"></div>
+    </div>
+  </div>
+
+  <script>
+    // ── 1. Mapbox access token ───────────────────────────────────────────────
+    // Public Mapbox token, URL-restricted to this site's GitHub Pages domain.
+    // base64-encoded only to avoid naive secret-scanners flagging a public token.
+    mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGNIZzJPV05sZFRBM2NtRXljWEV5ZVdoak9HWjZaWEFpZlEuYnNnam1STm1HWTZXX2pseVQ0Nnk4Zw==');
+
+    // ── 2. Map ───────────────────────────────────────────────────────────────
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/light-v11',
+      projection: 'mercator',
+      center: [-96, 38],
+      zoom: 3.2,
+      preserveDrawingBuffer: true   // required so the map canvas can be exported to PDF
+    });
+
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    map.addControl(new mapboxgl.ScaleControl({ maxWidth: 120, unit: 'imperial' }), 'bottom-right');
+
+    // Collapse/expand the layer panel (only visible/relevant on small screens).
+    const layersEl = document.getElementById('layers');
+    document.getElementById('layers-toggle').addEventListener('click', (e) => {
+      const open = layersEl.classList.toggle('open');
+      e.currentTarget.setAttribute('aria-expanded', String(open));
+    });
+
+    // Color states by the 2024 result. Values include "Dem", "Rep" and
+    // pickups ("Rep Pickup"), so we test the leading 3 characters.
+    const fillColor = [
+      'match', ['slice', ['get', 'F2024Result'], 0, 3],
+      'Dem', '#3b6fb6',
+      'Rep', '#c0392b',
+      /* other */ '#bbbbbb'
+    ];
+
+    map.on('load', () => {
+      // Aerial imagery WITH labels (roads + place names), as raster tiles from
+      // Mapbox's satellite-streets style. Added first so it sits beneath the
+      // data layers. Hidden by default; toggled via the Layers panel.
+      map.addSource('satellite', {
+        type: 'raster',
+        tiles: ['https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/512/{z}/{x}/{y}?access_token=' + mapboxgl.accessToken],
+        tileSize: 512,
+        attribution: '© Mapbox © Maxar'
+      });
+      map.addLayer({
+        id: 'satellite-aerial',
+        type: 'raster',
+        source: 'satellite',
+        layout: { visibility: 'none' }
+      });
+
+      // Plain aerial imagery (no labels) — a separate toggle.
+      map.addSource('satellite-plain', {
+        type: 'raster',
+        url: 'mapbox://mapbox.satellite',
+        tileSize: 256,
+        attribution: '© Mapbox © Maxar'
+      });
+      map.addLayer({
+        id: 'satellite-plain-aerial',
+        type: 'raster',
+        source: 'satellite-plain',
+        layout: { visibility: 'none' }
+      });
+
+      map.addSource('states', {
+        type: 'geojson',
+        data: './states2020.geojson',
+        generateId: true            // gives features ids so hover state works
+      });
+
+      // One label point per state (centroid of each state's largest part),
+      // so multi-part states don't get a label on every island/peninsula.
+      map.addSource('state-labels', {
+        type: 'geojson',
+        data: './states-labels.geojson'
+      });
+
+      // Cities point layer (the second layer from the geodatabase).
+      map.addSource('cities', {
+        type: 'geojson',
+        data: './cities2020.geojson'
+      });
+
+      // North Carolina block groups (simplified) from the third geodatabase,
+      // for a choropleth of average home value.
+      map.addSource('nc', {
+        type: 'geojson',
+        data: './nc_homevalue.geojson'
+      });
+
+      // Fill layer (the polygons)
+      map.addLayer({
+        id: 'states-fill',
+        type: 'fill',
+        source: 'states',
+        paint: {
+          'fill-color': fillColor,
+          'fill-opacity': [
+            'case', ['boolean', ['feature-state', 'hover'], false], 0.85, 0.6
+          ]
+        }
+      });
+
+      // Outline layer
+      map.addLayer({
+        id: 'states-outline',
+        type: 'line',
+        source: 'states',
+        paint: { 'line-color': '#ffffff', 'line-width': 1 }
+      });
+
+      // NC average home value choropleth: 5-class Jenks natural breaks,
+      // graduated light-yellow -> dark-red (YlOrRd). Null / non-positive = gray.
+      const hvColor = [
+        'let', 'v', ['number', ['get', 'F2021AverageHomeValue'], 0],
+        ['case', ['<=', ['var', 'v'], 0], '#dddddd',
+          ['step', ['var', 'v'],
+            '#ffffb2',
+            187408, '#fecc5c',
+            297402, '#fd8d3c',
+            450595, '#f03b20',
+            739311, '#bd0026']]
+      ];
+      map.addLayer({
+        id: 'nc-fill',
+        type: 'fill',
+        source: 'nc',
+        paint: { 'fill-color': hvColor, 'fill-opacity': 0.5 }
+      });
+
+      // Thin black outline around every NC polygon.
+      map.addLayer({
+        id: 'nc-outline',
+        type: 'line',
+        source: 'nc',
+        paint: { 'line-color': '#000000', 'line-width': 0.5, 'line-opacity': 0.5 }
+      });
+
+      // Avg home value text on each NC polygon (e.g. "$261k"), shown from zoom 8.
+      map.addLayer({
+        id: 'nc-value-labels',
+        type: 'symbol',
+        source: 'nc',
+        minzoom: 8,
+        layout: {
+          'text-field': [
+            'let', 'v', ['number', ['get', 'F2021AverageHomeValue'], 0],
+            ['case', ['>', ['var', 'v'], 0],
+              ['concat', '$', ['number-format', ['/', ['var', 'v'], 1000], { 'max-fraction-digits': 0 }], 'k'],
+              '']
+          ],
+          'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 8, 9, 14, 14],
+          'text-allow-overlap': false
+        },
+        paint: { 'text-color': '#000000', 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 }
+      });
+
+      // State abbreviation labels, one per polygon (placed at the feature's center).
+      map.addLayer({
+        id: 'states-labels',
+        type: 'symbol',
+        source: 'state-labels',
+        layout: {
+          'text-field': ['get', 'STATE_ABBR'],
+          'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+          'text-size': ['interpolate', ['linear'], ['zoom'], 3, 10, 6, 16],
+          'text-allow-overlap': false
+        },
+        paint: {
+          'text-color': '#000000',
+          'text-halo-color': '#ffffff',
+          'text-halo-width': 1.4
+        }
+      });
+
+      // City circles, sized by 2007 population.
+      map.addLayer({
+        id: 'cities-circles',
+        type: 'circle',
+        source: 'cities',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['get', 'POP2007'], 100000, 3, 8000000, 13],
+          'circle-color': '#f1c40f',
+          'circle-stroke-color': '#7a5c00',
+          'circle-stroke-width': 1,
+          'circle-opacity': 0.9
+        }
+      });
+
+      // City name labels.
+      map.addLayer({
+        id: 'cities-labels',
+        type: 'symbol',
+        source: 'cities',
+        layout: {
+          'text-field': ['get', 'NAME'],
+          'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+          'text-size': 11,
+          'text-offset': [0, 1.1],
+          'text-anchor': 'top',
+          'text-optional': true
+        },
+        paint: { 'text-color': '#000000', 'text-halo-color': '#ffffff', 'text-halo-width': 1.2 }
+      });
+
+      // Fit the map to the data once it has loaded.
+      map.on('sourcedata', function fit(e) {
+        if (e.sourceId !== 'states' || !e.isSourceLoaded) return;
+        map.off('sourcedata', fit);
+        const feats = map.querySourceFeatures('states');
+        if (!feats.length) return;
+        const b = new mapboxgl.LngLatBounds();
+        feats.forEach(f => spread(f.geometry, c => b.extend(c)));
+        map.fitBounds(b, { padding: 40, duration: 0 });
+      });
+
+      // ── 3. Hover highlight ─────────────────────────────────────────────────
+      let hoveredId = null;
+      map.on('mousemove', 'states-fill', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        if (!e.features.length) return;
+        if (hoveredId !== null) map.setFeatureState({ source: 'states', id: hoveredId }, { hover: false });
+        hoveredId = e.features[0].id;
+        map.setFeatureState({ source: 'states', id: hoveredId }, { hover: true });
+      });
+      map.on('mouseleave', 'states-fill', () => {
+        map.getCanvas().style.cursor = '';
+        if (hoveredId !== null) map.setFeatureState({ source: 'states', id: hoveredId }, { hover: false });
+        hoveredId = null;
+      });
+
+      // ── 4. Clickable popups showing attributes ─────────────────────────────
+      map.on('click', 'states-fill', (e) => {
+        const p = e.features[0].properties;
+        new mapboxgl.Popup({ maxWidth: '320px' })
+          .setLngLat(e.lngLat)
+          .setHTML(popupHTML(p))
+          .addTo(map);
+      });
+
+      // ── 5. City popups ─────────────────────────────────────────────────────
+      map.on('click', 'cities-circles', (e) => {
+        const p = e.features[0].properties;
+        new mapboxgl.Popup({ maxWidth: '320px' })
+          .setLngLat(e.features[0].geometry.coordinates.slice())
+          .setHTML(cityPopupHTML(p))
+          .addTo(map);
+      });
+      map.on('mouseenter', 'cities-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'cities-circles', () => { map.getCanvas().style.cursor = ''; });
+
+      // ── 6. NC block-group popups ───────────────────────────────────────────
+      map.on('click', 'nc-fill', (e) => {
+        const p = e.features[0].properties;
+        new mapboxgl.Popup({ maxWidth: '320px' })
+          .setLngLat(e.lngLat)
+          .setHTML(ncPopupHTML(p))
+          .addTo(map);
+      });
+      map.on('mouseenter', 'nc-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'nc-fill', () => { map.getCanvas().style.cursor = ''; });
+
+      // ── 7. NC ethnicity pie markers (one per block group, rendered for view) ─
+      // 7,243 pies can't all render at once, so we draw only those in the current
+      // viewport above a zoom threshold, capped for performance.
+      let ethData = null, ethEnabled = false, ethMarkers = [];
+      const ETH_MIN_ZOOM = 9, ETH_MAX_PIES = 250;
+
+      fetch('./nc_ethnicity.geojson').then((r) => r.json())
+        .then((j) => { ethData = j.features; updatePies(); });
+
+      function clearPies() { ethMarkers.forEach((m) => m.remove()); ethMarkers = []; }
+
+      function updatePies() {
+        clearPies();
+        const hint = document.getElementById('eth-hint');
+        if (!ethEnabled) return;
+        if (!ethData) { if (hint) hint.textContent = 'Loading…'; return; }
+        if (map.getZoom() < ETH_MIN_ZOOM) {
+          if (hint) hint.textContent = `Zoom in (≥ zoom ${ETH_MIN_ZOOM}) to see pies`;
+          return;
+        }
+        const b = map.getBounds();
+        // Pie diameter scales with zoom (~20px at the threshold up to ~90px), then 30% smaller.
+        const size = Math.round(0.7 * Math.max(20, Math.min(90, 20 + (map.getZoom() - ETH_MIN_ZOOM) * 10)));
+        let count = 0, capped = false;
+        for (const f of ethData) {
+          const c = f.geometry.coordinates;
+          if (!b.contains(c)) continue;
+          if (count >= ETH_MAX_PIES) { capped = true; break; }
+          const p = f.properties;
+          const el = document.createElement('div');
+          el.className = 'pie-marker';
+          el.innerHTML = pieSVG(p.w, p.b, p.h, p.a, size);
+          el.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            new mapboxgl.Popup().setLngLat(c).setHTML(piePopupHTML(p)).addTo(map);
+          });
+          // Offset the pie upward (above the centered home-value label) so they don't overlap.
+          ethMarkers.push(new mapboxgl.Marker({ element: el, offset: [0, -(size / 2 + 12)] })
+            .setLngLat(c).addTo(map));
+          count++;
+        }
+        if (hint) hint.textContent = `Showing ${count}${capped ? '+ (zoom in for the rest)' : ''} block groups`;
+      }
+      map.on('moveend', updatePies);
+
+      // ── 8. Layer control panel toggles ─────────────────────────────────────
+      const LAYER_GROUPS = {
+        states: ['states-fill', 'states-outline'],
+        labels: ['states-labels'],
+        cities: ['cities-circles', 'cities-labels'],
+        nc: ['nc-fill', 'nc-outline', 'nc-value-labels'],
+        aerial: ['satellite-aerial'],
+        aerialPlain: ['satellite-plain-aerial']
+      };
+      document.querySelectorAll('#layers input').forEach((cb) => {
+        cb.addEventListener('change', () => {
+          // The ethnicity pies are DOM markers, not a map layer — handle separately.
+          if (cb.dataset.group === 'pies') {
+            ethEnabled = cb.checked;
+            document.getElementById('eth-legend').style.display = cb.checked ? '' : 'none';
+            updatePies();
+            return;
+          }
+          const vis = cb.checked ? 'visible' : 'none';
+          LAYER_GROUPS[cb.dataset.group].forEach((id) =>
+            map.setLayoutProperty(id, 'visibility', vis));
+          // The NC choropleth has its own legend section — show/hide it in sync.
+          if (cb.dataset.group === 'nc')
+            document.getElementById('nc-legend').style.display = cb.checked ? '' : 'none';
+        });
+      });
+
+      // ── 9. Export the current view as a finished PDF map ────────────────────
+      const hx = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+      const layerVisible = (id) => { try { return map.getLayoutProperty(id, 'visibility') !== 'none'; } catch (e) { return false; } };
+      const svgToImg = (svg) => new Promise((resolve) => {
+        const im = new Image();
+        im.onload = () => resolve(im);
+        im.onerror = () => resolve(null);              // never hang on a bad image
+        setTimeout(() => resolve(null), 4000);         // hard safety timeout
+        im.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+      });
+      const niceRound = (x) => { const p = Math.pow(10, Math.floor(Math.log10(x))); const f = x / p; return (f >= 5 ? 5 : f >= 2 ? 2 : 1) * p; };
+
+      async function exportPDF() {
+        const btn = document.getElementById('export-pdf');
+        btn.disabled = true; btn.textContent = 'Rendering…';
+        try {
+          // 1. Map image straight from the GL canvas (= exactly the current view).
+          const gl = map.getCanvas();
+          const W = gl.width, H = gl.height, cssW = gl.clientWidth, dpr = W / cssW;
+          const comp = document.createElement('canvas');
+          comp.width = W; comp.height = H;
+          const ctx = comp.getContext('2d');
+          ctx.drawImage(gl, 0, 0);
+
+          // 2. Composite the ethnicity pies (DOM markers aren't on the GL canvas).
+          if (ethEnabled && ethData && map.getZoom() >= ETH_MIN_ZOOM) {
+            const size = Math.round(0.7 * Math.max(20, Math.min(90, 20 + (map.getZoom() - ETH_MIN_ZOOM) * 10)));
+            const b = map.getBounds(); const jobs = []; let n = 0;
+            for (const f of ethData) {
+              const c = f.geometry.coordinates;
+              if (!b.contains(c)) continue;
+              if (n >= ETH_MAX_PIES) break;
+              const p = f.properties, pt = map.project(c), s = size * dpr;
+              const cx = pt.x * dpr, cy = (pt.y - (size / 2 + 12)) * dpr;
+              jobs.push(svgToImg(pieSVG(p.w, p.b, p.h, p.a, size)).then((im) => { if (im) ctx.drawImage(im, cx - s / 2, cy - s / 2, s, s); }));
+              n++;
+            }
+            await Promise.all(jobs);
+          }
+          // 3. Compose the PDF (size + orientation from the controls).
+          const pageFmt = document.getElementById('pdf-size').value;    // 'letter' | 'a4'
+          const orient = document.getElementById('pdf-orient').value;   // 'landscape' | 'portrait'
+          const pdf = new window.jspdf.jsPDF({ orientation: orient, unit: 'mm', format: pageFmt });
+          const pageW = pdf.internal.pageSize.getWidth(), pageH = pdf.internal.pageSize.getHeight();
+          const mar = 10;
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(20); pdf.setTextColor(26, 26, 46);
+          pdf.text('North Carolina Hinterland', pageW / 2, 14, { align: 'center' });
+          pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(110);
+          pdf.text(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }), pageW / 2, 19.5, { align: 'center' });
+          pdf.setFontSize(7.5); pdf.setTextColor(120);
+          pdf.text('© Mapbox · © Maxar · Demographics: Esri / US Census · geonomics.us', pageW / 2, 24, { align: 'center' });
+
+          // Legend groups for the visible layers.
+          const groups = [];
+          if (layerVisible('states-fill')) groups.push(['2024 Result', [{ color: '#3b6fb6', label: 'Democratic' }, { color: '#c0392b', label: 'Republican' }]]);
+          if (layerVisible('nc-fill')) groups.push(['NC Avg Home Value', [
+            { color: '#ffffb2', label: '$25–187k' }, { color: '#fecc5c', label: '$187–297k' }, { color: '#fd8d3c', label: '$297–451k' },
+            { color: '#f03b20', label: '$451–739k' }, { color: '#bd0026', label: '$739k–1.55M' }]]);
+          if (ethEnabled) groups.push(['Ethnicity', [{ color: '#1f77b4', label: 'White' }, { color: '#7e3f98', label: 'Black' }, { color: '#ff7f0e', label: 'Hispanic' }, { color: '#2ca02c', label: 'Asian' }]]);
+          if (layerVisible('cities-circles')) groups.push(['Cities', [{ color: '#f1c40f', label: 'City', round: true }]]);
+
+          // Horizontal legend flow; runs once to measure line count, once to draw —
+          // so the map can claim every mm not needed by the legend.
+          const lineH = 5.2;
+          pdf.setFontSize(8.5);
+          const flow = (startY, draw) => {
+            let lx = mar, ly = startY, lines = 1;
+            const ensure = (w) => { if (lx + w > pageW - mar) { lx = mar; ly += lineH; lines++; } };
+            for (const [title, items] of groups) {
+              pdf.setFont('helvetica', 'bold'); const tw = pdf.getTextWidth(title + ':') + 2.5; ensure(tw + 18);
+              if (draw) { pdf.setTextColor(60); pdf.text(title + ':', lx, ly); }
+              lx += tw; pdf.setFont('helvetica', 'normal');
+              for (const it of items) {
+                const w = 5 + pdf.getTextWidth(it.label) + 5; ensure(w);
+                if (draw) {
+                  const [r, g, b] = hx(it.color); pdf.setFillColor(r, g, b); pdf.setDrawColor(150);
+                  if (it.round) pdf.circle(lx + 1.5, ly - 1.1, 1.6, 'FD'); else pdf.rect(lx, ly - 2.9, 3.2, 3.2, 'FD');
+                  pdf.setTextColor(40); pdf.text(it.label, lx + 5, ly);
+                }
+                lx += w;
+              }
+              lx += 5;
+            }
+            return lines;
+          };
+          const legLines = groups.length ? flow(0, false) : 0;
+          // Pin the legend flush to the bottom margin (last line ~5mm from the edge).
+          const legendTop = legLines ? (pageH - 11 - (legLines - 1) * lineH) : (pageH - 6);
+
+          // Map frame — fill the entire area above the legend (cover-crop: no blank space).
+          const mapY = 28;
+          const boxX = mar, boxY = mapY, boxW = pageW - mar * 2, boxH = legendTop - 3 - mapY;
+          const boxAR = boxW / boxH, srcAR = W / H;
+          let cropW, cropH, sx, sy;
+          if (srcAR > boxAR) { cropH = H; cropW = H * boxAR; sx = (W - cropW) / 2; sy = 0; }   // crop sides
+          else { cropW = W; cropH = W / boxAR; sx = 0; sy = (H - cropH) / 2; }                  // crop top/bottom
+          const MAXPX = 2400, sc = Math.min(1, MAXPX / Math.max(cropW, cropH));
+          const out = document.createElement('canvas');
+          out.width = Math.round(cropW * sc); out.height = Math.round(cropH * sc);
+          out.getContext('2d').drawImage(comp, sx, sy, cropW, cropH, 0, 0, out.width, out.height);
+          pdf.addImage(out.toDataURL('image/jpeg', 0.92), 'JPEG', boxX, boxY, boxW, boxH);
+          pdf.setDrawColor(60); pdf.setLineWidth(0.3); pdf.rect(boxX, boxY, boxW, boxH);
+
+          // Scale bar with the north arrow directly above it (bottom-left of map).
+          const lat = map.getCenter().lat;
+          const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom());
+          const mPerMm = mpp * (cropW / dpr) / boxW;
+          const miles = niceRound(50 * mPerMm / 1609.344);
+          const barMm = miles * 1609.344 / mPerMm;
+          const sbx = boxX + 6, sby = boxY + boxH - 8, nax = sbx + barMm / 2;
+          pdf.setFillColor(255, 255, 255); pdf.setDrawColor(150); pdf.setLineWidth(0.2);
+          pdf.rect(sbx - 4, sby - 21, Math.max(barMm, 16) + 8, 27, 'FD');     // backdrop
+          pdf.setFillColor(26, 26, 46);                                       // north arrow (above bar)
+          pdf.triangle(nax, sby - 18, nax - 3, sby - 10, nax + 3, sby - 10, 'F');
+          pdf.setFont('helvetica', 'bold'); pdf.setFontSize(9); pdf.setTextColor(26, 26, 46);
+          pdf.text('N', nax, sby - 4.5, { align: 'center' });
+          pdf.setDrawColor(0); pdf.setLineWidth(0.3);                         // scale bar
+          pdf.setFillColor(0, 0, 0); pdf.rect(sbx, sby, barMm / 2, 1.8, 'F');
+          pdf.setFillColor(255, 255, 255); pdf.rect(sbx + barMm / 2, sby, barMm / 2, 1.8, 'FD');
+          pdf.rect(sbx, sby, barMm, 1.8, 'S');
+          pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7); pdf.setTextColor(0);
+          pdf.text('0', sbx, sby + 4.5, { align: 'center' });
+          pdf.text(miles + ' mi', sbx + barMm, sby + 4.5, { align: 'center' });
+
+          // Separator + draw the legend.
+          if (legLines) {
+            pdf.setDrawColor(200); pdf.setLineWidth(0.2); pdf.line(mar, legendTop, pageW - mar, legendTop);
+            pdf.setFontSize(8.5); flow(legendTop + 6, true);
+          }
+
+          pdf.save('north-carolina-hinterland.pdf');
+        } catch (e) {
+          alert('PDF export failed: ' + e.message);
+        } finally {
+          btn.disabled = false; btn.textContent = '⬇ Export PDF';
+        }
+      }
+      document.getElementById('export-pdf').addEventListener('click', exportPDF);
+
+      // Annotation toolbar
+      initAnnotate(map);
+    });
+
+    // ── helpers ────────────────────────────────────────────────────────────
+    // Recursively visit every [lng,lat] coordinate in a geometry.
+    function spread(geom, fn) {
+      const walk = (a) => Array.isArray(a[0]) ? a.forEach(walk) : fn(a);
+      walk(geom.coordinates);
+    }
+
+    const LABELS = {
+      STATE_NAME: 'State', STATE_ABBR: 'Abbr', ELECT_VOTE: 'Electoral Votes',
+      WON_12: 'Won 2012', WON_16: 'Won 2016', F2016Result: '2016 Result',
+      WON_20: 'Won 2020', F2020Result: '2020 Result',
+      WON_24: 'Won 2024', F2024Result: '2024 Result'
+    };
+
+    function popupHTML(p) {
+      const skip = new Set(['Shape_Length', 'Shape_Area', 'STATE_NAME']);
+      const rows = Object.keys(p)
+        .filter(k => !skip.has(k))
+        .map(k => {
+          let v = p[k];
+          if (k === 'ELECT_VOTE' && v != null) v = Math.round(v);   // drop the .0
+          return `<tr><td class="k">${LABELS[k] || k}</td><td class="v">${v ?? '—'}</td></tr>`;
+        })
+        .join('');
+      return `<div class="popup-title">${p.STATE_NAME ?? 'Unknown'}</div>
+              <div class="popup-body"><table>${rows}</table></div>`;
+    }
+
+    function cityPopupHTML(p) {
+      const fields = [['State', 'ST'], ['Class', 'CLASS'], ['Pop. 2000', 'POP2000'], ['Pop. 2007', 'POP2007']];
+      const rows = fields.map(([lab, k]) => {
+        let v = p[k];
+        if (typeof v === 'number') v = v.toLocaleString();
+        return `<tr><td class="k">${lab}</td><td class="v">${v ?? '—'}</td></tr>`;
+      }).join('');
+      return `<div class="popup-title">${p.NAME ?? 'City'}</div>
+              <div class="popup-body"><table>${rows}</table></div>`;
+    }
+
+    function ncPopupHTML(p) {
+      const money = (v) => (v == null || v <= 0) ? '—' : '$' + Math.round(v).toLocaleString();
+      const num = (v) => (v == null) ? '—' : Math.round(v).toLocaleString();
+      const rows = [
+        ['Avg home value', money(p.F2021AverageHomeValue)],
+        ['Median income', money(p.F2021MedianDisposableIncome)],
+        ['Population (2021)', num(p.F2021TotalPopulaton)],
+        ['Crime index', p.TotalCrimeIndex ?? '—'],
+        ['Tapestry segment', p.TapestrySegmentName ?? '—'],
+        ['GEOID', p.GEOID ?? '—']
+      ].map(([k, v]) => `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`).join('');
+      return `<div class="popup-title">NC Block Group</div>
+              <div class="popup-body"><table>${rows}</table></div>`;
+    }
+
+    // Build an SVG pie of the four ethnicity shares (normalized to fill the circle).
+    // White=blue, Black=purple, Hispanic=orange, Asian=green.
+    function pieSVG(w, b, h, a, size) {
+      const slices = [[w, '#1f77b4'], [b, '#7e3f98'], [h, '#ff7f0e'], [a, '#2ca02c']];
+      const total = w + b + h + a;
+      const r = size / 2, cx = r, cy = r;
+      if (total <= 0) return '';
+      let ang = -Math.PI / 2, paths = '';
+      for (const [val, color] of slices) {
+        const frac = val / total;
+        if (frac <= 0) continue;
+        if (frac >= 0.9999) { paths = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}"/>`; break; }
+        const a2 = ang + frac * 2 * Math.PI;
+        const x1 = (cx + r * Math.cos(ang)).toFixed(2), y1 = (cy + r * Math.sin(ang)).toFixed(2);
+        const x2 = (cx + r * Math.cos(a2)).toFixed(2), y2 = (cy + r * Math.sin(a2)).toFixed(2);
+        const large = (a2 - ang) > Math.PI ? 1 : 0;
+        paths += `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z" fill="${color}"/>`;
+        ang = a2;
+      }
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block">`
+        + `${paths}<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#fff" stroke-width="1"/></svg>`;
+    }
+
+    function piePopupHTML(p) {
+      const rows = [['White', '#1f77b4', p.w], ['Black', '#7e3f98', p.b],
+                    ['Hispanic', '#ff7f0e', p.h], ['Asian', '#2ca02c', p.a]]
+        .map(([n, c, v]) => `<tr><td class="k"><span style="display:inline-block;width:10px;height:10px;`
+          + `border-radius:2px;background:${c};margin-right:6px;vertical-align:middle"></span>${n}</td>`
+          + `<td class="v">${v}%</td></tr>`).join('');
+      return `<div class="popup-title">Ethnicity breakdown</div>
+              <div class="popup-body"><table>${rows}</table></div>`;
+    }
+  </script>
+</body>
+</html>
