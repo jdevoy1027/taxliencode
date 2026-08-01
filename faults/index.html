@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>California Quaternary Faults — Geonomics</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font: 14px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  #map { position: absolute; inset: 0; }
+
+  .panel {
+    position: absolute; top: 12px; left: 12px; z-index: 2;
+    width: 268px; max-height: calc(100% - 24px); overflow-y: auto;
+    background: rgba(255,255,255,.96);
+    border: 1px solid #dcdcd6; border-radius: 11px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 10px 30px rgba(0,0,0,.11);
+    backdrop-filter: blur(8px);
+  }
+  .panel header { padding: 14px 15px 12px; border-bottom: 1px solid #ebebe6; }
+  .back { font-size: 12px; color: #6b6b66; text-decoration: none; display: inline-block; margin-bottom: 7px; }
+  .back:hover { color: #2d6a5a; }
+  .panel h1 { margin: 0 0 3px; font-size: 15px; font-weight: 640; letter-spacing: -.015em; }
+  .panel .sub { margin: 0; font-size: 12px; color: #6b6b66; }
+
+  .sec { padding: 12px 15px; border-bottom: 1px solid #ebebe6; }
+  .sec:last-child { border-bottom: 0; }
+  .sec h2 {
+    margin: 0 0 9px; font-size: 10.5px; font-weight: 640;
+    letter-spacing: .07em; text-transform: uppercase; color: #85857e;
+  }
+  .row { display: flex; align-items: center; gap: 9px; padding: 4px 0; cursor: pointer; user-select: none; }
+  .row input { margin: 0; cursor: pointer; accent-color: #2d6a5a; flex: none; }
+  .swatch { width: 22px; height: 3.5px; border-radius: 2px; flex: none; }
+  .row .lbl { font-size: 13px; }
+  .row .cnt { margin-left: auto; font-size: 11px; color: #9a9a92; font-variant-numeric: tabular-nums; }
+  .row.off .lbl, .row.off .cnt { opacity: .42; }
+
+  .seg { display: flex; gap: 5px; }
+  .seg button {
+    flex: 1; padding: 6px 4px; font: inherit; font-size: 12px;
+    border: 1px solid #dcdcd6; background: #fff; color: #3a3a35;
+    border-radius: 7px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: #2d6a5a; border-color: #2d6a5a; color: #fff; font-weight: 560; }
+
+  .note { padding: 11px 15px 13px; font-size: 11.5px; line-height: 1.45; color: #85857e; }
+
+  .mapboxgl-popup-content {
+    font: 13px/1.5 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    padding: 11px 13px; border-radius: 9px; box-shadow: 0 6px 22px rgba(0,0,0,.16);
+  }
+  .pop-name { font-weight: 640; margin-bottom: 3px; }
+  .pop-row { color: #55554f; font-size: 12.5px; }
+  .pop-row b { font-weight: 560; color: #2a2a26; }
+
+  #loading {
+    position: absolute; z-index: 3; left: 50%; top: 16px; transform: translateX(-50%);
+    background: rgba(20,20,20,.85); color: #fff; padding: 7px 14px;
+    border-radius: 20px; font-size: 12.5px;
+  }
+  #loading[hidden] { display: none; }
+
+  @media (max-width: 620px) {
+    .panel { width: auto; left: 8px; right: 8px; top: 8px; max-height: 46%; }
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="loading">Loading fault data…</div>
+
+<div class="panel">
+  <header>
+    <a class="back" href="../">← All maps</a>
+    <h1>California Quaternary Faults</h1>
+    <p class="sub">3,205 mapped faults, coloured by most recent activity</p>
+  </header>
+
+  <div class="sec">
+    <h2>Age of most recent movement</h2>
+    <div id="legend"></div>
+  </div>
+
+  <div class="sec">
+    <h2>Base map</h2>
+    <div class="seg">
+      <button id="b-light" aria-pressed="true">Light</button>
+      <button id="b-sat" aria-pressed="false">Satellite</button>
+    </div>
+  </div>
+
+  <p class="note">
+    Click any fault for details. Derived from the California Geological Survey
+    Fault Activity Map (FAM), reprojected from EPSG:3310 to WGS84 and dissolved by fault name.
+  </p>
+</div>
+
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+<script>
+mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGN6bGljVE0xZURCamRHWXpNRzlsYkhZMmVub3hPRFFpZlEuWTBrbWgxTzNWbVpuV2tQX0lMaWJuQQ==');
+
+var AGES = [
+  { code: 'HIS',  label: 'Historic (since 1769)', color: '#b2182b', w: 2.4 },
+  { code: 'HOL',  label: 'Holocene (<11.7 ka)',   color: '#e34a33', w: 1.9 },
+  { code: 'LTQT', label: 'Late Quaternary',        color: '#fc8d59', w: 1.5 },
+  { code: 'QT',   label: 'Quaternary (<2.6 Ma)',   color: '#9a9a92', w: 1.1 }
+];
+
+var map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/light-v11',
+  center: [-119.6, 36.6],
+  zoom: 5.1,
+  maxZoom: 16
+});
+map.addControl(new mapboxgl.NavigationControl({ visualizePitch: false }), 'top-right');
+map.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
+
+var visible = {};
+AGES.forEach(function (a) { visible[a.code] = true; });
+
+function colorExpr() {
+  var e = ['match', ['get', 'FLT_AGE']];
+  AGES.forEach(function (a) { e.push(a.code, a.color); });
+  e.push('#9a9a92');
+  return e;
+}
+function widthExpr() {
+  var e = ['match', ['get', 'FLT_AGE']];
+  AGES.forEach(function (a) {
+    e.push(a.code, ['interpolate', ['linear'], ['zoom'], 5, a.w * 0.62, 9, a.w, 14, a.w * 2.6]);
+  });
+  e.push(['interpolate', ['linear'], ['zoom'], 5, 0.7, 9, 1.1, 14, 2.8]);
+  return e;
+}
+function filterExpr() {
+  var on = AGES.filter(function (a) { return visible[a.code]; }).map(function (a) { return a.code; });
+  return ['in', ['get', 'FLT_AGE'], ['literal', on]];
+}
+
+function addLayers() {
+  if (!map.getSource('faults')) {
+    map.addSource('faults', { type: 'geojson', data: './ca_qt_faults.geojson' });
+  }
+  if (!map.getLayer('faults-hit')) {
+    map.addLayer({
+      id: 'faults-hit', type: 'line', source: 'faults',
+      paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 12 }
+    });
+  }
+  if (!map.getLayer('faults-line')) {
+    map.addLayer({
+      id: 'faults-line', type: 'line', source: 'faults',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': colorExpr(),
+        'line-width': widthExpr(),
+        'line-opacity': 0.92
+      }
+    });
+  }
+  applyFilter();
+}
+
+function applyFilter() {
+  var f = filterExpr();
+  if (map.getLayer('faults-line')) map.setFilter('faults-line', f);
+  if (map.getLayer('faults-hit')) map.setFilter('faults-hit', f);
+}
+
+map.on('load', function () {
+  addLayers();
+
+  map.on('sourcedata', function (e) {
+    if (e.sourceId === 'faults' && map.isSourceLoaded('faults')) {
+      document.getElementById('loading').hidden = true;
+      updateCounts();
+    }
+  });
+
+  map.on('click', 'faults-hit', function (e) {
+    var p = e.features[0].properties;
+    var age = AGES.filter(function (a) { return a.code === p.FLT_AGE; })[0];
+    var html = '<div class="pop-name">' + esc(p.FLT_NAME || 'Unnamed fault') + '</div>';
+    if (p.ZN_NAME && p.ZN_NAME !== p.FLT_NAME) html += '<div class="pop-row">' + esc(p.ZN_NAME) + '</div>';
+    if (p.LTYPE) html += '<div class="pop-row"><b>Type:</b> ' + esc(p.LTYPE) + '</div>';
+    html += '<div class="pop-row"><b>Last movement:</b> ' + esc(age ? age.label : (p.FLT_AGE || '—')) + '</div>';
+    new mapboxgl.Popup({ closeButton: true, maxWidth: '280px' })
+      .setLngLat(e.lngLat).setHTML(html).addTo(map);
+  });
+  map.on('mouseenter', 'faults-hit', function () { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'faults-hit', function () { map.getCanvas().style.cursor = ''; });
+});
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// Legend with per-class toggles
+var legend = document.getElementById('legend');
+AGES.forEach(function (a) {
+  var row = document.createElement('label');
+  row.className = 'row';
+  row.innerHTML =
+    '<input type="checkbox" checked>' +
+    '<span class="swatch" style="background:' + a.color + '"></span>' +
+    '<span class="lbl">' + a.label + '</span>' +
+    '<span class="cnt" data-code="' + a.code + '"></span>';
+  row.querySelector('input').addEventListener('change', function () {
+    visible[a.code] = this.checked;
+    row.classList.toggle('off', !this.checked);
+    applyFilter();
+  });
+  legend.appendChild(row);
+});
+
+function updateCounts() {
+  var feats = map.querySourceFeatures('faults');
+  var seen = {}, counts = {};
+  feats.forEach(function (f) {
+    var k = (f.properties.FLT_NAME || '') + '|' + f.properties.FLT_AGE;
+    if (seen[k]) return;
+    seen[k] = 1;
+    counts[f.properties.FLT_AGE] = (counts[f.properties.FLT_AGE] || 0) + 1;
+  });
+  Object.keys(counts).length && document.querySelectorAll('.cnt').forEach(function (el) {
+    var n = counts[el.dataset.code];
+    el.textContent = n ? n.toLocaleString() : '';
+  });
+}
+
+// Base map switch
+var bLight = document.getElementById('b-light'), bSat = document.getElementById('b-sat');
+function setBase(style, pressedLight) {
+  bLight.setAttribute('aria-pressed', String(pressedLight));
+  bSat.setAttribute('aria-pressed', String(!pressedLight));
+  map.setStyle(style);
+  map.once('styledata', function () {
+    document.getElementById('loading').hidden = true;
+    addLayers();
+  });
+}
+bLight.addEventListener('click', function () { setBase('mapbox://styles/mapbox/light-v11', true); });
+bSat.addEventListener('click', function () { setBase('mapbox://styles/mapbox/satellite-streets-v12', false); });
+</script>
+</body>
+</html>
