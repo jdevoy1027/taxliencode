@@ -103,7 +103,7 @@
   <header>
     <a class="back" href="../">← All maps</a>
     <h1>California Geology &amp; Faults</h1>
-    <p class="sub">68 geologic units · 3,205 mapped faults</p>
+    <p class="sub">68 geologic units · 3,205 faults · 4,160 soil units</p>
   </header>
 
   <div class="scroll">
@@ -122,6 +122,15 @@
         <span class="lbl">Unit labels (PTYPE)</span>
       </label>
       <label class="row" style="margin-top:6px">
+        <input type="checkbox" id="t-soils">
+        <span class="lbl">Soils (SSURGO)</span>
+        <span class="cnt" id="soil-note">33 MB</span>
+      </label>
+      <div class="slider">
+        <input type="range" id="soil-op" min="0" max="100" value="75" disabled>
+        <span id="soil-op-v">75%</span>
+      </div>
+      <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-faults" checked>
         <span class="lbl">Quaternary faults</span>
       </label>
@@ -130,6 +139,11 @@
     <div class="sec">
       <h2>Fault age — last movement</h2>
       <div id="fault-legend"></div>
+    </div>
+
+    <div class="sec" id="soil-sec" hidden>
+      <h2>Soil order</h2>
+      <div id="soil-legend"></div>
     </div>
 
     <div class="sec">
@@ -167,6 +181,20 @@ var AGES = [
   { code: 'QT',   label: 'Quaternary (<2.6 Ma)',   color: '#fcae91', w: 1.6 }
 ];
 
+// Soil orders. 7 chromatic slots pass the categorical checks (lightness band,
+// chroma floor, CVD >= 9.6 dE, normal-vision >= 20 dE); 'Other' is the null slot
+// (water / rock outcrop / urban), so it stays neutral grey by design.
+var SOILS = [
+  { code: 'Entisols',    color: '#e69f00' },
+  { code: 'Mollisols',   color: '#009e73' },
+  { code: 'Aridisols',   color: '#d55e00' },
+  { code: 'Alfisols',    color: '#0072b2' },
+  { code: 'Inceptisols', color: '#56b4e9' },
+  { code: 'Vertisols',   color: '#cc79a7' },
+  { code: 'Ultisols',    color: '#6a9a3a' },
+  { code: 'Other',       color: '#9a9a92' }
+];
+
 var map = new mapboxgl.Map({
   container: 'map',
   style: 'mapbox://styles/mapbox/light-v11',
@@ -180,11 +208,18 @@ map.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
 var visibleAge = {};
 AGES.forEach(function (a) { visibleAge[a.code] = true; });
 var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
+var showSoils = false, soilOpacity = 0.75, soilsRequested = false;
 
 function geoColorExpr() {
   var e = ['match', ['get', 'PTYPE']];
   Object.keys(GEO_COLORS).forEach(function (k) { e.push(k, GEO_COLORS[k]); });
   e.push('#cccccc');
+  return e;
+}
+function soilColorExpr() {
+  var e = ['match', ['get', 'o']];
+  SOILS.forEach(function (x) { e.push(x.code, x.color); });
+  e.push('#9a9a92');
   return e;
 }
 function faultColorExpr() {
@@ -259,6 +294,7 @@ function addLayers() {
       paint: { 'line-color': faultColorExpr(), 'line-width': faultWidthExpr(), 'line-opacity': 0.94 }
     });
   }
+  if (soilsRequested) ensureSoils();
   // Labels last so unit codes sit above both the fills and the fault lines.
   if (!map.getLayer('geo-label')) {
     map.addLayer({
@@ -285,6 +321,30 @@ function addLayers() {
   applyState();
 }
 
+// The soils GeoJSON is ~33 MB, so it is fetched on first use rather than on load.
+// beforeId keeps it above the geology fills but beneath the fault lines.
+function ensureSoils() {
+  if (!map.getSource('soils')) {
+    map.addSource('soils', { type: 'geojson', data: './socal_soils.geojson' });
+  }
+  var before = map.getLayer('faults-casing') ? 'faults-casing' : undefined;
+  if (!map.getLayer('soil-fill')) {
+    map.addLayer({
+      id: 'soil-fill', type: 'fill', source: 'soils',
+      paint: { 'fill-color': soilColorExpr(), 'fill-opacity': soilOpacity }
+    }, before);
+  }
+  if (!map.getLayer('soil-line')) {
+    map.addLayer({
+      id: 'soil-line', type: 'line', source: 'soils',
+      paint: {
+        'line-color': 'rgba(50,50,45,.3)',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.15, 12, 0.5]
+      }
+    }, before);
+  }
+}
+
 function applyState() {
   var f = faultFilter();
   ['faults-casing', 'faults-line', 'faults-hit'].forEach(function (id) {
@@ -300,6 +360,10 @@ function applyState() {
     map.setLayoutProperty('geo-label', 'visibility', (showGeo && showLabels) ? 'visible' : 'none');
   }
   if (map.getLayer('geo-fill')) map.setPaintProperty('geo-fill', 'fill-opacity', geoOpacity);
+  ['soil-fill', 'soil-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSoils ? 'visible' : 'none');
+  });
+  if (map.getLayer('soil-fill')) map.setPaintProperty('soil-fill', 'fill-opacity', soilOpacity);
 }
 
 map.on('load', function () {
@@ -314,14 +378,15 @@ map.on('load', function () {
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
-      layers: ['faults-hit', 'geo-fill'].filter(function (id) { return map.getLayer(id); })
+      layers: ['faults-hit', 'geo-fill', 'soil-fill'].filter(function (id) { return map.getLayer(id); })
     });
-    var fault = null, unit = null;
+    var fault = null, unit = null, soil = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
+      if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit) return;
+    if (!fault && !unit && !soil) return;
 
     var html = '';
     if (fault) {
@@ -339,6 +404,15 @@ map.on('load', function () {
       html += '<div class="pop-row"><b>Geologic unit:</b></div>';
       html += '<div class="pop-row pop-unit"><i style="background:' + col + '"></i>' +
               esc(code) + ' — ' + esc(GEO_FAMILY[code] || 'Unclassified') + '</div>';
+    }
+    if (soil && showSoils) {
+      if (fault || unit) html += '<div class="pop-sep"></div>';
+      var sc = (SOILS.filter(function (x) { return x.code === soil.o; })[0] || {}).color || '#9a9a92';
+      html += '<div class="pop-row"><b>Soil:</b></div>';
+      html += '<div class="pop-row pop-unit"><i style="background:' + sc + '"></i>' +
+              esc(soil.n || soil.c || 'Unnamed unit') + '</div>';
+      html += '<div class="pop-row">Order: ' + esc(soil.o || 'Other') +
+              (soil.c && soil.n ? ' · dominant component ' + esc(soil.c) : '') + '</div>';
     }
     new mapboxgl.Popup({ closeButton: true, maxWidth: '290px' })
       .setLngLat(e.lngLat).setHTML(html).addTo(map);
@@ -386,9 +460,41 @@ GEO_LEGEND.forEach(function (grp) {
   gl.appendChild(d);
 });
 
+// ---- Soil order legend ----
+var sl = document.getElementById('soil-legend');
+SOILS.forEach(function (x) {
+  var row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = '<span class="swatch" style="height:11px;width:15px;border-radius:3px;background:' +
+                  x.color + '"></span><span class="lbl">' + esc(x.code) + '</span>';
+  sl.appendChild(row);
+});
+
 // ---- Layer toggles ----
 document.getElementById('t-geo').addEventListener('change', function () {
   showGeo = this.checked; applyState();
+});
+var soilOp = document.getElementById('soil-op'), soilOpV = document.getElementById('soil-op-v');
+document.getElementById('t-soils').addEventListener('change', function () {
+  showSoils = this.checked;
+  soilOp.disabled = !showSoils;
+  document.getElementById('soil-sec').hidden = !showSoils;
+  if (showSoils && !soilsRequested) {
+    soilsRequested = true;
+    document.getElementById('soil-note').textContent = 'loading…';
+    document.getElementById('loading').hidden = false;
+    ensureSoils();
+    map.once('idle', function () {
+      document.getElementById('soil-note').textContent = '';
+      document.getElementById('loading').hidden = true;
+    });
+  }
+  applyState();
+});
+soilOp.addEventListener('input', function () {
+  soilOpacity = this.value / 100;
+  soilOpV.textContent = this.value + '%';
+  applyState();
 });
 document.getElementById('t-labels').addEventListener('change', function () {
   showLabels = this.checked; applyState();
