@@ -193,13 +193,19 @@ function faultColorExpr() {
   e.push('#9a9a92');
   return e;
 }
-function faultWidthExpr() {
-  var e = ['match', ['get', 'FLT_AGE']];
-  AGES.forEach(function (a) {
-    e.push(a.code, ['interpolate', ['linear'], ['zoom'], 5, a.w * 0.85, 9, a.w, 14, a.w * 2.6]);
-  });
-  e.push(['interpolate', ['linear'], ['zoom'], 5, 0.7, 9, 1.1, 14, 2.8]);
-  return e;
+// A 'zoom' input must sit at the TOP level of an interpolate. Wrapping it inside a
+// 'match' (or inside '+') is rejected by the style spec, addLayer() throws, and every
+// layer queued after it silently never gets added. So: interpolate outermost, match
+// supplying the per-age value at each zoom stop.
+function faultWidthExpr(extra) {
+  extra = extra || 0;
+  function stop(mult) {
+    var m = ['match', ['get', 'FLT_AGE']];
+    AGES.forEach(function (a) { m.push(a.code, a.w * mult + extra); });
+    m.push(1.1 * mult + extra);
+    return m;
+  }
+  return ['interpolate', ['linear'], ['zoom'], 5, stop(0.85), 9, stop(1), 14, stop(2.6)];
 }
 function faultFilter() {
   var on = AGES.filter(function (a) { return visibleAge[a.code]; }).map(function (a) { return a.code; });
@@ -207,6 +213,7 @@ function faultFilter() {
 }
 
 function addLayers() {
+  try {
   if (!map.getSource('geology')) {
     map.addSource('geology', { type: 'geojson', data: './ca_geology.geojson' });
   }
@@ -241,7 +248,7 @@ function addLayers() {
       paint: {
         'line-color': '#ffffff',
         'line-opacity': 0.85,
-        'line-width': ['+', faultWidthExpr(), 1.8]
+        'line-width': faultWidthExpr(1.8)
       }
     });
   }
@@ -271,6 +278,9 @@ function addLayers() {
         'text-halo-blur': 0.3
       }
     });
+  }
+  } catch (err) {
+    console.error('addLayers failed:', err);
   }
   applyState();
 }
