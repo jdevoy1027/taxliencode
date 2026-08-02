@@ -158,11 +158,13 @@
 <script>
 mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGN6bGljVE0xZURCamRHWXpNRzlsYkhZMmVub3hPRFFpZlEuWTBrbWgxTzNWbVpuV2tQX0lMaWJuQQ==');
 
+// Sequential ramp (ColorBrewer Reds, 4-class): darkest = most recent movement.
+// Monotonic in L* (0.348 -> 0.779), so age reads as intensity, not as hue identity.
 var AGES = [
-  { code: 'HIS',  label: 'Historic (since 1769)', color: '#b2182b', w: 2.4 },
-  { code: 'HOL',  label: 'Holocene (<11.7 ka)',   color: '#e34a33', w: 1.9 },
-  { code: 'LTQT', label: 'Late Quaternary',        color: '#fc8d59', w: 1.5 },
-  { code: 'QT',   label: 'Quaternary (<2.6 Ma)',   color: '#9a9a92', w: 1.1 }
+  { code: 'HIS',  label: 'Historic (since 1769)', color: '#a50f15', w: 2.4 },
+  { code: 'HOL',  label: 'Holocene (<11.7 ka)',   color: '#de2d26', w: 1.9 },
+  { code: 'LTQT', label: 'Late Quaternary',        color: '#fb6a4a', w: 1.5 },
+  { code: 'QT',   label: 'Quaternary (<2.6 Ma)',   color: '#fcae91', w: 1.3 }
 ];
 
 var map = new mapboxgl.Map({
