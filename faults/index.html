@@ -89,8 +89,14 @@
   }
   #loading[hidden] { display: none; }
 
+  /* annotate.js defaults its palette to left:12px/top:96px, which lands on top of
+     the layers panel. Nudge it clear of the panel; it stays draggable from there.
+     'body #pbox' outspecifies annotate's own '#pbox' rule regardless of load order. */
+  body #pbox { left: 312px; top: 12px; }
+
   @media (max-width: 620px) {
     .panel { width: auto; left: 8px; right: 8px; top: 8px; max-height: 52%; }
+    body #pbox { left: 8px; top: auto; bottom: 8px; }
   }
 </style>
 </head>
@@ -661,3 +667,6 @@ function setBase(satellite) {
 }
 bLight.addEventListener('click', function () { setBase(false); });
 bSat.addEventListener('click', function () { setBase(true); });
+</script>
+</body>
+</html>
