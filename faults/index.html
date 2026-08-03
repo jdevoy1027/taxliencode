@@ -175,6 +175,8 @@
     </div>
 
     <p class="note">
+      Drawing tools open in a floating palette — pick a tool to enter draw mode,
+      then Done or Esc to navigate again. Annotations save and load as GeoJSON.
       Click the map to identify the geologic unit and any fault at that point.
       Geology and faults from the California Geological Survey; soils from USDA SSURGO,
       clipped to the Los Angeles and Orange county boundaries at ~11 m native resolution.
@@ -184,6 +186,7 @@
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
 <script src="./palette.js"></script>
+<script src="./annotate.js"></script>
 <script>
 mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGN6bGljVE0xZURCamRHWXpNRzlsYkhZMmVub3hPRFFpZlEuWTBrbWgxTzNWbVpuV2tQX0lMaWJuQQ==');
 
@@ -224,7 +227,7 @@ var visibleAge = {};
 AGES.forEach(function (a) { visibleAge[a.code] = true; });
 var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
-var showBores = true, showBoreLabels = true;
+var showBores = true, showBoreLabels = true, showSat = false;
 
 function geoColorExpr() {
   var e = ['match', ['get', 'PTYPE']];
@@ -265,6 +268,26 @@ function faultFilter() {
 
 function addLayers() {
   try {
+  // Satellite is a raster layer rather than a setStyle() swap: setStyle wipes every
+  // source and layer, which would destroy the annotation drawing each time you
+  // toggled the base map. Inserted beneath the base style's first symbol layer so
+  // place labels stay readable on top of the imagery.
+  if (!map.getSource('satellite')) {
+    map.addSource('satellite', {
+      type: 'raster', url: 'mapbox://mapbox.satellite', tileSize: 256
+    });
+  }
+  if (!map.getLayer('sat')) {
+    var firstSymbol;
+    var ls = map.getStyle().layers || [];
+    for (var i = 0; i < ls.length; i++) {
+      if (ls[i].type === 'symbol') { firstSymbol = ls[i].id; break; }
+    }
+    map.addLayer({
+      id: 'sat', type: 'raster', source: 'satellite',
+      layout: { visibility: 'none' }, paint: { 'raster-opacity': 1 }
+    }, firstSymbol);
+  }
   if (!map.getSource('geology')) {
     map.addSource('geology', { type: 'geojson', data: './ca_geology.geojson' });
   }
@@ -440,6 +463,9 @@ function applyState() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSoils ? 'visible' : 'none');
   });
   if (map.getLayer('soil-fill')) map.setPaintProperty('soil-fill', 'fill-opacity', soilOpacity);
+  if (map.getLayer('sat')) {
+    map.setLayoutProperty('sat', 'visibility', showSat ? 'visible' : 'none');
+  }
   if (map.getLayer('bore-dot')) {
     map.setLayoutProperty('bore-dot', 'visibility', showBores ? 'visible' : 'none');
   }
@@ -462,6 +488,8 @@ map.on('load', function () {
       if (done.geology && done.faults) document.getElementById('loading').hidden = true;
     }
   });
+
+  if (window.initAnnotate) initAnnotate(map);
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
@@ -623,20 +651,13 @@ op.addEventListener('input', function () {
   applyState();
 });
 
-// ---- Base map switch ----
+// ---- Base map switch (raster toggle; no setStyle, so nothing is ever destroyed) ----
 var bLight = document.getElementById('b-light'), bSat = document.getElementById('b-sat');
-function setBase(style, pressedLight) {
-  bLight.setAttribute('aria-pressed', String(pressedLight));
-  bSat.setAttribute('aria-pressed', String(!pressedLight));
-  document.getElementById('loading').hidden = false;
-  map.setStyle(style);
-  map.once('styledata', function () {
-    addLayers();
-    setTimeout(function () { document.getElementById('loading').hidden = true; }, 400);
-  });
+function setBase(satellite) {
+  showSat = satellite;
+  bLight.setAttribute('aria-pressed', String(!satellite));
+  bSat.setAttribute('aria-pressed', String(satellite));
+  applyState();
 }
-bLight.addEventListener('click', function () { setBase('mapbox://styles/mapbox/light-v11', true); });
-bSat.addEventListener('click', function () { setBase('mapbox://styles/mapbox/satellite-streets-v12', false); });
-</script>
-</body>
-</html>
+bLight.addEventListener('click', function () { setBase(false); });
+bSat.addEventListener('click', function () { setBase(true); });
