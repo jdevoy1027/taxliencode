@@ -103,7 +103,7 @@
   <header>
     <a class="back" href="../">← All maps</a>
     <h1>California Geology &amp; Faults</h1>
-    <p class="sub">68 geologic units · 3,205 faults · 893 soil units (LA &amp; Orange)</p>
+    <p class="sub">68 geologic units · 3,205 faults · 893 soil units · 1,059 boreholes</p>
   </header>
 
   <div class="scroll">
@@ -134,6 +134,16 @@
         <input type="checkbox" id="t-soil-labels" checked disabled>
         <span class="lbl">Soil names</span>
         <span class="cnt">z9+</span>
+      </label>
+      <label class="row" style="margin-top:6px">
+        <input type="checkbox" id="t-bores" checked>
+        <span class="lbl">Boreholes (CGS)</span>
+        <span class="cnt">1,059</span>
+      </label>
+      <label class="row" style="margin-top:2px">
+        <input type="checkbox" id="t-bore-labels" checked>
+        <span class="lbl">Well names</span>
+        <span class="cnt">z12+</span>
       </label>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-faults" checked>
@@ -214,6 +224,7 @@ var visibleAge = {};
 AGES.forEach(function (a) { visibleAge[a.code] = true; });
 var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
+var showBores = true, showBoreLabels = true;
 
 function geoColorExpr() {
   var e = ['match', ['get', 'PTYPE']];
@@ -300,6 +311,43 @@ function addLayers() {
     });
   }
   if (soilsRequested) ensureSoils();
+  if (!map.getSource('bores')) {
+    map.addSource('bores', { type: 'geojson', data: './boreholes.geojson' });
+  }
+  if (!map.getLayer('bore-dot')) {
+    map.addLayer({
+      id: 'bore-dot', type: 'circle', source: 'bores',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2.2, 12, 4, 16, 7],
+        'circle-color': '#10233f',
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1.2, 16, 1.8],
+        'circle-opacity': 0.95
+      }
+    });
+  }
+  // 1,059 boreholes inside ~35 x 24 km, so names only resolve once zoomed in.
+  if (!map.getLayer('bore-label')) {
+    map.addLayer({
+      id: 'bore-label', type: 'symbol', source: 'bores',
+      minzoom: 12,
+      layout: {
+        'text-field': ['get', 'n'],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 9.5, 16, 12.5],
+        'text-offset': [0, 1.1],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+        'text-padding': 3
+      },
+      paint: {
+        'text-color': '#10233f',
+        'text-halo-color': 'rgba(255,255,255,.95)',
+        'text-halo-width': 1.5,
+        'text-halo-blur': 0.3
+      }
+    });
+  }
   // Labels last so unit codes sit above both the fills and the fault lines.
   if (!map.getLayer('geo-label')) {
     map.addLayer({
@@ -392,6 +440,13 @@ function applyState() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSoils ? 'visible' : 'none');
   });
   if (map.getLayer('soil-fill')) map.setPaintProperty('soil-fill', 'fill-opacity', soilOpacity);
+  if (map.getLayer('bore-dot')) {
+    map.setLayoutProperty('bore-dot', 'visibility', showBores ? 'visible' : 'none');
+  }
+  if (map.getLayer('bore-label')) {
+    map.setLayoutProperty('bore-label', 'visibility',
+      (showBores && showBoreLabels) ? 'visible' : 'none');
+  }
   if (map.getLayer('soil-label')) {
     map.setLayoutProperty('soil-label', 'visibility',
       (showSoils && showSoilLabels) ? 'visible' : 'none');
@@ -410,17 +465,31 @@ map.on('load', function () {
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
-      layers: ['faults-hit', 'geo-fill', 'soil-fill'].filter(function (id) { return map.getLayer(id); })
+      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill'].filter(function (id) { return map.getLayer(id); })
     });
-    var fault = null, unit = null, soil = null;
+    var fault = null, unit = null, soil = null, bore = null;
     hits.forEach(function (h) {
+      if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil) return;
+    if (!fault && !unit && !soil && !bore) return;
 
     var html = '';
+    if (bore && showBores) {
+      html += '<div class="pop-name">Borehole ' + esc(bore.n || '(unnamed)') + '</div>';
+      if (bore.s) html += '<div class="pop-row">' + esc(bore.s) + '</div>';
+      var bits = [];
+      if (bore.d != null) bits.push('depth ' + esc(bore.d) + ' ft');
+      if (bore.e != null) bits.push('elev ' + esc(bore.e) + ' ft');
+      if (bore.c) bits.push(esc(bore.c));
+      if (bits.length) html += '<div class="pop-row">' + bits.join(' · ') + '</div>';
+      if (bore.op) html += '<div class="pop-row"><b>Logged by:</b> ' + esc(bore.op) + '</div>';
+      if (bore.a) html += '<div class="pop-row"><b>Agency:</b> ' + esc(bore.a) + '</div>';
+      if (bore.id) html += '<div class="pop-row" style="font-size:11.5px;opacity:.7">' + esc(bore.id) + '</div>';
+      if (fault || unit || soil) html += '<div class="pop-sep"></div>';
+    }
     if (fault) {
       var age = AGES.filter(function (a) { return a.code === fault.FLT_AGE; })[0];
       html += '<div class="pop-name">' + esc(fault.FLT_NAME || 'Unnamed fault') + '</div>';
@@ -451,7 +520,7 @@ map.on('load', function () {
   });
 
   map.on('mousemove', function (e) {
-    var ids = ['faults-hit'].filter(function (id) { return map.getLayer(id); });
+    var ids = ['bore-dot', 'faults-hit'].filter(function (id) { return map.getLayer(id); });
     var f = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : [];
     map.getCanvas().style.cursor = f.length ? 'pointer' : '';
   });
@@ -523,6 +592,14 @@ document.getElementById('t-soils').addEventListener('change', function () {
     });
   }
   applyState();
+});
+document.getElementById('t-bores').addEventListener('change', function () {
+  showBores = this.checked;
+  document.getElementById('t-bore-labels').disabled = !showBores;
+  applyState();
+});
+document.getElementById('t-bore-labels').addEventListener('change', function () {
+  showBoreLabels = this.checked; applyState();
 });
 var soilLabelBox = document.getElementById('t-soil-labels');
 soilLabelBox.addEventListener('change', function () {
