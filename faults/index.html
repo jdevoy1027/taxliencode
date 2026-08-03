@@ -103,7 +103,7 @@
   <header>
     <a class="back" href="../">← All maps</a>
     <h1>California Geology &amp; Faults</h1>
-    <p class="sub">68 geologic units · 3,205 faults · 4,160 soil units</p>
+    <p class="sub">68 geologic units · 3,205 faults · 893 soil units (LA &amp; Orange)</p>
   </header>
 
   <div class="scroll">
@@ -123,8 +123,8 @@
       </label>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-soils">
-        <span class="lbl">Soils (SSURGO)</span>
-        <span class="cnt" id="soil-note">33 MB</span>
+        <span class="lbl">Soils — LA &amp; Orange</span>
+        <span class="cnt" id="soil-note">29 MB</span>
       </label>
       <div class="slider">
         <input type="range" id="soil-op" min="0" max="100" value="75" disabled>
@@ -133,7 +133,7 @@
       <label class="row" style="margin-top:2px">
         <input type="checkbox" id="t-soil-labels" checked disabled>
         <span class="lbl">Soil names</span>
-        <span class="cnt">z8+</span>
+        <span class="cnt">z9+</span>
       </label>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-faults" checked>
@@ -166,8 +166,8 @@
 
     <p class="note">
       Click the map to identify the geologic unit and any fault at that point.
-      Geology and faults from the California Geological Survey; fault colours follow
-      age of most recent movement, unit colours follow the standard age-family convention.
+      Geology and faults from the California Geological Survey; soils from USDA SSURGO,
+      clipped to the Los Angeles and Orange county boundaries at ~11 m native resolution.
     </p>
   </div>
 </div>
@@ -330,7 +330,7 @@ function addLayers() {
 // beforeId keeps it above the geology fills but beneath the fault lines.
 function ensureSoils() {
   if (!map.getSource('soils')) {
-    map.addSource('soils', { type: 'geojson', data: './socal_soils.geojson' });
+    map.addSource('soils', { type: 'geojson', data: './laoc_soils.geojson' });
   }
   var before = map.getLayer('faults-casing') ? 'faults-casing' : undefined;
   if (!map.getLayer('soil-fill')) {
@@ -353,7 +353,7 @@ function ensureSoils() {
   if (!map.getLayer('soil-label')) {
     map.addLayer({
       id: 'soil-label', type: 'symbol', source: 'soils',
-      minzoom: 8,
+      minzoom: 9,
       layout: {
         'text-field': ['get', 'n'],
         'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
