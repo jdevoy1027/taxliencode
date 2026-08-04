@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Borehole Cross-Section — Geonomics</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#fff; --fg:#1a1a18; --muted:#6b6b66;
+    --line:#e4e4e0; --line2:#d0d0ca; --accent:#2d6a5a; --sky:#eef3f7;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--fg);
+    font:14px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex; flex-direction:column;
+  }
+  header{
+    padding:14px 20px; border-bottom:1px solid var(--line);
+    background:var(--panel); display:flex; flex-wrap:wrap; gap:14px 22px; align-items:center;
+  }
+  .back{font-size:12.5px;color:var(--muted);text-decoration:none}
+  .back:hover{color:var(--accent)}
+  h1{margin:0;font-size:16px;font-weight:640;letter-spacing:-.015em}
+  .sub{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
+  .ctrls{margin-left:auto;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+  .ctrl{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted)}
+  .ctrl select,.ctrl input[type=number]{
+    font:inherit;font-size:12.5px;padding:4px 7px;border:1px solid var(--line2);
+    border-radius:6px;background:#fff;color:var(--fg)
+  }
+  .ctrl input[type=number]{width:72px}
+  button.act{
+    font:inherit;font-size:12.5px;font-weight:560;padding:6px 12px;border-radius:7px;
+    border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer
+  }
+  button.act.ghost{background:#fff;color:var(--accent)}
+
+  main{flex:1;overflow:auto;padding:20px}
+  .wrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:min-content}
+  svg{display:block}
+  .empty{
+    max-width:640px;margin:64px auto;text-align:center;color:var(--muted);
+  }
+  .empty h2{color:var(--fg);font-size:17px;margin:0 0 10px}
+  .empty code{background:#f0f0ec;padding:2px 6px;border-radius:4px;font-size:12.5px}
+  .empty ol{text-align:left;display:inline-block;margin:14px 0 0;line-height:1.8}
+
+  .legend{
+    margin-top:16px;padding-top:14px;border-top:1px solid var(--line);
+    display:flex;flex-wrap:wrap;gap:16px 26px;
+  }
+  .fam{min-width:150px}
+  .fam h3{margin:0 0 6px;font-size:10.5px;font-weight:640;letter-spacing:.07em;
+          text-transform:uppercase;color:#85857e}
+  .li{display:flex;align-items:center;gap:7px;font-size:12px;padding:1.5px 0}
+  .li i{width:13px;height:13px;border-radius:3px;border:1px solid rgba(0,0,0,.2);flex:none}
+  .li b{font-weight:560;font-variant-numeric:tabular-nums}
+  .li span{color:var(--muted)}
+
+  .warn{
+    margin-top:12px;font-size:12.5px;color:#8a5a12;background:#fdf3e3;
+    border:1px solid #f0dfc0;border-radius:8px;padding:9px 12px
+  }
+  @media print{
+    header .ctrls,.back{display:none}
+    body{background:#fff}
+    .wrap{border:0;padding:0}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <a class="back" href="../faults/">← Geology &amp; Faults map</a>
+    <h1>Borehole Cross-Section</h1>
+    <p class="sub" id="sub">—</p>
+  </div>
+  <div class="ctrls">
+    <label class="ctrl">Corridor ±
+      <input type="number" id="c-buf" value="1000" min="50" max="20000" step="50"> ft
+    </label>
+    <label class="ctrl">Vertical exaggeration
+      <select id="c-ve">
+        <option value="auto">auto</option>
+        <option value="1">1×</option><option value="2">2×</option><option value="5">5×</option>
+        <option value="10">10×</option><option value="20">20×</option><option value="50">50×</option>
+      </select>
+    </label>
+    <label class="ctrl">Datum
+      <select id="c-datum">
+        <option value="elev">Elevation (ft)</option>
+        <option value="depth">Depth below collar (ft)</option>
+      </select>
+    </label>
+    <button class="act ghost" id="c-print">Print</button>
+  </div>
+</header>
+
+<main id="main"><div class="empty">Loading…</div></main>
+
+<script src="./litho.js"></script>
+<script>
+var BORE_URL = '../faults/boreholes.geojson';
+var LITH_URL = './lithology.json';
+
+// ---------- section line ----------
+// ?line=lon,lat;lon,lat;...   (written by the "Cross-section" button on the map)
+function parseLine() {
+  var q = new URLSearchParams(location.search).get('line');
+  if (!q) return null;
+  var pts = q.split(';').map(function (p) {
+    var a = p.split(',');
+    return [parseFloat(a[0]), parseFloat(a[1])];
+  }).filter(function (c) { return isFinite(c[0]) && isFinite(c[1]); });
+  return pts.length >= 2 ? pts : null;
+}
+
+// ---------- geometry ----------
+// Local equirectangular projection in feet, referenced to the line's own centroid.
+// Over a few km this is well under a foot of error and keeps the maths simple.
+var FT_PER_DEG_LAT = 364000;
+function projector(refLat) {
+  var kx = FT_PER_DEG_LAT * Math.cos(refLat * Math.PI / 180);
+  return function (c) { return [c[0] * kx, c[1] * FT_PER_DEG_LAT]; };
+}
+
+function segmentDistance(p, a, b) {
+  var vx = b[0] - a[0], vy = b[1] - a[1];
+  var wx = p[0] - a[0], wy = p[1] - a[1];
+  var L2 = vx * vx + vy * vy;
+  var t = L2 ? (wx * vx + wy * vy) / L2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  var px = a[0] + t * vx, py = a[1] + t * vy;
+  return { t: t, dist: Math.hypot(p[0] - px, p[1] - py) };
+}
+
+// Distance along the polyline + perpendicular offset for one point.
+function stationOf(p, poly) {
+  var best = null, run = 0;
+  for (var i = 0; i < poly.length - 1; i++) {
+    var a = poly[i], b = poly[i + 1];
+    var segLen = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    var r = segmentDistance(p, a, b);
+    if (!best || r.dist < best.off) best = { along: run + r.t * segLen, off: r.dist };
+    run += segLen;
+  }
+  return best ? { along: best.along, off: best.off, total: run } : null;
+}
+
+function niceStep(range, target) {
+  var raw = range / Math.max(1, target);
+  var pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  var n = raw / pow;
+  var step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+// ---------- state ----------
+var LINE = parseLine(), BORES = null, LITH = null;
+var opts = { buf: 1000, ve: 'auto', datum: 'elev' };
+
+function showEmpty(msg) {
+  document.getElementById('main').innerHTML =
+    '<div class="empty"><h2>No section line</h2>' +
+    '<p>' + msg + '</p>' +
+    '<ol>' +
+    '<li>Open the <a href="../faults/">Geology &amp; Faults map</a></li>' +
+    '<li>Pick the <b>Line</b> tool in the drawing palette</li>' +
+    '<li>Click along your section, then double-click to finish</li>' +
+    '<li>Press <b>Cross-section</b> in the layers panel</li>' +
+    '</ol></div>';
+  document.getElementById('sub').textContent = 'no line supplied';
+}
+
+Promise.all([
+  fetch(BORE_URL).then(function (r) { return r.json(); }),
+  fetch(LITH_URL).then(function (r) { return r.json(); })
+]).then(function (res) {
+  BORES = res[0].features; LITH = res[1];
+  if (!LINE) { showEmpty('Draw a line on the map, then send it here.'); return; }
+  bind(); render();
+}).catch(function (e) {
+  document.getElementById('main').innerHTML =
+    '<div class="empty"><h2>Could not load data</h2><p>' + esc(e.message) + '</p></div>';
+});
+
+function bind() {
+  document.getElementById('c-buf').addEventListener('change', function () {
+    opts.buf = Math.max(50, +this.value || 1000); render();
+  });
+  document.getElementById('c-ve').addEventListener('change', function () {
+    opts.ve = this.value; render();
+  });
+  document.getElementById('c-datum').addEventListener('change', function () {
+    opts.datum = this.value; render();
+  });
+  document.getElementById('c-print').addEventListener('click', function () { window.print(); });
+}
+
+// ---------- pick boreholes along the line ----------
+function collect() {
+  var refLat = LINE.reduce(function (s, c) { return s + c[1]; }, 0) / LINE.length;
+  var proj = projector(refLat);
+  var poly = LINE.map(proj);
+
+  var hits = [];
+  BORES.forEach(function (f) {
+    var id = f.properties.id;
+    var iv = id && LITH[id];
+    if (!iv || !iv.length) return;                 // only boreholes with lithology
+    var st = stationOf(proj(f.geometry.coordinates), poly);
+    if (!st || st.off > opts.buf) return;
+    hits.push({
+      name: f.properties.n || '(unnamed)',
+      id: id,
+      elev: (f.properties.e != null ? f.properties.e : 0),
+      hasElev: f.properties.e != null,
+      depth: f.properties.d,
+      along: st.along, off: st.off,
+      iv: iv
+    });
+  });
+  hits.sort(function (a, b) { return a.along - b.along; });
+  var total = poly.reduce(function (acc, c, i) {
+    return i ? acc + Math.hypot(c[0] - poly[i - 1][0], c[1] - poly[i - 1][1]) : 0;
+  }, 0);
+  return { hits: hits, total: total };
+}
+
+// ---------- draw ----------
+function render() {
+  var got = collect(), hits = got.hits;
+  var sub = document.getElementById('sub');
+
+  if (!hits.length) {
+    document.getElementById('main').innerHTML =
+      '<div class="empty"><h2>No boreholes within the corridor</h2>' +
+      '<p>The section line is ' + Math.round(got.total).toLocaleString() + ' ft long, but no ' +
+      'borehole with lithology falls within ±' + opts.buf.toLocaleString() + ' ft of it. ' +
+      'Widen the corridor, or draw the line closer to the borehole cluster ' +
+      '(they sit in northern Orange County).</p></div>';
+    sub.textContent = Math.round(got.total).toLocaleString() + ' ft section · 0 boreholes';
+    return;
+  }
+
+  // vertical range
+  var lo = Infinity, hi = -Infinity;
+  hits.forEach(function (h) {
+    var base = opts.datum === 'elev' ? h.elev : 0;
+    var deepest = h.iv[h.iv.length - 1][1];
+    var top = opts.datum === 'elev' ? h.elev : 0;
+    var bot = opts.datum === 'elev' ? h.elev - deepest : -deepest;
+    lo = Math.min(lo, bot); hi = Math.max(hi, top);
+  });
+  var pad = Math.max(5, (hi - lo) * 0.08);
+  lo -= pad; hi += pad;
+
+  var xRange = Math.max(got.total, 1);
+  var yRange = Math.max(hi - lo, 1);
+
+  var PLOT_W = Math.min(1500, Math.max(760, xRange / 12));
+  var ve = opts.ve === 'auto'
+    ? Math.max(1, Math.min(60, (xRange / PLOT_W) / (yRange / 420)))
+    : +opts.ve;
+  var PLOT_H = Math.max(260, Math.min(900, (yRange / (xRange / PLOT_W)) * ve));
+
+  var M = { l: 74, r: 26, t: 46, b: 56 };
+  var W = PLOT_W + M.l + M.r, H = PLOT_H + M.t + M.b;
+  var sx = function (v) { return M.l + (v / xRange) * PLOT_W; };
+  var sy = function (v) { return M.t + ((hi - v) / yRange) * PLOT_H; };
+
+  var COLW = Math.max(7, Math.min(20, PLOT_W / (hits.length * 2.4)));
+
+  var o = [];
+  o.push('<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H +
+         '" font-family="ui-sans-serif,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">');
+
+  // sky / ground backdrop
+  o.push('<rect x="' + M.l + '" y="' + M.t + '" width="' + PLOT_W + '" height="' + PLOT_H +
+         '" fill="var(--sky)"/>');
+
+  // ---- horizontal grid + left scale (the depth/elevation axis) ----
+  var yStep = niceStep(yRange, 8);
+  var y0 = Math.ceil(lo / yStep) * yStep;
+  for (var v = y0; v <= hi; v += yStep) {
+    var yy = sy(v);
+    o.push('<line x1="' + M.l + '" y1="' + yy.toFixed(1) + '" x2="' + (M.l + PLOT_W) +
+           '" y2="' + yy.toFixed(1) + '" stroke="#c8d2da" stroke-width="0.7"/>');
+    o.push('<text x="' + (M.l - 9) + '" y="' + (yy + 3.5).toFixed(1) +
+           '" text-anchor="end" font-size="11" fill="#55554f">' +
+           Math.round(v).toLocaleString() + '</text>');
+  }
+  o.push('<text transform="translate(16,' + (M.t + PLOT_H / 2) + ') rotate(-90)" text-anchor="middle" ' +
+         'font-size="11.5" font-weight="600" fill="#3a3a35">' +
+         (opts.datum === 'elev' ? 'Elevation (ft)' : 'Depth below collar (ft)') + '</text>');
+
+  // ---- horizontal distance axis ----
+  var xStep = niceStep(xRange, 8);
+  for (var d = 0; d <= xRange; d += xStep) {
+    var xx = sx(d);
+    o.push('<line x1="' + xx.toFixed(1) + '" y1="' + (M.t + PLOT_H) + '" x2="' + xx.toFixed(1) +
+           '" y2="' + (M.t + PLOT_H + 5) + '" stroke="#8a8a82" stroke-width="1"/>');
+    o.push('<text x="' + xx.toFixed(1) + '" y="' + (M.t + PLOT_H + 18) +
+           '" text-anchor="middle" font-size="11" fill="#55554f">' +
+           Math.round(d).toLocaleString() + '</text>');
+  }
+  o.push('<text x="' + (M.l + PLOT_W / 2) + '" y="' + (H - 12) + '" text-anchor="middle" ' +
+         'font-size="11.5" font-weight="600" fill="#3a3a35">Distance along section (ft)</text>');
+
+  // ---- ground surface line ----
+  if (opts.datum === 'elev' && hits.length > 1) {
+    var pathPts = hits.map(function (h) { return sx(h.along).toFixed(1) + ',' + sy(h.elev).toFixed(1); });
+    o.push('<polyline points="' + pathPts.join(' ') + '" fill="none" stroke="#6f6f66" ' +
+           'stroke-width="1.4" stroke-dasharray="5 3"/>');
+  }
+
+  // ---- A / A' end labels ----
+  o.push('<text x="' + M.l + '" y="' + (M.t - 22) + '" font-size="13" font-weight="700" fill="#1a1a18">A</text>');
+  o.push('<text x="' + (M.l + PLOT_W) + '" y="' + (M.t - 22) + '" text-anchor="end" font-size="13" ' +
+         'font-weight="700" fill="#1a1a18">A′</text>');
+
+  // ---- borehole columns ----
+  var used = {};
+  hits.forEach(function (h) {
+    var cx = sx(h.along), top = opts.datum === 'elev' ? h.elev : 0;
+    h.iv.forEach(function (seg) {
+      var t = seg[0], b = seg[1], code = seg[2];
+      used[code] = (used[code] || 0) + (b - t);
+      var yTop = sy(top - t), yBot = sy(top - b);
+      var hgt = Math.max(0.7, yBot - yTop);
+      o.push('<rect x="' + (cx - COLW / 2).toFixed(1) + '" y="' + yTop.toFixed(1) +
+             '" width="' + COLW.toFixed(1) + '" height="' + hgt.toFixed(1) +
+             '" fill="' + (LITHO_COLOR[code] || '#cccccc') + '" stroke="rgba(0,0,0,.28)" ' +
+             'stroke-width="0.4"><title>' + esc(h.name) + '  ' + t + '–' + b + ' ft\n' +
+             esc(code) + ' · ' + esc(LITHO_LABEL[code] || code) + '</title></rect>');
+    });
+    // collar tick + name
+    o.push('<line x1="' + (cx - COLW / 2 - 2).toFixed(1) + '" y1="' + sy(top).toFixed(1) +
+           '" x2="' + (cx + COLW / 2 + 2).toFixed(1) + '" y2="' + sy(top).toFixed(1) +
+           '" stroke="#1a1a18" stroke-width="1.2"/>');
+    o.push('<text transform="translate(' + cx.toFixed(1) + ',' + (M.t - 8) +
+           ') rotate(-52)" font-size="9.5" fill="#3a3a35">' + esc(h.name) + '</text>');
+  });
+
+  o.push('<rect x="' + M.l + '" y="' + M.t + '" width="' + PLOT_W + '" height="' + PLOT_H +
+         '" fill="none" stroke="#9a9a92" stroke-width="1"/>');
+  o.push('</svg>');
+
+  // ---- legend, only the units actually present ----
+  var leg = [];
+  LITHO_LEGEND.forEach(function (fam) {
+    var items = fam.items.filter(function (it) { return used[it.code]; });
+    if (!items.length) return;
+    leg.push('<div class="fam"><h3>' + esc(fam.family) + '</h3>' +
+      items.map(function (it) {
+        return '<div class="li"><i style="background:' + it.color + '"></i>' +
+               '<b>' + esc(it.code) + '</b> <span>' + esc(it.label) + '</span></div>';
+      }).join('') + '</div>');
+  });
+
+  var noElev = hits.filter(function (h) { return !h.hasElev; }).length;
+  var warn = '';
+  if (opts.datum === 'elev' && noElev) {
+    warn = '<div class="warn">' + noElev + ' of ' + hits.length + ' boreholes have no collar ' +
+           'elevation in the source data and are hung from 0 ft. Switch Datum to ' +
+           '“Depth below collar” to compare them on equal footing.</div>';
+  }
+
+  document.getElementById('main').innerHTML =
+    '<div class="wrap">' + o.join('') + warn +
+    '<div class="legend">' + leg.join('') + '</div></div>';
+
+  document.getElementById('sub').textContent =
+    Math.round(got.total).toLocaleString() + ' ft section · ' + hits.length +
+    ' boreholes · ±' + opts.buf.toLocaleString() + ' ft corridor · VE ' +
+    (Math.round(ve * 10) / 10) + '×';
+}
+</script>
+</body>
+</html>

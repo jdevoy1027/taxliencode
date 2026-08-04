@@ -158,6 +158,16 @@
     </div>
 
     <div class="sec">
+      <h2>Cross-section</h2>
+      <button id="xs-go" style="width:100%;padding:7px 8px;font:inherit;font-size:12.5px;
+        font-weight:560;border:1px solid #2d6a5a;background:#2d6a5a;color:#fff;
+        border-radius:7px;cursor:pointer">Build cross-section →</button>
+      <p style="margin:7px 0 0;font-size:11.5px;line-height:1.4;color:#85857e">
+        Draw a line with the palette's Line tool, then press this to plot borehole
+        lithology along it.</p>
+    </div>
+
+    <div class="sec">
       <h2>Fault age — last movement</h2>
       <div id="fault-legend"></div>
     </div>
@@ -655,6 +665,32 @@ op.addEventListener('input', function () {
   geoOpacity = this.value / 100;
   opv.textContent = this.value + '%';
   applyState();
+});
+
+// ---- Cross-section: hand the drawn line to the section page ----
+document.getElementById('xs-go').addEventListener('click', function () {
+  var src = map.getSource('annot');
+  // annotate.js keeps its FeatureCollection on the source; querySourceFeatures would
+  // hand back tile-clipped geometry, so read the authored data when it is available.
+  var fc = src && src._data;
+  var lines = [];
+  if (fc && fc.features) {
+    fc.features.forEach(function (f) {
+      if (f.geometry && f.geometry.type === 'LineString' &&
+          f.geometry.coordinates.length >= 2 &&
+          f.properties.atype !== 'arrowhead') lines.push(f);
+    });
+  }
+  if (!lines.length) {
+    alert('No line drawn yet.\n\nPick the Line tool in the drawing palette, click along ' +
+          'your section, then double-click to finish — and try again.');
+    return;
+  }
+  var coords = lines[lines.length - 1].geometry.coordinates;   // most recent line
+  var q = coords.map(function (c) {
+    return c[0].toFixed(6) + ',' + c[1].toFixed(6);
+  }).join(';');
+  window.open('../cross-section/?line=' + encodeURIComponent(q), '_blank');
 });
 
 // ---- Base map switch (raster toggle; no setStyle, so nothing is ever destroyed) ----
