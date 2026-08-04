@@ -142,6 +142,11 @@
         <span class="cnt">z9+</span>
       </label>
       <label class="row" style="margin-top:6px">
+        <input type="checkbox" id="t-contours">
+        <span class="lbl">Elevation contours</span>
+        <span class="cnt">10 ft</span>
+      </label>
+      <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-bores" checked>
         <span class="lbl">Boreholes (CGS)</span>
         <span class="cnt">1,059</span>
@@ -244,6 +249,7 @@ AGES.forEach(function (a) { visibleAge[a.code] = true; });
 var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
 var showBores = true, showBoreLabels = true, showSat = false;
+var showContours = false;
 
 function geoColorExpr() {
   var e = ['match', ['get', 'PTYPE']];
@@ -322,6 +328,45 @@ function addLayers() {
       paint: {
         'line-color': 'rgba(60,60,55,.35)',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.2, 11, 0.6]
+      }
+    });
+  }
+  if (!map.getSource('contours')) {
+    map.addSource('contours', { type: 'geojson', data: './bore_contours.geojson' });
+  }
+  if (!map.getLayer('contour-line')) {
+    map.addLayer({
+      id: 'contour-line', type: 'line', source: 'contours',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#8a6a4a',
+        'line-opacity': 0.85,
+        // zoom must stay outermost; the index/intermediate choice rides inside each stop
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          9,  ['case', ['==', ['get', 'ix'], 1], 1.1, 0.5],
+          12, ['case', ['==', ['get', 'ix'], 1], 1.8, 0.8],
+          16, ['case', ['==', ['get', 'ix'], 1], 3.0, 1.4]]
+      }
+    });
+  }
+  if (!map.getLayer('contour-label')) {
+    map.addLayer({
+      id: 'contour-label', type: 'symbol', source: 'contours',
+      minzoom: 11,
+      filter: ['==', ['get', 'ix'], 1],   // label the 50 ft index contours only
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['concat', ['to-string', ['get', 'e']], ' ft'],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9.5, 15, 12],
+        'symbol-spacing': 260,
+        'text-allow-overlap': false,
+        'text-padding': 3
+      },
+      paint: {
+        'text-color': '#6b4f36',
+        'text-halo-color': 'rgba(255,255,255,.95)',
+        'text-halo-width': 1.5
       }
     });
   }
@@ -479,6 +524,9 @@ function applyState() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSoils ? 'visible' : 'none');
   });
   if (map.getLayer('soil-fill')) map.setPaintProperty('soil-fill', 'fill-opacity', soilOpacity);
+  ['contour-line', 'contour-label'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showContours ? 'visible' : 'none');
+  });
   if (map.getLayer('sat')) {
     map.setLayoutProperty('sat', 'visibility', showSat ? 'visible' : 'none');
   }
@@ -636,6 +684,9 @@ document.getElementById('t-soils').addEventListener('change', function () {
     });
   }
   applyState();
+});
+document.getElementById('t-contours').addEventListener('change', function () {
+  showContours = this.checked; applyState();
 });
 document.getElementById('t-bores').addEventListener('change', function () {
   showBores = this.checked;
