@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Borehole Cross-Section — Geonomics</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
 <style>
   :root{
     --bg:#fbfbfa; --panel:#fff; --fg:#1a1a18; --muted:#6b6b66;
@@ -48,6 +49,17 @@
   .empty code{background:#f0f0ec;padding:2px 6px;border-radius:4px;font-size:12.5px}
   .empty ol{text-align:left;display:inline-block;margin:14px 0 0;line-height:1.8}
 
+  .stripwrap{position:relative;margin-bottom:2px}
+  .strip{
+    height:190px;border:1px solid var(--line2);border-radius:8px;overflow:hidden;
+    background:#eceae4
+  }
+  .stripcap{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-size:10.5px;font-weight:640;letter-spacing:.07em;text-transform:uppercase;
+    color:#85857e;margin:0 0 5px
+  }
+  .strip .mapboxgl-ctrl-logo,.strip .mapboxgl-ctrl-attrib{transform:scale(.82);transform-origin:bottom left}
   .legend{
     margin-top:16px;padding-top:14px;border-top:1px solid var(--line);
     display:flex;flex-wrap:wrap;gap:16px 26px;
@@ -102,8 +114,11 @@
 
 <main id="main"><div class="empty">Loading…</div></main>
 
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
 <script src="./litho.js"></script>
 <script>
+mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGN6bGljVE0xZURCamRHWXpNRzlsYkhZMmVub3hPRFFpZlEuWTBrbWgxTzNWbVpuV2tQX0lMaWJuQQ==');
+
 var BORE_URL = '../faults/boreholes.geojson';
 var LITH_URL = './lithology.json';
 
@@ -227,6 +242,7 @@ function collect() {
       hasElev: f.properties.e != null,
       depth: f.properties.d,
       along: st.along, off: st.off,
+      lonlat: f.geometry.coordinates,
       iv: iv
     });
   });
@@ -237,12 +253,123 @@ function collect() {
   return { hits: hits, total: total };
 }
 
+// ---------- plan-view strip ----------
+// Rotated so the section runs left-to-right, matching the diagram beneath it.
+var stripMap = null, stripReady = false, pendingStrip = null;
+
+function bearingOf(a, b) {
+  var la1 = a[1] * Math.PI / 180, la2 = b[1] * Math.PI / 180;
+  var dLo = (b[0] - a[0]) * Math.PI / 180;
+  var y = Math.sin(dLo) * Math.cos(la2);
+  var x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLo);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function initStrip() {
+  if (stripMap) return;
+  stripMap = new mapboxgl.Map({
+    container: 'strip',
+    style: 'mapbox://styles/mapbox/streets-v12',   // streets-v12 carries the road names
+    center: LINE[0], zoom: 12,
+    attributionControl: true, interactive: true
+  });
+  stripMap.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
+  stripMap.on('load', function () {
+    stripMap.addSource('xs-line', { type: 'geojson', data: emptyFC() });
+    stripMap.addSource('xs-bores', { type: 'geojson', data: emptyFC() });
+
+    stripMap.addLayer({
+      id: 'xs-line-casing', type: 'line', source: 'xs-line',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#ffffff', 'line-width': 6, 'line-opacity': 0.9 }
+    });
+    stripMap.addLayer({
+      id: 'xs-line-main', type: 'line', source: 'xs-line',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#c0392b', 'line-width': 2.6 }
+    });
+    stripMap.addLayer({
+      id: 'xs-bore-dot', type: 'circle', source: 'xs-bores',
+      paint: {
+        'circle-radius': 5,
+        'circle-color': '#10233f',
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1.6
+      }
+    });
+    stripMap.addLayer({
+      id: 'xs-bore-label', type: 'symbol', source: 'xs-bores',
+      layout: {
+        'text-field': ['get', 'n'],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': 10.5,
+        'text-offset': [0, 1.15],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+        'text-padding': 2
+      },
+      paint: {
+        'text-color': '#10233f',
+        'text-halo-color': 'rgba(255,255,255,.95)',
+        'text-halo-width': 1.5
+      }
+    });
+    stripReady = true;
+    if (pendingStrip) { updateStrip(pendingStrip); pendingStrip = null; }
+  });
+}
+
+function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
+
+function updateStrip(hits) {
+  if (!stripMap) { initStrip(); pendingStrip = hits; return; }
+  if (!stripReady) { pendingStrip = hits; return; }
+
+  stripMap.getSource('xs-line').setData({
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: {},
+                 geometry: { type: 'LineString', coordinates: LINE } }]
+  });
+  stripMap.getSource('xs-bores').setData({
+    type: 'FeatureCollection',
+    features: hits.map(function (h) {
+      return { type: 'Feature', properties: { n: h.name },
+               geometry: { type: 'Point', coordinates: h.lonlat } };
+    })
+  });
+
+  var b = new mapboxgl.LngLatBounds();
+  LINE.forEach(function (c) { b.extend(c); });
+  hits.forEach(function (h) { b.extend(h.lonlat); });
+  stripMap.resize();
+  stripMap.fitBounds(b, {
+    bearing: bearingOf(LINE[0], LINE[LINE.length - 1]),
+    padding: { top: 34, bottom: 34, left: 44, right: 44 },
+    duration: 0
+  });
+}
+
 // ---------- draw ----------
+function ensureShell() {
+  if (document.getElementById('xs-wrap')) return;
+  document.getElementById('main').innerHTML =
+    '<div class="wrap" id="xs-wrap">' +
+      '<div class="stripwrap" id="stripwrap">' +
+        '<div class="stripcap"><span>A — plan view</span><span>A\u2032</span></div>' +
+        '<div class="strip" id="strip"></div>' +
+      '</div>' +
+      '<div id="svghost"></div>' +
+      '<div id="warnhost"></div>' +
+      '<div class="legend" id="leghost"></div>' +
+    '</div>';
+}
+
 function render() {
   var got = collect(), hits = got.hits;
   var sub = document.getElementById('sub');
 
   if (!hits.length) {
+    stripMap = null; stripReady = false; pendingStrip = null;
     document.getElementById('main').innerHTML =
       '<div class="empty"><h2>No boreholes within the corridor</h2>' +
       '<p>The section line is ' + Math.round(got.total).toLocaleString() + ' ft long, but no ' +
@@ -376,9 +503,15 @@ function render() {
            '“Depth below collar” to compare them on equal footing.</div>';
   }
 
-  document.getElementById('main').innerHTML =
-    '<div class="wrap">' + o.join('') + warn +
-    '<div class="legend">' + leg.join('') + '</div></div>';
+  ensureShell();
+  // Strip spans exactly the plot area so plan view and section share an x-extent.
+  var sw = document.getElementById('stripwrap');
+  sw.style.marginLeft = M.l + 'px';
+  sw.style.width = PLOT_W + 'px';
+  document.getElementById('svghost').innerHTML = o.join('');
+  document.getElementById('warnhost').innerHTML = warn;
+  document.getElementById('leghost').innerHTML = leg.join('');
+  updateStrip(hits);
 
   document.getElementById('sub').textContent =
     Math.round(got.total).toLocaleString() + ' ft section · ' + hits.length +
