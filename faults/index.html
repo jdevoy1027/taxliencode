@@ -820,44 +820,138 @@ var CONTOURABLE = [{
 }];
 var BORE_CACHE = null;
 
-document.getElementById('m-contour').addEventListener('click', function () {
-  MENU.hidden = true;
-  var lyr = CONTOURABLE[0];
+var ctPrefs = { layer: 0, field: 'e', interval: 10, area: 'all' };
+var ctDrawn = null;          // polygon captured via "Draw a new polygon"
+
+function drawnPolygons() {
+  var src = map.getSource('annot');
+  var fc = src && src._data;
+  if (!fc || !fc.features) return [];
+  return fc.features.filter(function (f) {
+    return f.geometry && f.geometry.type === 'Polygon' &&
+           f.geometry.coordinates[0] && f.geometry.coordinates[0].length >= 4 &&
+           f.properties.atype !== 'arrowhead';
+  });
+}
+
+// Shoelace on a local equirectangular projection — good enough for a label.
+function ringAreaSqMi(ring) {
+  var lat = ring.reduce(function (a, c) { return a + c[1]; }, 0) / ring.length;
+  var kx = 364000 * Math.cos(lat * Math.PI / 180), ky = 364000;   // ft per degree
+  var a = 0;
+  for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    a += (ring[j][0] * kx) * (ring[i][1] * ky) - (ring[i][0] * kx) * (ring[j][1] * ky);
+  }
+  return Math.abs(a / 2) / 27878400;   // sq ft -> sq mi
+}
+
+function areaOptions() {
+  var polys = drawnPolygons();
+  var o = ['<option value="all">Entire layer extent</option>'];
+  if (ctDrawn) o.push('<option value="drawn">Polygon just drawn — ' +
+    ctDrawn.length + ' pts, ' + ringAreaSqMi(ctDrawn).toFixed(2) + ' sq mi</option>');
+  polys.forEach(function (f, i) {
+    var r = f.geometry.coordinates[0];
+    o.push('<option value="p' + i + '">Polygon ' + (i + 1) + ' — ' + (r.length - 1) +
+           ' pts, ' + ringAreaSqMi(r).toFixed(2) + ' sq mi</option>');
+  });
+  o.push('<option value="draw">Draw a new polygon…</option>');
+  return o.join('');
+}
+
+function currentClip() {
+  if (ctPrefs.area === 'all') return null;
+  if (ctPrefs.area === 'drawn') return ctDrawn;
+  if (ctPrefs.area.charAt(0) === 'p') {
+    var f = drawnPolygons()[+ctPrefs.area.slice(1)];
+    return f ? f.geometry.coordinates[0] : null;
+  }
+  return null;
+}
+
+function openContourDlg() {
+  var L = CONTOURABLE[ctPrefs.layer];
   openDlg(
     '<h2>Generate contours</h2><div class="bd">' +
     '<div class="fld"><label>Layer</label><select id="d-layer">' +
       CONTOURABLE.map(function (l, i) {
-        return '<option value="' + i + '">' + esc(l.label) + '</option>';
+        return '<option value="' + i + '"' + (i === ctPrefs.layer ? ' selected' : '') + '>' +
+               esc(l.label) + '</option>';
       }).join('') +
     '</select><div class="hint">Only point layers with numeric fields can be contoured.</div></div>' +
+
+    '<div class="fld"><label>Area to contour</label>' +
+    '<select id="d-area">' + areaOptions() + '</select>' +
+    '<div class="hint">Interpolation still uses every point, so values at the polygon ' +
+    'edge stay informed by boreholes just outside it.</div></div>' +
+
     '<div class="fld"><label>Field to contour</label><select id="d-field">' +
-      lyr.fields.map(function (f) {
-        return '<option value="' + f.k + '">' + esc(f.label) + '</option>';
+      L.fields.map(function (f) {
+        return '<option value="' + f.k + '"' + (f.k === ctPrefs.field ? ' selected' : '') + '>' +
+               esc(f.label) + '</option>';
       }).join('') +
     '</select></div>' +
+
     '<div class="fld"><label>Contour interval</label>' +
-    '<input type="number" id="d-int" value="10" min="0.5" step="0.5">' +
+    '<input type="number" id="d-int" value="' + ctPrefs.interval + '" min="0.5" step="0.5">' +
     '<div class="hint">Every 5th line is drawn heavier and labelled as an index contour.</div></div>' +
     '<div id="d-err"></div>' +
     '</div><div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
     '<button class="go" id="d-go">Generate</button></div>');
 
+  var areaSel = document.getElementById('d-area');
+  areaSel.value = ctPrefs.area;
   var fieldSel = document.getElementById('d-field');
   var intBox = document.getElementById('d-int');
+
   document.getElementById('d-layer').addEventListener('change', function () {
-    var L = CONTOURABLE[+this.value];
-    fieldSel.innerHTML = L.fields.map(function (f) {
+    ctPrefs.layer = +this.value;
+    var LL = CONTOURABLE[ctPrefs.layer];
+    fieldSel.innerHTML = LL.fields.map(function (f) {
       return '<option value="' + f.k + '">' + esc(f.label) + '</option>';
     }).join('');
-    intBox.value = L.fields[0].dflt;
+    ctPrefs.field = LL.fields[0].k;
+    intBox.value = LL.fields[0].dflt;
   });
+
+  areaSel.addEventListener('change', function () {
+    if (this.value !== 'draw') { ctPrefs.area = this.value; return; }
+    // remember the rest of the form, then hand control to the polygon tool
+    ctPrefs.field = fieldSel.value;
+    ctPrefs.interval = parseFloat(intBox.value) || ctPrefs.interval;
+    closeDlg();
+    var before = drawnPolygons().length;
+    var btn = document.querySelector('#p-tools .tool[title="Polygon"]');
+    if (btn) btn.click();
+    function awaitPoly(msg) {
+      showToast(msg, 'Use this area', function () {
+        var now = drawnPolygons();
+        if (now.length <= before) {
+          awaitPoly('No new polygon yet — draw one, then press Use this area.');
+          return;
+        }
+        ctDrawn = now[now.length - 1].geometry.coordinates[0];
+        ctPrefs.area = 'drawn';
+        openContourDlg();
+      });
+    }
+    awaitPoly('Click to outline the area, double-click to close the polygon.');
+  });
+
   fieldSel.addEventListener('change', function () {
-    var L = CONTOURABLE[+document.getElementById('d-layer').value];
-    var f = L.fields.filter(function (x) { return x.k === fieldSel.value; })[0];
+    var val = this.value;
+    ctPrefs.field = val;
+    var f = CONTOURABLE[ctPrefs.layer].fields.filter(function (x) { return x.k === val; })[0];
     if (f) intBox.value = f.dflt;
   });
+
   document.getElementById('d-cancel').addEventListener('click', closeDlg);
   document.getElementById('d-go').addEventListener('click', runContour);
+}
+
+document.getElementById('m-contour').addEventListener('click', function () {
+  MENU.hidden = true;
+  openContourDlg();
 });
 
 function runContour() {
@@ -866,10 +960,15 @@ function runContour() {
   var interval = parseFloat(document.getElementById('d-int').value);
   var errBox = document.getElementById('d-err');
   var btn = document.getElementById('d-go');
+  ctPrefs.layer = +document.getElementById('d-layer').value;
+  ctPrefs.field = field;
+  ctPrefs.area = document.getElementById('d-area').value;
   if (!(interval > 0)) {
     errBox.innerHTML = '<div class="err">Interval must be greater than zero.</div>';
     return;
   }
+  ctPrefs.interval = interval;
+  var clip = currentClip();
   btn.disabled = true; btn.textContent = 'Working…';
 
   var go = function (fc) {
@@ -886,16 +985,17 @@ function runContour() {
       return;
     }
     var res;
-    try { res = makeContours(pts, { interval: interval, grid: 320, index: 5 }); }
+    try { res = makeContours(pts, { interval: interval, grid: 320, index: 5, clip: clip }); }
     catch (err) {
       errBox.innerHTML = '<div class="err">Contouring failed: ' + esc(err.message) + '</div>';
       btn.disabled = false; btn.textContent = 'Generate';
       return;
     }
     if (!res.features.length) {
-      errBox.innerHTML = '<div class="err">No contours at ' + interval +
-        ' — the values span ' + Math.round(res.stats.zmin) + ' to ' +
-        Math.round(res.stats.zmax) + ', so try a smaller interval.</div>';
+      errBox.innerHTML = '<div class="err">' + (res.stats.outside
+        ? 'That area does not overlap any boreholes — draw it over the cluster in northern Orange County.'
+        : 'No contours at ' + interval + ' — values span ' + Math.round(res.stats.zmin) +
+          ' to ' + Math.round(res.stats.zmax) + ', so try a smaller interval.') + '</div>';
       btn.disabled = false; btn.textContent = 'Generate';
       return;
     }
@@ -905,11 +1005,12 @@ function runContour() {
     var fl = L.fields.filter(function (f) { return f.k === field; })[0];
     document.getElementById('ct-cap').textContent = interval + ' ft';
     document.querySelector('#t-contours').parentNode.title =
-      L.label + ' · ' + (fl ? fl.label : field) + ' · ' + interval + ' interval';
+      L.label + ' · ' + (fl ? fl.label : field) + ' · ' + interval + ' interval' +
+      (clip ? ' · clipped to drawn area' : '');
     applyState();
     closeDlg();
-    showToast(res.stats.lines + ' contour lines · ' + res.stats.levels + ' levels · ' +
-              (fl ? fl.label : field), 'Dismiss', function () {});
+    showToast(res.stats.lines + ' contour lines · ' + res.stats.levels + ' levels' +
+              (clip ? ' · clipped' : ''), 'Dismiss', function () {});
   };
 
   if (BORE_CACHE) { go(BORE_CACHE); }

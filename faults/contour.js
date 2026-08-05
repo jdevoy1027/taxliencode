@@ -73,6 +73,16 @@
     });
   }
 
+  // ---------- point in polygon (ray casting) ----------
+  function inRing(x, y, ring) {
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+
   // ---------- rasterise triangles into a grid ----------
   function rasterise(pts, tris, nx, ny, bbox) {
     var Z = new Float64Array(nx * ny);
@@ -209,8 +219,57 @@
     var padx = (maxx - minx) * 0.01, pady = (maxy - miny) * 0.01;
     var bbox = [minx - padx, miny - pady, maxx + padx, maxy + pady];
 
+    // A clip ring narrows the grid to that area, so resolution concentrates where
+    // it is wanted. Interpolation still uses every point, so values near the ring
+    // edge remain informed by boreholes just outside it.
+    var clip = opt.clip && opt.clip.length >= 3 ? opt.clip : null;
+    if (clip) {
+      var cx0 = Infinity, cy0 = Infinity, cx1 = -Infinity, cy1 = -Infinity;
+      clip.forEach(function (c) {
+        if (c[0] < cx0) cx0 = c[0]; if (c[0] > cx1) cx1 = c[0];
+        if (c[1] < cy0) cy0 = c[1]; if (c[1] > cy1) cy1 = c[1];
+      });
+      var mx = (cx1 - cx0) * 0.02, my = (cy1 - cy0) * 0.02;
+      bbox = [Math.max(bbox[0], cx0 - mx), Math.max(bbox[1], cy0 - my),
+              Math.min(bbox[2], cx1 + mx), Math.min(bbox[3], cy1 + my)];
+      if (!(bbox[2] > bbox[0] && bbox[3] > bbox[1])) {
+        return { type: 'FeatureCollection', features: [],
+                 stats: { points: pts.length, triangles: 0, levels: 0, lines: 0,
+                          zmin: zmin, zmax: zmax, interval: interval, clipped: true,
+                          outside: true } };
+      }
+    }
+
     var tris = delaunay(pts);
     var g = rasterise(pts, tris, nx, ny, bbox);
+
+    var kept = 0;
+    if (clip) {
+      for (var j = 0; j < g.ny; j++) {
+        var py = g.y0 + j * g.sy;
+        for (var i = 0; i < g.nx; i++) {
+          var k = j * g.nx + i;
+          if (!g.M[k]) continue;
+          if (inRing(g.x0 + i * g.sx, py, clip)) kept++; else g.M[k] = 0;
+        }
+      }
+      if (!kept) {
+        return { type: 'FeatureCollection', features: [],
+                 stats: { points: pts.length, triangles: tris.length, levels: 0, lines: 0,
+                          zmin: zmin, zmax: zmax, interval: interval, clipped: true,
+                          outside: true } };
+      }
+    }
+
+    // recompute the level range from what is actually inside the mask
+    if (clip) {
+      zmin = Infinity; zmax = -Infinity;
+      for (var q = 0; q < g.Z.length; q++) {
+        if (!g.M[q]) continue;
+        if (g.Z[q] < zmin) zmin = g.Z[q];
+        if (g.Z[q] > zmax) zmax = g.Z[q];
+      }
+    }
 
     var lo = Math.ceil(zmin / interval) * interval;
     var hi = Math.floor(zmax / interval) * interval;
@@ -244,7 +303,8 @@
       stats: {
         points: pts.length, triangles: tris.length,
         levels: nLevels, lines: feats.length,
-        zmin: zmin, zmax: zmax, interval: interval
+        zmin: zmin, zmax: zmax, interval: interval,
+        clipped: !!clip
       }
     };
   }
