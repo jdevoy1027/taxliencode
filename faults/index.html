@@ -69,6 +69,60 @@
   }
   .seg button[aria-pressed="true"] { background: #2d6a5a; border-color: #2d6a5a; color: #fff; font-weight: 560; }
 
+  /* Tools menu + dialogs */
+  .toolbar { display:flex; gap:6px; margin-top:9px; }
+  .mbtn {
+    flex:1; position:relative; font:inherit; font-size:12.5px; font-weight:560;
+    padding:6px 10px; border:1px solid #2d6a5a; background:#2d6a5a; color:#fff;
+    border-radius:7px; cursor:pointer; text-align:center;
+  }
+  .menu {
+    position:absolute; z-index:9; left:15px; right:15px; margin-top:4px;
+    background:#fff; border:1px solid #d0d0ca; border-radius:9px;
+    box-shadow:0 8px 26px rgba(0,0,0,.16); overflow:hidden;
+  }
+  .menu[hidden]{display:none}
+  .menu button {
+    display:block; width:100%; text-align:left; font:inherit; font-size:13px;
+    padding:9px 13px; border:0; background:#fff; cursor:pointer; color:#1a1a18;
+  }
+  .menu button:hover{background:#f2f6f4}
+  .menu button + button{border-top:1px solid #ebebe6}
+  .menu .mh{font-size:11px;color:#9a9a92;padding:7px 13px 3px;letter-spacing:.05em;text-transform:uppercase}
+
+  .backdrop{position:fixed;inset:0;background:rgba(20,20,20,.34);z-index:20;display:flex;
+            align-items:center;justify-content:center;padding:20px}
+  .backdrop[hidden]{display:none}
+  .dlg{background:#fff;border-radius:13px;box-shadow:0 20px 60px rgba(0,0,0,.3);
+       width:min(420px,100%);max-height:88vh;overflow:auto}
+  .dlg h2{margin:0;padding:15px 18px 13px;font-size:15px;font-weight:640;border-bottom:1px solid #ebebe6}
+  .dlg .bd{padding:15px 18px}
+  .fld{margin-bottom:13px}
+  .fld:last-child{margin-bottom:0}
+  .fld label{display:block;font-size:11.5px;font-weight:600;letter-spacing:.05em;
+             text-transform:uppercase;color:#85857e;margin-bottom:5px}
+  .fld select,.fld input[type=number]{
+    width:100%;font:inherit;font-size:13px;padding:7px 9px;border:1px solid #d0d0ca;
+    border-radius:7px;background:#fff;color:#1a1a18}
+  .fld .hint{font-size:11.5px;color:#85857e;margin-top:5px;line-height:1.45}
+  .radio{display:flex;align-items:flex-start;gap:8px;padding:7px 0;cursor:pointer;font-size:13px}
+  .radio input{margin:3px 0 0;accent-color:#2d6a5a;flex:none}
+  .radio .d{font-size:11.5px;color:#85857e;display:block;margin-top:1px}
+  .dlg .ft{display:flex;gap:8px;justify-content:flex-end;padding:13px 18px;border-top:1px solid #ebebe6}
+  .dlg .ft button{font:inherit;font-size:13px;font-weight:560;padding:7px 15px;border-radius:8px;cursor:pointer}
+  .dlg .ft .go{border:1px solid #2d6a5a;background:#2d6a5a;color:#fff}
+  .dlg .ft .go:disabled{opacity:.45;cursor:not-allowed}
+  .dlg .ft .cx{border:1px solid #d0d0ca;background:#fff;color:#3a3a35}
+  .dlg .err{margin-top:11px;font-size:12px;color:#8a2b1c;background:#fdeeeb;
+            border:1px solid #f3cfc8;border-radius:7px;padding:8px 10px}
+
+  .toast{position:absolute;z-index:9;left:50%;transform:translateX(-50%);bottom:22px;
+         background:rgba(20,20,20,.9);color:#fff;padding:9px 14px;border-radius:22px;
+         font-size:12.5px;display:flex;align-items:center;gap:11px}
+  .toast[hidden]{display:none}
+  .toast button{font:inherit;font-size:12px;font-weight:600;padding:4px 11px;border-radius:14px;
+                border:0;background:#6bbfa5;color:#10221d;cursor:pointer}
+
   .note { padding: 11px 15px 13px; font-size: 11.5px; line-height: 1.45; color: #85857e; }
 
   .mapboxgl-popup-content {
@@ -104,6 +158,8 @@
 
 <div id="map"></div>
 <div id="loading">Loading map data…</div>
+<div class="toast" id="toast" hidden></div>
+<div class="backdrop" id="backdrop" hidden></div>
 
 <div class="panel">
   <header>
@@ -143,8 +199,8 @@
       </label>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-contours">
-        <span class="lbl">Elevation contours</span>
-        <span class="cnt">10 ft</span>
+        <span class="lbl">Contours</span>
+        <span class="cnt" id="ct-cap">10 ft</span>
       </label>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-bores" checked>
@@ -163,13 +219,13 @@
     </div>
 
     <div class="sec">
-      <h2>Cross-section</h2>
-      <button id="xs-go" style="width:100%;padding:7px 8px;font:inherit;font-size:12.5px;
-        font-weight:560;border:1px solid #2d6a5a;background:#2d6a5a;color:#fff;
-        border-radius:7px;cursor:pointer">Build cross-section →</button>
-      <p style="margin:7px 0 0;font-size:11.5px;line-height:1.4;color:#85857e">
-        Draw a line with the palette's Line tool, then press this to plot borehole
-        lithology along it.</p>
+      <h2>Tools</h2>
+      <div class="toolbar"><button class="mbtn" id="m-tools">Tools ▾</button></div>
+      <div class="menu" id="menu" hidden>
+        <div class="mh">Analysis</div>
+        <button id="m-contour">Contour…</button>
+        <button id="m-xsect">Cross-section…</button>
+      </div>
     </div>
 
     <div class="sec">
@@ -207,6 +263,7 @@
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
 <script src="./palette.js"></script>
+<script src="./contour.js"></script>
 <script src="./annotate.js"></script>
 <script>
 mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGN6bGljVE0xZURCamRHWXpNRzlsYkhZMmVub3hPRFFpZlEuWTBrbWgxTzNWbVpuV2tQX0lMaWJuQQ==');
@@ -718,30 +775,234 @@ op.addEventListener('input', function () {
   applyState();
 });
 
-// ---- Cross-section: hand the drawn line to the section page ----
-document.getElementById('xs-go').addEventListener('click', function () {
-  var src = map.getSource('annot');
-  // annotate.js keeps its FeatureCollection on the source; querySourceFeatures would
-  // hand back tile-clipped geometry, so read the authored data when it is available.
-  var fc = src && src._data;
-  var lines = [];
-  if (fc && fc.features) {
-    fc.features.forEach(function (f) {
-      if (f.geometry && f.geometry.type === 'LineString' &&
-          f.geometry.coordinates.length >= 2 &&
-          f.properties.atype !== 'arrowhead') lines.push(f);
-    });
+
+// ================= Tools menu =================
+var MENU = document.getElementById('menu');
+var BACKDROP = document.getElementById('backdrop');
+var TOAST = document.getElementById('toast');
+
+document.getElementById('m-tools').addEventListener('click', function (e) {
+  e.stopPropagation();
+  MENU.hidden = !MENU.hidden;
+});
+document.addEventListener('click', function (e) {
+  if (!MENU.hidden && !MENU.contains(e.target)) MENU.hidden = true;
+});
+
+function closeDlg() { BACKDROP.hidden = true; BACKDROP.innerHTML = ''; }
+BACKDROP.addEventListener('click', function (e) { if (e.target === BACKDROP) closeDlg(); });
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && !BACKDROP.hidden) closeDlg();
+});
+function openDlg(html) {
+  BACKDROP.innerHTML = '<div class="dlg">' + html + '</div>';
+  BACKDROP.hidden = false;
+}
+function showToast(msg, btnLabel, onBtn) {
+  TOAST.innerHTML = '<span>' + msg + '</span>';
+  if (btnLabel) {
+    var b = document.createElement('button');
+    b.textContent = btnLabel;
+    b.onclick = function () { TOAST.hidden = true; onBtn(); };
+    TOAST.appendChild(b);
   }
-  if (!lines.length) {
-    alert('No line drawn yet.\n\nPick the Line tool in the drawing palette, click along ' +
-          'your section, then double-click to finish — and try again.');
+  TOAST.hidden = false;
+}
+
+// ================= Contour tool =================
+// Only layers that actually carry numeric point values can be contoured.
+var CONTOURABLE = [{
+  id: 'bores', label: 'Boreholes (CGS)', url: './boreholes.geojson',
+  fields: [
+    { k: 'e', label: 'Collar elevation (ft)', dflt: 10 },
+    { k: 'd', label: 'Total depth (ft)', dflt: 20 }
+  ]
+}];
+var BORE_CACHE = null;
+
+document.getElementById('m-contour').addEventListener('click', function () {
+  MENU.hidden = true;
+  var lyr = CONTOURABLE[0];
+  openDlg(
+    '<h2>Generate contours</h2><div class="bd">' +
+    '<div class="fld"><label>Layer</label><select id="d-layer">' +
+      CONTOURABLE.map(function (l, i) {
+        return '<option value="' + i + '">' + esc(l.label) + '</option>';
+      }).join('') +
+    '</select><div class="hint">Only point layers with numeric fields can be contoured.</div></div>' +
+    '<div class="fld"><label>Field to contour</label><select id="d-field">' +
+      lyr.fields.map(function (f) {
+        return '<option value="' + f.k + '">' + esc(f.label) + '</option>';
+      }).join('') +
+    '</select></div>' +
+    '<div class="fld"><label>Contour interval</label>' +
+    '<input type="number" id="d-int" value="10" min="0.5" step="0.5">' +
+    '<div class="hint">Every 5th line is drawn heavier and labelled as an index contour.</div></div>' +
+    '<div id="d-err"></div>' +
+    '</div><div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
+    '<button class="go" id="d-go">Generate</button></div>');
+
+  var fieldSel = document.getElementById('d-field');
+  var intBox = document.getElementById('d-int');
+  document.getElementById('d-layer').addEventListener('change', function () {
+    var L = CONTOURABLE[+this.value];
+    fieldSel.innerHTML = L.fields.map(function (f) {
+      return '<option value="' + f.k + '">' + esc(f.label) + '</option>';
+    }).join('');
+    intBox.value = L.fields[0].dflt;
+  });
+  fieldSel.addEventListener('change', function () {
+    var L = CONTOURABLE[+document.getElementById('d-layer').value];
+    var f = L.fields.filter(function (x) { return x.k === fieldSel.value; })[0];
+    if (f) intBox.value = f.dflt;
+  });
+  document.getElementById('d-cancel').addEventListener('click', closeDlg);
+  document.getElementById('d-go').addEventListener('click', runContour);
+});
+
+function runContour() {
+  var L = CONTOURABLE[+document.getElementById('d-layer').value];
+  var field = document.getElementById('d-field').value;
+  var interval = parseFloat(document.getElementById('d-int').value);
+  var errBox = document.getElementById('d-err');
+  var btn = document.getElementById('d-go');
+  if (!(interval > 0)) {
+    errBox.innerHTML = '<div class="err">Interval must be greater than zero.</div>';
     return;
   }
-  var coords = lines[lines.length - 1].geometry.coordinates;   // most recent line
-  var q = coords.map(function (c) {
-    return c[0].toFixed(6) + ',' + c[1].toFixed(6);
-  }).join(';');
+  btn.disabled = true; btn.textContent = 'Working…';
+
+  var go = function (fc) {
+    var pts = [];
+    fc.features.forEach(function (f) {
+      var v = f.properties[field];
+      if (v == null || !isFinite(v)) return;
+      pts.push({ x: f.geometry.coordinates[0], y: f.geometry.coordinates[1], z: +v });
+    });
+    if (pts.length < 3) {
+      errBox.innerHTML = '<div class="err">Only ' + pts.length +
+        ' points carry a value for that field — need at least 3.</div>';
+      btn.disabled = false; btn.textContent = 'Generate';
+      return;
+    }
+    var res;
+    try { res = makeContours(pts, { interval: interval, grid: 320, index: 5 }); }
+    catch (err) {
+      errBox.innerHTML = '<div class="err">Contouring failed: ' + esc(err.message) + '</div>';
+      btn.disabled = false; btn.textContent = 'Generate';
+      return;
+    }
+    if (!res.features.length) {
+      errBox.innerHTML = '<div class="err">No contours at ' + interval +
+        ' — the values span ' + Math.round(res.stats.zmin) + ' to ' +
+        Math.round(res.stats.zmax) + ', so try a smaller interval.</div>';
+      btn.disabled = false; btn.textContent = 'Generate';
+      return;
+    }
+    if (map.getSource('contours')) map.getSource('contours').setData(res);
+    showContours = true;
+    document.getElementById('t-contours').checked = true;
+    var fl = L.fields.filter(function (f) { return f.k === field; })[0];
+    document.getElementById('ct-cap').textContent = interval + ' ft';
+    document.querySelector('#t-contours').parentNode.title =
+      L.label + ' · ' + (fl ? fl.label : field) + ' · ' + interval + ' interval';
+    applyState();
+    closeDlg();
+    showToast(res.stats.lines + ' contour lines · ' + res.stats.levels + ' levels · ' +
+              (fl ? fl.label : field), 'Dismiss', function () {});
+  };
+
+  if (BORE_CACHE) { go(BORE_CACHE); }
+  else {
+    fetch(L.url).then(function (r) { return r.json(); })
+      .then(function (fc) { BORE_CACHE = fc; go(fc); })
+      .catch(function (err) {
+        errBox.innerHTML = '<div class="err">Could not load layer: ' + esc(err.message) + '</div>';
+        btn.disabled = false; btn.textContent = 'Generate';
+      });
+  }
+}
+
+// ================= Cross-section tool =================
+function drawnLines() {
+  var src = map.getSource('annot');
+  var fc = src && src._data;
+  if (!fc || !fc.features) return [];
+  return fc.features.filter(function (f) {
+    return f.geometry && f.geometry.type === 'LineString' &&
+           f.geometry.coordinates.length >= 2 &&
+           f.properties.atype !== 'arrowhead';
+  });
+}
+
+function lineLengthFt(coords) {
+  var R = 20902231, tot = 0;   // earth radius in feet
+  for (var i = 1; i < coords.length; i++) {
+    var a = coords[i - 1], b = coords[i];
+    var la1 = a[1] * Math.PI / 180, la2 = b[1] * Math.PI / 180;
+    var dLa = la2 - la1, dLo = (b[0] - a[0]) * Math.PI / 180;
+    var h = Math.sin(dLa / 2) * Math.sin(dLa / 2) +
+            Math.cos(la1) * Math.cos(la2) * Math.sin(dLo / 2) * Math.sin(dLo / 2);
+    tot += 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+  return tot;
+}
+
+function openSection(coords) {
+  var q = coords.map(function (c) { return c[0].toFixed(6) + ',' + c[1].toFixed(6); }).join(';');
   window.open('../cross-section/?line=' + encodeURIComponent(q), '_blank');
+}
+
+document.getElementById('m-xsect').addEventListener('click', function () {
+  MENU.hidden = true;
+  var lines = drawnLines();
+  var opts = lines.map(function (f, i) {
+    return '<option value="' + i + '">Line ' + (i + 1) + ' — ' +
+           f.geometry.coordinates.length + ' pts, ' +
+           Math.round(lineLengthFt(f.geometry.coordinates)).toLocaleString() + ' ft</option>';
+  }).join('');
+
+  openDlg(
+    '<h2>Cross-section</h2><div class="bd">' +
+    '<label class="radio"><input type="radio" name="xs" value="new"' +
+      (lines.length ? '' : ' checked') + '>' +
+    '<span>Draw a new line<span class="d">Activates the Line tool — click along your ' +
+    'section, double-click to finish, then press Use this line.</span></span></label>' +
+    '<label class="radio"><input type="radio" name="xs" value="existing"' +
+      (lines.length ? ' checked' : ' disabled') + '>' +
+    '<span>Use an existing line' +
+    '<span class="d">' + (lines.length ? lines.length + ' line' + (lines.length > 1 ? 's' : '') +
+      ' currently drawn.' : 'No lines drawn yet.') + '</span></span></label>' +
+    (lines.length ? '<div class="fld" style="margin-top:10px"><label>Which line</label>' +
+      '<select id="d-line">' + opts + '</select></div>' : '') +
+    '</div><div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
+    '<button class="go" id="d-go">Continue</button></div>');
+
+  document.getElementById('d-cancel').addEventListener('click', closeDlg);
+  document.getElementById('d-go').addEventListener('click', function () {
+    var mode = document.querySelector('input[name=xs]:checked').value;
+    closeDlg();
+    if (mode === 'existing') {
+      var idx = +document.getElementById('d-line').value;
+      openSection(drawnLines()[idx].geometry.coordinates);
+      return;
+    }
+    // draw-on-the-fly: activate the palette's Line tool, then wait for the user
+    var before = drawnLines().length;
+    var btn = document.querySelector('#p-tools .tool[title="Line"]');
+    if (btn) btn.click();
+    function awaitLine(msg) {
+      showToast(msg, 'Use this line', function () {
+        var now = drawnLines();
+        if (now.length <= before) {
+          awaitLine('No new line yet — draw one, then press Use this line.');
+          return;
+        }
+        openSection(now[now.length - 1].geometry.coordinates);
+      });
+    }
+    awaitLine('Click along your section, double-click to finish.');
+  });
 });
 
 // ---- Base map switch (raster toggle; no setStyle, so nothing is ever destroyed) ----
