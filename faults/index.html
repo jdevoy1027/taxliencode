@@ -232,6 +232,8 @@
         <div class="mh">Analysis</div>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
+        <div class="mh">Output</div>
+        <button id="m-ctmap">Print contour map…</button>
       </div>
     </div>
 
@@ -1101,6 +1103,20 @@ function runContour() {
       });
   }
 }
+
+// Open the current contour settings as a printable map sheet.
+document.getElementById('m-ctmap').addEventListener('click', function () {
+  MENU.hidden = true;
+  var q = 'layer=bores&field=' + encodeURIComponent(ctPrefs.field) +
+          '&interval=' + encodeURIComponent(ctPrefs.interval);
+  var clip = currentClip();
+  if (clip && clip.length >= 3) {
+    q += '&clip=' + encodeURIComponent(clip.map(function (c) {
+      return c[0].toFixed(6) + ',' + c[1].toFixed(6);
+    }).join(';'));
+  }
+  window.open('../contour-map/?' + q, '_blank');
+});
 
 // ================= Cross-section tool =================
 function drawnLines() {

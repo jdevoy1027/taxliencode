@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contour Map — Geonomics</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
+<style>
+  :root{--bg:#f2f2ef;--panel:#fff;--fg:#1a1a18;--muted:#6b6b66;--line:#e4e4e0;
+        --line2:#d0d0ca;--accent:#2d6a5a;--ink:#8a6a4a}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);
+    font:14px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;display:flex;flex-direction:column}
+
+  .bar{padding:11px 18px;background:var(--panel);border-bottom:1px solid var(--line);
+       display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}
+  .bar a{font-size:12.5px;color:var(--muted);text-decoration:none}
+  .bar a:hover{color:var(--accent)}
+  .bar .sp{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .bar button,.bar select{font:inherit;font-size:12.5px;padding:6px 12px;border-radius:7px;cursor:pointer}
+  .bar button{border:1px solid var(--accent);background:var(--accent);color:#fff;font-weight:560}
+  .bar button.ghost{background:#fff;color:var(--accent)}
+  .bar select{border:1px solid var(--line2);background:#fff;color:var(--fg)}
+
+  .stage{flex:1;overflow:auto;padding:18px;display:flex;justify-content:center}
+
+  /* The sheet is sized to a printed page so what you see is what prints. */
+  .sheet{background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.14);border:1px solid var(--line);
+         width:1056px;min-height:816px;display:flex;flex-direction:column;padding:26px}
+  .sheet.portrait{width:816px;min-height:1056px}
+
+  .head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;
+        border-bottom:2px solid #2a2a26;padding-bottom:10px;margin-bottom:12px}
+  .head h1{margin:0 0 3px;font-size:19px;font-weight:660;letter-spacing:-.02em}
+  .head .s{margin:0;font-size:12.5px;color:var(--muted)}
+  .head .org{text-align:right;font-size:11.5px;color:var(--muted);line-height:1.45}
+  .head .org b{display:block;font-size:13px;color:var(--fg);font-weight:640;letter-spacing:-.01em}
+
+  .body{flex:1;display:flex;gap:16px;min-height:0}
+  #map{flex:1;border:1px solid var(--line2);min-height:430px;position:relative}
+  .side{width:214px;flex:none;display:flex;flex-direction:column;gap:14px}
+
+  .box{border:1px solid var(--line);border-radius:8px;padding:11px 12px}
+  .box h3{margin:0 0 8px;font-size:10.5px;font-weight:640;letter-spacing:.07em;
+          text-transform:uppercase;color:#85857e}
+  .lrow{display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px}
+  .lrow .sw{width:26px;flex:none;display:flex;align-items:center}
+  .lrow .sw i{display:block;width:100%;background:var(--ink);border-radius:1px}
+  .lrow .dot{width:11px;height:11px;border-radius:50%;background:#10233f;
+             border:1.6px solid #fff;box-shadow:0 0 0 1px #10233f;flex:none;margin-left:7px}
+  .meta{font-size:11.5px;color:var(--muted);line-height:1.55}
+  .meta b{color:#3a3a35;font-weight:560}
+
+  .north{display:flex;align-items:center;justify-content:center;padding:4px 0}
+  .foot{border-top:1px solid var(--line);margin-top:12px;padding-top:9px;
+        display:flex;justify-content:space-between;font-size:10.5px;color:#9a9a92}
+
+  .msg{margin:auto;text-align:center;color:var(--muted);max-width:560px;padding:60px 20px}
+  .msg h2{color:var(--fg);font-size:17px;margin:0 0 9px}
+  .msg ol{text-align:left;display:inline-block;line-height:1.9;margin-top:12px}
+
+  @media print{
+    @page{size:landscape;margin:.4in}
+    body{background:#fff}
+    .bar{display:none}
+    .stage{padding:0;overflow:visible}
+    .sheet{box-shadow:none;border:0;width:auto;min-height:0;padding:0}
+    .sheet.portrait{width:auto}
+  }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <a href="../faults/">← Geology &amp; Faults map</a>
+  <div class="sp">
+    <select id="orient">
+      <option value="landscape">Landscape</option>
+      <option value="portrait">Portrait</option>
+    </select>
+    <select id="base">
+      <option value="light-v11">Light base</option>
+      <option value="streets-v12">Streets base</option>
+      <option value="satellite-streets-v12">Satellite base</option>
+      <option value="empty">No base map</option>
+    </select>
+    <button class="ghost" id="fit">Fit to contours</button>
+    <button id="print">Print</button>
+  </div>
+</div>
+
+<div class="stage" id="stage">
+  <div class="sheet" id="sheet">
+    <div class="head">
+      <div>
+        <h1 id="t-title">Contour Map</h1>
+        <p class="s" id="t-sub">Loading…</p>
+      </div>
+      <div class="org"><b>Geonomics</b>taxliencode.pro<br><span id="t-date"></span></div>
+    </div>
+    <div class="body">
+      <div id="map"></div>
+      <div class="side">
+        <div class="box">
+          <h3>Contours</h3>
+          <div id="l-lines"></div>
+          <div class="meta" id="l-meta"></div>
+        </div>
+        <div class="box">
+          <h3>Control points</h3>
+          <div class="lrow"><span class="dot"></span><span id="l-pts">Boreholes</span></div>
+        </div>
+        <div class="box north">
+          <svg width="34" height="46" viewBox="0 0 34 46" aria-label="North arrow">
+            <polygon points="17,3 25,30 17,24 9,30" fill="#2a2a26"/>
+            <text x="17" y="43" text-anchor="middle" font-size="12" font-weight="700"
+                  font-family="ui-sans-serif,Helvetica,Arial" fill="#2a2a26">N</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <span id="f-src">Contours interpolated from borehole control points · Delaunay linear</span>
+      <span id="f-note"></span>
+    </div>
+  </div>
+</div>
+
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+<script src="../faults/contour.js"></script>
+<script>
+mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGN6bGljVE0xZURCamRHWXpNRzlsYkhZMmVub3hPRFFpZlEuWTBrbWgxTzNWbVpuV2tQX0lMaWJuQQ==');
+
+var LAYERS = {
+  bores: {
+    label: 'Boreholes (CGS)', url: '../faults/boreholes.geojson',
+    fields: { e: 'Collar elevation (ft)', d: 'Total depth (ft)' }, unit: 'ft'
+  }
+};
+
+function qp() {
+  var u = new URLSearchParams(location.search);
+  var clip = null;
+  if (u.get('clip')) {
+    clip = u.get('clip').split(';').map(function (p) {
+      var a = p.split(',');
+      return [parseFloat(a[0]), parseFloat(a[1])];
+    }).filter(function (c) { return isFinite(c[0]) && isFinite(c[1]); });
+    if (clip.length < 3) clip = null;
+    else if (clip[0][0] !== clip[clip.length - 1][0] || clip[0][1] !== clip[clip.length - 1][1]) {
+      clip = clip.concat([clip[0]]);
+    }
+  }
+  return {
+    layer: u.get('layer') || 'bores',
+    field: u.get('field') || 'e',
+    interval: parseFloat(u.get('interval')) || 10,
+    clip: clip
+  };
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function fmt(v) { return (Math.round(v * 10) / 10).toLocaleString(); }
+
+var P = qp(), L = LAYERS[P.layer] || LAYERS.bores;
+var map = null, RES = null, PTS = null;
+
+document.getElementById('t-date').textContent =
+  new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+
+fetch(L.url).then(function (r) { return r.json(); }).then(function (fc) {
+  PTS = [];
+  fc.features.forEach(function (f) {
+    var v = f.properties[P.field];
+    if (v == null || !isFinite(v)) return;
+    PTS.push({ x: f.geometry.coordinates[0], y: f.geometry.coordinates[1], z: +v,
+               n: f.properties.n });
+  });
+  if (PTS.length < 3) { fail('Only ' + PTS.length + ' control points carry that field.'); return; }
+  RES = makeContours(PTS, { interval: P.interval, grid: 340, index: 5, clip: P.clip });
+  if (!RES.features.length) {
+    fail(RES.stats.outside
+      ? 'The selected area does not overlap any control points.'
+      : 'No contours at that interval — values span ' + Math.round(RES.stats.zmin) +
+        ' to ' + Math.round(RES.stats.zmax) + '.');
+    return;
+  }
+  build();
+}).catch(function (e) { fail('Could not load ' + esc(L.url) + ' — ' + esc(e.message)); });
+
+function fail(msg) {
+  document.getElementById('stage').innerHTML =
+    '<div class="msg"><h2>Nothing to map</h2><p>' + msg + '</p>' +
+    '<ol><li>Open the <a href="../faults/">Geology &amp; Faults map</a></li>' +
+    '<li>Tools → Contour…, set the layer, area, field and interval</li>' +
+    '<li>Tools → Print contour map</li></ol></div>';
+}
+
+function build() {
+  var fieldName = L.fields[P.field] || P.field;
+  document.getElementById('t-title').textContent = fieldName.replace(/\s*\(ft\)$/, '') + ' contours';
+  document.getElementById('t-sub').textContent =
+    L.label + ' · ' + fmt(P.interval) + ' ' + L.unit + ' interval' +
+    (P.clip ? ' · clipped to selected area' : ' · full layer extent');
+  document.getElementById('l-pts').textContent = L.label + ' (' + PTS.length.toLocaleString() + ')';
+
+  document.getElementById('l-lines').innerHTML =
+    '<div class="lrow"><span class="sw"><i style="height:2.6px"></i></span>' +
+    '<span>Index — every ' + fmt(P.interval * 5) + ' ' + L.unit + '</span></div>' +
+    '<div class="lrow"><span class="sw"><i style="height:1px"></i></span>' +
+    '<span>Intermediate — ' + fmt(P.interval) + ' ' + L.unit + '</span></div>';
+  document.getElementById('l-meta').innerHTML =
+    '<b>' + esc(fieldName) + '</b><br>Range <b>' + fmt(RES.stats.zmin) + '–' +
+    fmt(RES.stats.zmax) + ' ' + L.unit + '</b><br>' +
+    RES.stats.levels + ' levels · ' + RES.stats.lines + ' lines';
+  document.getElementById('f-note').textContent =
+    RES.stats.triangles.toLocaleString() + ' triangles · grid 340²' +
+    (P.clip ? ' · area-clipped' : '');
+
+  map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/light-v11',
+    center: [-118.05, 33.82], zoom: 10,
+    preserveDrawingBuffer: true,      // required for reliable printing
+    attributionControl: true
+  });
+  map.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+  map.on('load', function () { addAll(); fitAll(); });
+}
+
+function addAll() {
+  if (!map.getSource('ct')) map.addSource('ct', { type: 'geojson', data: RES });
+  if (!map.getSource('cp')) {
+    map.addSource('cp', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: PTS.map(function (p) {
+        return { type: 'Feature', properties: { n: p.n || '' },
+                 geometry: { type: 'Point', coordinates: [p.x, p.y] } };
+      }) }
+    });
+  }
+  if (P.clip && !map.getSource('cl')) {
+    map.addSource('cl', { type: 'geojson', data: {
+      type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [P.clip] } } });
+  }
+  if (P.clip && !map.getLayer('cl-line')) {
+    map.addLayer({ id: 'cl-line', type: 'line', source: 'cl',
+      paint: { 'line-color': '#2d6a5a', 'line-width': 1.6, 'line-dasharray': [4, 3] } });
+  }
+  if (!map.getLayer('ct-line')) {
+    map.addLayer({
+      id: 'ct-line', type: 'line', source: 'ct',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': '#8a6a4a',
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          9,  ['case', ['==', ['get', 'ix'], 1], 1.2, 0.55],
+          13, ['case', ['==', ['get', 'ix'], 1], 2.2, 1.0],
+          16, ['case', ['==', ['get', 'ix'], 1], 3.2, 1.5]]
+      }
+    });
+  }
+  if (!map.getLayer('cp-dot')) {
+    map.addLayer({ id: 'cp-dot', type: 'circle', source: 'cp',
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 1.6, 14, 3.4],
+               'circle-color': '#10233f', 'circle-stroke-color': '#fff',
+               'circle-stroke-width': 0.8, 'circle-opacity': .9 } });
+  }
+  if (!map.getLayer('ct-label')) {
+    map.addLayer({
+      id: 'ct-label', type: 'symbol', source: 'ct',
+      filter: ['==', ['get', 'ix'], 1],
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['to-string', ['get', 'e']],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 9, 9, 14, 12],
+        'symbol-spacing': 240, 'text-allow-overlap': false, 'text-padding': 3
+      },
+      paint: { 'text-color': '#6b4f36', 'text-halo-color': 'rgba(255,255,255,.95)',
+               'text-halo-width': 1.5 }
+    });
+  }
+}
+
+function fitAll() {
+  var b = new mapboxgl.LngLatBounds();
+  var ring = P.clip;
+  if (ring) ring.forEach(function (c) { b.extend(c); });
+  else RES.features.forEach(function (f) { f.geometry.coordinates.forEach(function (c) { b.extend(c); }); });
+  map.fitBounds(b, { padding: 26, duration: 0 });
+}
+
+document.getElementById('fit').addEventListener('click', fitAll);
+document.getElementById('print').addEventListener('click', function () {
+  if (map) map.resize();
+  setTimeout(function () { window.print(); }, 250);
+});
+document.getElementById('orient').addEventListener('change', function () {
+  document.getElementById('sheet').classList.toggle('portrait', this.value === 'portrait');
+  if (map) setTimeout(function () { map.resize(); fitAll(); }, 60);
+});
+document.getElementById('base').addEventListener('change', function () {
+  if (!map) return;
+  var v = this.value;
+  if (v === 'empty') {
+    map.setStyle({ version: 8, sources: {}, layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#ffffff' } }] });
+  } else {
+    map.setStyle('mapbox://styles/mapbox/' + v);
+  }
+  map.once('styledata', function () { addAll(); });
+});
+</script>
+</body>
+</html>
