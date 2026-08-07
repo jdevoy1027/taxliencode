@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Contour Map — Geonomics</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
+<style id="pagecss">@page{size:11in 8.5in;margin:.25in}</style>
 <style>
   :root{--bg:#f2f2ef;--panel:#fff;--fg:#1a1a18;--muted:#6b6b66;--line:#e4e4e0;
         --line2:#d0d0ca;--accent:#2d6a5a;--ink:#8a6a4a}
@@ -27,9 +28,11 @@
   .stage{flex:1;overflow:auto;padding:18px;display:flex;justify-content:center}
 
   /* The sheet is sized to a printed page so what you see is what prints. */
+  /* 11in x 8.5in at 96dpi = 1056 x 816. Fixed height (not min-height) so the
+     on-screen sheet is exactly one printed page. */
   .sheet{background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.14);border:1px solid var(--line);
-         width:1056px;min-height:816px;display:flex;flex-direction:column;padding:26px}
-  .sheet.portrait{width:816px;min-height:1056px}
+         width:1056px;height:816px;display:flex;flex-direction:column;padding:34px;overflow:hidden}
+  .sheet.portrait{width:816px;height:1056px}
 
   .head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;
         border-bottom:2px solid #2a2a26;padding-bottom:10px;margin-bottom:12px}
@@ -39,7 +42,7 @@
   .head .org b{display:block;font-size:13px;color:var(--fg);font-weight:640;letter-spacing:-.01em}
 
   .body{flex:1;display:flex;gap:16px;min-height:0}
-  #map{flex:1;border:1px solid var(--line2);min-height:430px;position:relative}
+  #map{flex:1;border:1px solid var(--line2);min-height:0;position:relative}
   .side{width:214px;flex:none;display:flex;flex-direction:column;gap:14px}
 
   .box{border:1px solid var(--line);border-radius:8px;padding:11px 12px}
@@ -62,12 +65,16 @@
   .msg ol{text-align:left;display:inline-block;line-height:1.9;margin-top:12px}
 
   @media print{
-    @page{size:landscape;margin:.4in}
-    body{background:#fff}
+    /* Page size comes from #pagecss so it follows the orientation control.
+       The sheet is sized in inches to the page minus its .25in margin, so it
+       lands on exactly one sheet regardless of the browser's margin default. */
+    html,body{width:100%;height:auto;background:#fff}
     .bar{display:none}
-    .stage{padding:0;overflow:visible}
-    .sheet{box-shadow:none;border:0;width:auto;min-height:0;padding:0}
-    .sheet.portrait{width:auto}
+    .stage{padding:0;overflow:visible;display:block}
+    .sheet{box-shadow:none;border:0;margin:0;padding:.22in;overflow:hidden;
+           width:10.5in;height:8in;page-break-after:avoid;page-break-inside:avoid}
+    .sheet.portrait{width:8in;height:10.5in}
+    .mapboxgl-ctrl-attrib-button{display:none}
   }
 </style>
 </head>
@@ -298,14 +305,24 @@ function fitAll() {
 }
 
 document.getElementById('fit').addEventListener('click', fitAll);
+function setPageSize(portrait) {
+  document.getElementById('pagecss').textContent =
+    '@page{size:' + (portrait ? '8.5in 11in' : '11in 8.5in') + ';margin:.25in}';
+}
+setPageSize(false);
+
 document.getElementById('print').addEventListener('click', function () {
-  if (map) map.resize();
-  setTimeout(function () { window.print(); }, 250);
+  if (map) { map.resize(); fitAll(); }
+  setTimeout(function () { window.print(); }, 300);
 });
 document.getElementById('orient').addEventListener('change', function () {
-  document.getElementById('sheet').classList.toggle('portrait', this.value === 'portrait');
+  var portrait = this.value === 'portrait';
+  document.getElementById('sheet').classList.toggle('portrait', portrait);
+  setPageSize(portrait);
   if (map) setTimeout(function () { map.resize(); fitAll(); }, 60);
 });
+// Cmd-P should behave like the button
+window.addEventListener('beforeprint', function () { if (map) map.resize(); });
 document.getElementById('base').addEventListener('change', function () {
   if (!map) return;
   var v = this.value;

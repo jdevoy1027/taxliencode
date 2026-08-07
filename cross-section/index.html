@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Borehole Cross-Section — Geonomics</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
+<style id="pagecss">@page{size:11in 8.5in;margin:.35in}</style>
 <style>
   :root{
     --bg:#fbfbfa; --panel:#fff; --fg:#1a1a18; --muted:#6b6b66;
@@ -87,9 +88,17 @@
     border:1px solid #f0dfc0;border-radius:8px;padding:9px 12px
   }
   @media print{
+    /* A section can be far wider than a page, so #xs-wrap is scaled to fit by
+       fitForPrint() before the dialog opens. Printable area at .35in margins on
+       11x8.5 paper is 10.3 x 7.8in. */
+    html,body{background:#fff;height:auto}
     header .ctrls,.back{display:none}
-    body{background:#fff}
-    .wrap{border:0;padding:0}
+    header{padding:0 0 8px;border-bottom:1px solid #ccc}
+    main{padding:0;overflow:visible}
+    .wrap{border:0;padding:0;background:#fff}
+    .strip{border:1px solid #bbb}
+    #xs-wrap{transform-origin:top left}
+    .mapboxgl-ctrl-attrib-button{display:none}
   }
 </style>
 </head>
@@ -116,6 +125,12 @@
       <select id="c-datum">
         <option value="elev">Elevation (ft)</option>
         <option value="depth">Depth below collar (ft)</option>
+      </select>
+    </label>
+    <label class="ctrl">Paper
+      <select id="c-orient">
+        <option value="landscape">11 × 8.5 landscape</option>
+        <option value="portrait">8.5 × 11 portrait</option>
       </select>
     </label>
     <button class="act ghost" id="c-print">Print</button>
@@ -219,6 +234,40 @@ Promise.all([
     '<div class="empty"><h2>Could not load data</h2><p>' + esc(e.message) + '</p></div>';
 });
 
+// ---------- fit the whole sheet onto one 11 x 8.5 page ----------
+var PRINT_MARGIN_IN = 0.35;
+function pageBoxPx() {
+  var portrait = document.getElementById('c-orient') &&
+                 document.getElementById('c-orient').value === 'portrait';
+  var w = (portrait ? 8.5 : 11) - PRINT_MARGIN_IN * 2;
+  var h = (portrait ? 11 : 8.5) - PRINT_MARGIN_IN * 2;
+  return { w: w * 96, h: h * 96, portrait: portrait };
+}
+function setPageSize() {
+  var p = pageBoxPx();
+  document.getElementById('pagecss').textContent =
+    '@page{size:' + (p.portrait ? '8.5in 11in' : '11in 8.5in') +
+    ';margin:' + PRINT_MARGIN_IN + 'in}';
+}
+function fitForPrint() {
+  var wrap = document.getElementById('xs-wrap');
+  if (!wrap) return;
+  wrap.style.zoom = '';
+  wrap.style.transform = '';
+  var box = pageBoxPx();
+  // header eats a little vertical room in print
+  var avail = box.h - 34;
+  var nw = wrap.scrollWidth, nh = wrap.scrollHeight;
+  if (!nw || !nh) return;
+  var z = Math.min(1, box.w / nw, avail / nh);
+  wrap.style.zoom = z;
+}
+window.addEventListener('beforeprint', fitForPrint);
+window.addEventListener('afterprint', function () {
+  var w = document.getElementById('xs-wrap');
+  if (w) { w.style.zoom = ''; w.style.transform = ''; }
+});
+
 function bind() {
   document.getElementById('c-buf').addEventListener('change', function () {
     opts.buf = Math.max(50, +this.value || 1000); render();
@@ -229,7 +278,14 @@ function bind() {
   document.getElementById('c-datum').addEventListener('change', function () {
     opts.datum = this.value; render();
   });
-  document.getElementById('c-print').addEventListener('click', function () { window.print(); });
+  document.getElementById('c-orient').addEventListener('change', function () {
+    setPageSize(); render();
+  });
+  document.getElementById('c-print').addEventListener('click', function () {
+    setPageSize(); fitForPrint();
+    setTimeout(function () { window.print(); }, 250);
+  });
+  setPageSize();
 }
 
 // ---------- pick boreholes along the line ----------
