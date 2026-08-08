@@ -205,6 +205,15 @@
         <span class="cnt">z9+</span>
       </label>
       <label class="row" style="margin-top:6px">
+        <input type="checkbox" id="t-blocks">
+        <span class="lbl">Census blocks</span>
+        <span class="cnt">z6+</span>
+      </label>
+      <div class="slider">
+        <input type="range" id="cb-op" min="0" max="100" value="60" disabled>
+        <span id="cb-op-v">60%</span>
+      </div>
+      <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-contours">
         <span class="lbl">Contours</span>
         <span class="cnt" id="ct-cap">10 ft</span>
@@ -235,6 +244,13 @@
         <div class="mh">Output</div>
         <button id="m-ctmap">Print contour map…</button>
       </div>
+    </div>
+
+    <div class="sec" id="cb-sec" hidden>
+      <h2>Population density</h2>
+      <div id="cb-legend"></div>
+      <div class="ctmeta">Persons per sq mile · US Census blocks<br>
+        Vector tileset · 235,799 blocks · 72 attributes</div>
     </div>
 
     <div class="sec" id="ct-sec" hidden>
@@ -321,6 +337,7 @@ var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
 var showBores = true, showBoreLabels = true, showSat = false;
 var showContours = false;
+var showBlocks = false, blockOpacity = 0.6;
 
 function geoColorExpr() {
   var e = ['match', ['get', 'PTYPE']];
@@ -400,6 +417,23 @@ function addLayers() {
         'line-color': 'rgba(60,60,55,.35)',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.2, 11, 0.6]
       }
+    });
+  }
+  if (!map.getSource('blocks')) {
+    map.addSource('blocks', { type: 'vector', url: 'mapbox://jdevoy.uscensusblocks' });
+  }
+  if (!map.getLayer('cb-fill')) {
+    map.addLayer({
+      id: 'cb-fill', type: 'fill', source: 'blocks', 'source-layer': 'blocks',
+      paint: { 'fill-color': cbColorExpr(), 'fill-opacity': blockOpacity }
+    });
+  }
+  if (!map.getLayer('cb-line')) {
+    map.addLayer({
+      id: 'cb-line', type: 'line', source: 'blocks', 'source-layer': 'blocks',
+      minzoom: 11,
+      paint: { 'line-color': 'rgba(30,45,70,.35)',
+               'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.2, 15, 0.7] }
     });
   }
   if (!map.getSource('contours')) {
@@ -595,6 +629,12 @@ function applyState() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSoils ? 'visible' : 'none');
   });
   if (map.getLayer('soil-fill')) map.setPaintProperty('soil-fill', 'fill-opacity', soilOpacity);
+  ['cb-fill', 'cb-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showBlocks ? 'visible' : 'none');
+  });
+  if (map.getLayer('cb-fill')) map.setPaintProperty('cb-fill', 'fill-opacity', blockOpacity);
+  var cbSec = document.getElementById('cb-sec');
+  if (cbSec) cbSec.hidden = !showBlocks;
   var ctSec = document.getElementById('ct-sec');
   if (ctSec) ctSec.hidden = !showContours;
   ['contour-line', 'contour-label'].forEach(function (id) {
@@ -630,16 +670,17 @@ map.on('load', function () {
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
-      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill'].filter(function (id) { return map.getLayer(id); })
+      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill'].filter(function (id) { return map.getLayer(id); })
     });
-    var fault = null, unit = null, soil = null, bore = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null;
     hits.forEach(function (h) {
+      if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore) return;
+    if (!fault && !unit && !soil && !bore && !blk) return;
 
     var html = '';
     if (bore && showBores) {
@@ -679,6 +720,17 @@ map.on('load', function () {
               esc(soil.n || soil.c || 'Unnamed unit') + '</div>';
       html += '<div class="pop-row">Order: ' + esc(soil.o || 'Other') +
               (soil.c && soil.n ? ' · dominant component ' + esc(soil.c) : '') + '</div>';
+    }
+    if (blk && showBlocks) {
+      if (fault || unit || soil || bore) html += '<div class="pop-sep"></div>';
+      html += '<div class="pop-row"><b>Census block</b> ' + esc(blk.GEOID || '') + '</div>';
+      var bits = [];
+      if (blk.DENSITY != null) bits.push(Math.round(blk.DENSITY).toLocaleString() + '/sq mi');
+      if (blk.TotalHousingUnits != null) bits.push(blk.TotalHousingUnits.toLocaleString() + ' housing units');
+      if (blk.VacancyRate != null) bits.push(blk.VacancyRate + '% vacant');
+      if (bits.length) html += '<div class="pop-row">' + bits.join(' · ') + '</div>';
+      if (blk.pop1mile != null) html += '<div class="pop-row">Pop within 1 mi: <b>' +
+        Number(blk.pop1mile).toLocaleString() + '</b></div>';
     }
     new mapboxgl.Popup({ closeButton: true, maxWidth: '290px' })
       .setLngLat(e.lngLat).setHTML(html).addTo(map);
@@ -792,6 +844,17 @@ op.addEventListener('input', function () {
 });
 
 
+// Census blocks, served as a Mapbox vector tileset (jdevoy.uscensusblocks, z6-14)
+// rather than a GeoJSON download — the source is 3.15 GB.
+var CB_BREAKS = [0, 1500, 4700, 9300, 21800];
+var CB_COLORS = ['#eff3ff', '#c6dbef', '#6baed6', '#3182bd', '#08519c'];
+var CB_NULL = '#d9d9d9';
+function cbColorExpr() {
+  var e = ['step', ['coalesce', ['get', 'DENSITY'], -1], CB_NULL];
+  CB_BREAKS.forEach(function (b, i) { e.push(b, CB_COLORS[i]); });
+  return e;
+}
+
 // ================= Contour legend =================
 var ctInfo = null;   // { label, field, interval, indexEvery, zmin, zmax, clipped, lines, levels }
 
@@ -848,6 +911,34 @@ function initContourLegend() {
   }).catch(function () { /* legend simply stays empty */ });
 }
 initContourLegend();
+
+// ---- census block legend ----
+(function () {
+  var host = document.getElementById('cb-legend');
+  var rows = '';
+  CB_BREAKS.forEach(function (b, i) {
+    var hi = CB_BREAKS[i + 1];
+    var lab = hi ? b.toLocaleString() + ' – ' + hi.toLocaleString()
+                 : b.toLocaleString() + '+';
+    rows += '<div class="ctrow"><span class="sw"><i style="height:12px;background:' +
+            CB_COLORS[i] + ';border:1px solid rgba(0,0,0,.18)"></i></span><span>' + lab + '</span></div>';
+  });
+  rows += '<div class="ctrow"><span class="sw"><i style="height:12px;background:' + CB_NULL +
+          ';border:1px solid rgba(0,0,0,.18)"></i></span><span>No data</span></div>';
+  host.innerHTML = rows;
+})();
+
+var cbOp = document.getElementById('cb-op'), cbOpV = document.getElementById('cb-op-v');
+document.getElementById('t-blocks').addEventListener('change', function () {
+  showBlocks = this.checked;
+  cbOp.disabled = !showBlocks;
+  applyState();
+});
+cbOp.addEventListener('input', function () {
+  blockOpacity = this.value / 100;
+  cbOpV.textContent = this.value + '%';
+  applyState();
+});
 
 // ================= Tools menu =================
 var MENU = document.getElementById('menu');
