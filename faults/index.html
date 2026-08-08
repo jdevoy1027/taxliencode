@@ -815,6 +815,20 @@ document.getElementById('t-labels').addEventListener('change', function () {
 document.getElementById('t-faults').addEventListener('change', function () {
   showFaults = this.checked; applyState();
 });
+document.getElementById('t-soil-labels').addEventListener('change', function () {
+  showSoilLabels = this.checked; applyState();
+});
+document.getElementById('t-contours').addEventListener('change', function () {
+  showContours = this.checked; applyState();
+});
+document.getElementById('t-bores').addEventListener('change', function () {
+  showBores = this.checked;
+  document.getElementById('t-bore-labels').disabled = !showBores;
+  applyState();
+});
+document.getElementById('t-bore-labels').addEventListener('change', function () {
+  showBoreLabels = this.checked; applyState();
+});
 var op = document.getElementById('geo-op'), opv = document.getElementById('geo-op-v');
 op.addEventListener('input', function () {
   geoOpacity = this.value / 100;
