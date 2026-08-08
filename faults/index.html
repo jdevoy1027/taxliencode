@@ -192,8 +192,8 @@
       </label>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-soils">
-        <span class="lbl">Soils — LA &amp; Orange</span>
-        <span class="cnt" id="soil-note">29 MB</span>
+        <span class="lbl">Soils (SSURGO)</span>
+        <span class="cnt" id="soil-note">vector</span>
       </label>
       <div class="slider">
         <input type="range" id="soil-op" min="0" max="100" value="75" disabled>
@@ -286,7 +286,7 @@
       then Done or Esc to navigate again. Annotations save and load as GeoJSON.
       Click the map to identify the geologic unit and any fault at that point.
       Geology and faults from the California Geological Survey; soils from USDA SSURGO,
-      clipped to the Los Angeles and Orange county boundaries at ~11 m native resolution.
+      served as vector tilesets at full source resolution.
     </p>
   </div>
 </div>
@@ -399,20 +399,20 @@ function addLayers() {
     }, firstSymbol);
   }
   if (!map.getSource('geology')) {
-    map.addSource('geology', { type: 'geojson', data: './ca_geology.geojson' });
+    map.addSource('geology', { type: 'vector', url: 'mapbox://jdevoy.ca-geology' });
   }
   if (!map.getSource('faults')) {
     map.addSource('faults', { type: 'geojson', data: './ca_qt_faults.geojson' });
   }
   if (!map.getLayer('geo-fill')) {
     map.addLayer({
-      id: 'geo-fill', type: 'fill', source: 'geology',
+      id: 'geo-fill', type: 'fill', source: 'geology', 'source-layer': 'geology',
       paint: { 'fill-color': geoColorExpr(), 'fill-opacity': geoOpacity }
     });
   }
   if (!map.getLayer('geo-line')) {
     map.addLayer({
-      id: 'geo-line', type: 'line', source: 'geology',
+      id: 'geo-line', type: 'line', source: 'geology', 'source-layer': 'geology',
       paint: {
         'line-color': 'rgba(60,60,55,.35)',
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.2, 11, 0.6]
@@ -499,7 +499,7 @@ function addLayers() {
       paint: { 'line-color': faultColorExpr(), 'line-width': faultWidthExpr(), 'line-opacity': 0.94 }
     });
   }
-  if (soilsRequested) ensureSoils();
+  ensureSoils();
   if (!map.getSource('bores')) {
     map.addSource('bores', { type: 'geojson', data: './boreholes.geojson' });
   }
@@ -540,7 +540,7 @@ function addLayers() {
   // Labels last so unit codes sit above both the fills and the fault lines.
   if (!map.getLayer('geo-label')) {
     map.addLayer({
-      id: 'geo-label', type: 'symbol', source: 'geology',
+      id: 'geo-label', type: 'symbol', source: 'geology', 'source-layer': 'geology',
       minzoom: 6,
       layout: {
         'text-field': ['get', 'PTYPE'],
@@ -563,22 +563,22 @@ function addLayers() {
   applyState();
 }
 
-// The soils GeoJSON is ~33 MB, so it is fetched on first use rather than on load.
+// Soils are served as vector tiles, so the layer costs nothing until it is shown.
 // beforeId keeps it above the geology fills but beneath the fault lines.
 function ensureSoils() {
   if (!map.getSource('soils')) {
-    map.addSource('soils', { type: 'geojson', data: './laoc_soils.geojson' });
+    map.addSource('soils', { type: 'vector', url: 'mapbox://jdevoy.socal-soils' });
   }
   var before = map.getLayer('faults-casing') ? 'faults-casing' : undefined;
   if (!map.getLayer('soil-fill')) {
     map.addLayer({
-      id: 'soil-fill', type: 'fill', source: 'soils',
+      id: 'soil-fill', type: 'fill', source: 'soils', 'source-layer': 'soils',
       paint: { 'fill-color': soilColorExpr(), 'fill-opacity': soilOpacity }
     }, before);
   }
   if (!map.getLayer('soil-line')) {
     map.addLayer({
-      id: 'soil-line', type: 'line', source: 'soils',
+      id: 'soil-line', type: 'line', source: 'soils', 'source-layer': 'soils',
       paint: {
         'line-color': 'rgba(50,50,45,.3)',
         'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.15, 12, 0.5]
@@ -589,7 +589,7 @@ function ensureSoils() {
   // only appear from z8 and wrap; Mapbox drops any that would collide.
   if (!map.getLayer('soil-label')) {
     map.addLayer({
-      id: 'soil-label', type: 'symbol', source: 'soils',
+      id: 'soil-label', type: 'symbol', source: 'soils', 'source-layer': 'soils',
       minzoom: 9,
       layout: {
         'text-field': ['get', 'n'],
@@ -798,32 +798,7 @@ document.getElementById('t-soils').addEventListener('change', function () {
   soilOp.disabled = !showSoils;
   document.getElementById('t-soil-labels').disabled = !showSoils;
   document.getElementById('soil-sec').hidden = !showSoils;
-  if (showSoils && !soilsRequested) {
-    soilsRequested = true;
-    document.getElementById('soil-note').textContent = 'loading…';
-    document.getElementById('loading').hidden = false;
-    ensureSoils();
-    map.once('idle', function () {
-      document.getElementById('soil-note').textContent = '';
-      document.getElementById('loading').hidden = true;
-    });
-  }
   applyState();
-});
-document.getElementById('t-contours').addEventListener('change', function () {
-  showContours = this.checked; applyState();
-});
-document.getElementById('t-bores').addEventListener('change', function () {
-  showBores = this.checked;
-  document.getElementById('t-bore-labels').disabled = !showBores;
-  applyState();
-});
-document.getElementById('t-bore-labels').addEventListener('change', function () {
-  showBoreLabels = this.checked; applyState();
-});
-var soilLabelBox = document.getElementById('t-soil-labels');
-soilLabelBox.addEventListener('change', function () {
-  showSoilLabels = this.checked; applyState();
 });
 soilOp.addEventListener('input', function () {
   soilOpacity = this.value / 100;
