@@ -247,9 +247,9 @@
     </div>
 
     <div class="sec" id="cb-sec" hidden>
-      <h2>Median net worth</h2>
+      <h2>Median net worth 2025</h2>
       <div id="cb-legend"></div>
-      <div class="ctmeta">Median household net worth · US Census blocks<br>
+      <div class="ctmeta">2025 median household net worth · US Census blocks<br>
         Vector tileset · 235,799 blocks · 72 attributes</div>
     </div>
 
@@ -725,9 +725,9 @@ map.on('load', function () {
       if (fault || unit || soil || bore) html += '<div class="pop-sep"></div>';
       html += '<div class="pop-row"><b>Census block</b> ' + esc(blk.GEOID || '') + '</div>';
       var nw = usd(blk[CB_FIELD]);
-      if (nw) html += '<div class="pop-row"><b>Median net worth:</b> ' + nw + '</div>';
+      if (nw) html += '<div class="pop-row"><b>Median net worth (2025):</b> ' + nw + '</div>';
       var hv = usd(blk.homevalue_AVGVAL_CY_1);
-      if (hv) html += '<div class="pop-row"><b>Avg home value:</b> ' + hv + '</div>';
+      if (hv) html += '<div class="pop-row"><b>Avg home value (2025):</b> ' + hv + '</div>';
       var bits = [];
       if (blk.DENSITY != null) bits.push(Math.round(blk.DENSITY).toLocaleString() + '/sq mi');
       if (blk.TotalHousingUnits != null) bits.push(blk.TotalHousingUnits.toLocaleString() + ' housing units');
@@ -825,6 +825,9 @@ op.addEventListener('input', function () {
 
 // Census blocks, served as a Mapbox vector tileset (jdevoy.uscensusblocks, z6-14)
 // rather than a GeoJSON download — the source is 3.15 GB.
+// Vintage confirmed from the data: Diff_25_30 == AVGVAL_FY - AVGVAL_CY on 100% of
+// sampled features, so CY = 2025 and FY = 2030. (RE_ASSESS_2022_2027 is a text
+// category, not a delta, so its name is not evidence of vintage.)
 // Median net worth. Breaks are quantile-based (p20/p40/p60/p80 of the source):
 // the field runs 0 to a capped 2,000,001 and is heavily skewed, so even breaks
 // would put almost every block in one class. Ramp is ColorBrewer YlOrRd,
