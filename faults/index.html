@@ -247,9 +247,9 @@
     </div>
 
     <div class="sec" id="cb-sec" hidden>
-      <h2>Population density</h2>
+      <h2>Median net worth</h2>
       <div id="cb-legend"></div>
-      <div class="ctmeta">Persons per sq mile · US Census blocks<br>
+      <div class="ctmeta">Median household net worth · US Census blocks<br>
         Vector tileset · 235,799 blocks · 72 attributes</div>
     </div>
 
@@ -724,6 +724,10 @@ map.on('load', function () {
     if (blk && showBlocks) {
       if (fault || unit || soil || bore) html += '<div class="pop-sep"></div>';
       html += '<div class="pop-row"><b>Census block</b> ' + esc(blk.GEOID || '') + '</div>';
+      var nw = usd(blk[CB_FIELD]);
+      if (nw) html += '<div class="pop-row"><b>Median net worth:</b> ' + nw + '</div>';
+      var hv = usd(blk.homevalue_AVGVAL_CY_1);
+      if (hv) html += '<div class="pop-row"><b>Avg home value:</b> ' + hv + '</div>';
       var bits = [];
       if (blk.DENSITY != null) bits.push(Math.round(blk.DENSITY).toLocaleString() + '/sq mi');
       if (blk.TotalHousingUnits != null) bits.push(blk.TotalHousingUnits.toLocaleString() + ' housing units');
@@ -821,13 +825,25 @@ op.addEventListener('input', function () {
 
 // Census blocks, served as a Mapbox vector tileset (jdevoy.uscensusblocks, z6-14)
 // rather than a GeoJSON download — the source is 3.15 GB.
-var CB_BREAKS = [0, 1500, 4700, 9300, 21800];
-var CB_COLORS = ['#eff3ff', '#c6dbef', '#6baed6', '#3182bd', '#08519c'];
+// Median net worth. Breaks are quantile-based (p20/p40/p60/p80 of the source):
+// the field runs 0 to a capped 2,000,001 and is heavily skewed, so even breaks
+// would put almost every block in one class. Ramp is ColorBrewer YlOrRd,
+// monotonic in lightness (L* 0.984 -> 0.395).
+var CB_FIELD = 'wealth_mednw_cy';
+var CB_BREAKS = [0, 50000, 125000, 250000, 550000];
+var CB_COLORS = ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026'];
 var CB_NULL = '#d9d9d9';
 function cbColorExpr() {
-  var e = ['step', ['coalesce', ['get', 'DENSITY'], -1], CB_NULL];
+  var e = ['step', ['coalesce', ['get', CB_FIELD], -1], CB_NULL];
   CB_BREAKS.forEach(function (b, i) { e.push(b, CB_COLORS[i]); });
   return e;
+}
+function usd(v) {
+  if (v == null || !isFinite(v)) return null;
+  v = Math.round(v);
+  return v >= 1000000 ? '$' + (v / 1000000).toFixed(2).replace(/\.?0+$/, '') + 'M'
+       : v >= 1000     ? '$' + Math.round(v / 1000).toLocaleString() + 'k'
+       : '$' + v.toLocaleString();
 }
 
 // ================= Contour legend =================
@@ -893,8 +909,7 @@ initContourLegend();
   var rows = '';
   CB_BREAKS.forEach(function (b, i) {
     var hi = CB_BREAKS[i + 1];
-    var lab = hi ? b.toLocaleString() + ' – ' + hi.toLocaleString()
-                 : b.toLocaleString() + '+';
+    var lab = hi ? usd(b) + ' – ' + usd(hi) : usd(b) + '+';
     rows += '<div class="ctrow"><span class="sw"><i style="height:12px;background:' +
             CB_COLORS[i] + ';border:1px solid rgba(0,0,0,.18)"></i></span><span>' + lab + '</span></div>';
   });
