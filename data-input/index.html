@@ -69,6 +69,22 @@
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;
          background:rgba(20,20,20,.9);color:#fff;padding:9px 16px;border-radius:22px;font-size:12.5px}
   .toast[hidden]{display:none}
+
+  .backdrop{position:fixed;inset:0;background:rgba(20,20,20,.34);z-index:30;
+            display:flex;align-items:center;justify-content:center;padding:20px}
+  .backdrop[hidden]{display:none}
+  .dlg{background:#fff;border-radius:13px;box-shadow:0 20px 60px rgba(0,0,0,.3);
+       width:min(480px,100%);max-height:86vh;display:flex;flex-direction:column}
+  .dlg h2{margin:0;padding:15px 18px 13px;font-size:15px;font-weight:640;
+          border-bottom:1px solid var(--line);text-transform:none;letter-spacing:0;color:var(--fg)}
+  .dlg .bd{padding:15px 18px;overflow:auto;font-size:13px}
+  .dlg .ft{display:flex;gap:8px;justify-content:flex-end;padding:13px 18px;
+           border-top:1px solid var(--line)}
+  .imp-ok{color:var(--accent);font-weight:560}
+  .imp-bad{color:var(--bad)}
+  .imp-list{margin:9px 0 0;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.6}
+  .imp-map{margin:10px 0 0;font-size:12px;color:var(--muted)}
+  .imp-map code{background:#f2f2ee;padding:1px 5px;border-radius:4px}
 </style>
 </head>
 <body>
@@ -132,6 +148,8 @@
     <div class="actions" style="margin:0 0 13px">
       <span class="count" id="count">No records yet</span>
       <span class="spacer"></span>
+      <button class="ghost" id="b-import">Import CSV</button>
+      <input type="file" id="f-csv" accept=".csv,text/csv" hidden>
       <button class="ghost" id="b-csv">Export CSV</button>
       <button class="ghost" id="b-geojson">Export GeoJSON</button>
       <button class="danger" id="b-clear">Clear all</button>
@@ -150,6 +168,18 @@
 
 </div>
 <div class="toast" id="toast" hidden></div>
+
+<div class="backdrop" id="imp" hidden>
+  <div class="dlg">
+    <h2>Import CSV</h2>
+    <div class="bd" id="imp-body"></div>
+    <div class="ft">
+      <button class="ghost" id="imp-cancel">Cancel</button>
+      <button class="ghost" id="imp-replace">Replace all</button>
+      <button class="go" id="imp-append">Append</button>
+    </div>
+  </div>
+</div>
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
 <script>
@@ -431,6 +461,149 @@ $('b-clear').addEventListener('click', function () {
                '? This cannot be undone.')) return;
   rows = []; save(); clearForm(); refreshSaved(); toast('All records cleared');
 });
+
+// ---------- CSV import ----------
+// Full parser rather than split(','): real exports contain quoted fields with
+// embedded commas, newlines and doubled quotes.
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);      // strip BOM
+  var out = [], row = [], cur = '', q = false, i = 0;
+  while (i < text.length) {
+    var c = text[i];
+    if (q) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { cur += '"'; i += 2; continue; }
+        q = false; i++; continue;
+      }
+      cur += c; i++; continue;
+    }
+    if (c === '"') { q = true; i++; continue; }
+    if (c === ',') { row.push(cur); cur = ''; i++; continue; }
+    if (c === '\r') { i++; continue; }
+    if (c === '\n') { row.push(cur); out.push(row); row = []; cur = ''; i++; continue; }
+    cur += c; i++;
+  }
+  if (cur !== '' || row.length) { row.push(cur); out.push(row); }
+  return out.filter(function (r) { return r.some(function (c) { return c.trim() !== ''; }); });
+}
+
+// Header matching is tolerant: case, spaces, underscores and hyphens are ignored,
+// and the common aliases for coordinates are accepted.
+var ALIASES = {
+  'Well_name': ['wellname', 'well', 'name', 'id'],
+  'x-coord':   ['xcoord', 'x', 'longitude', 'long', 'lon', 'lng'],
+  'y-coord':   ['ycoord', 'y', 'latitude', 'lat'],
+  'type':      ['type', 'category', 'kind'],
+  'date_input':['dateinput', 'date', 'inputdate']
+};
+function normHdr(h) { return String(h).toLowerCase().replace(/[\s_\-.]/g, ''); }
+function mapColumns(header) {
+  var idx = {}, norm = header.map(normHdr);
+  Object.keys(ALIASES).forEach(function (col) {
+    for (var a = 0; a < ALIASES[col].length; a++) {
+      var at = norm.indexOf(ALIASES[col][a]);
+      if (at >= 0) { idx[col] = at; return; }
+    }
+  });
+  return idx;
+}
+
+var pendingImport = null;
+
+$('b-import').addEventListener('click', function () { $('f-csv').click(); });
+$('f-csv').addEventListener('change', function () {
+  var file = this.files && this.files[0];
+  if (!file) return;
+  var fr = new FileReader();
+  fr.onload = function () { stageImport(String(fr.result), file.name); };
+  fr.onerror = function () { toast('Could not read that file'); };
+  fr.readAsText(file);
+  this.value = '';                 // allow re-picking the same file
+});
+
+function stageImport(text, filename) {
+  var grid = parseCSV(text);
+  if (grid.length < 2) { toast('That file has no data rows'); return; }
+  var idx = mapColumns(grid[0]);
+  var missing = ['Well_name', 'x-coord', 'y-coord'].filter(function (c) { return idx[c] == null; });
+
+  var good = [], bad = [];
+  if (!missing.length) {
+    for (var r = 1; r < grid.length; r++) {
+      var cells = grid[r];
+      var get = function (c) { return idx[c] == null ? '' : String(cells[idx[c]] == null ? '' : cells[idx[c]]).trim(); };
+      var name = get('Well_name');
+      var x = Number(get('x-coord')), y = Number(get('y-coord'));
+      var why = null;
+      if (!name) why = 'no Well_name';
+      else if (!isFinite(x) || !isFinite(y)) why = 'coordinates not numeric';
+      else if (x < -180 || x > 180) why = 'longitude out of range';
+      else if (y < -90 || y > 90) why = 'latitude out of range';
+      if (why) { bad.push('row ' + (r + 1) + ' — ' + why); continue; }
+      good.push({
+        'Well_name': name,
+        'x-coord': +x.toFixed(DEC),
+        'y-coord': +y.toFixed(DEC),
+        'type': get('type'),
+        'date_input': get('date_input') || todayISO()
+      });
+    }
+  }
+
+  var body = '<div><b>' + esc(filename) + '</b></div>';
+  if (missing.length) {
+    body += '<p class="imp-bad">Missing required column' + (missing.length > 1 ? 's' : '') +
+            ': <b>' + missing.join(', ') + '</b>.</p>' +
+            '<div class="imp-map">Found: ' + grid[0].map(function (h) {
+              return '<code>' + esc(h) + '</code>'; }).join(' ') + '</div>' +
+            '<div class="imp-map">Expected <code>Well_name</code>, <code>x-coord</code>, ' +
+            '<code>y-coord</code> (aliases like <code>longitude</code>/<code>latitude</code> ' +
+            'are accepted).</div>';
+  } else {
+    body += '<p><span class="imp-ok">' + good.length + ' row' + (good.length === 1 ? '' : 's') +
+            ' ready to import</span>' + (bad.length ? ', <span class="imp-bad">' + bad.length +
+            ' skipped</span>' : '') + '.</p>';
+    var cols = Object.keys(ALIASES).filter(function (c) { return idx[c] != null; });
+    body += '<div class="imp-map">Columns matched: ' + cols.map(function (c) {
+      return '<code>' + esc(grid[0][idx[c]]) + '</code> &rarr; ' + c; }).join('<br>') + '</div>';
+    if (bad.length) {
+      body += '<ul class="imp-list">' + bad.slice(0, 8).map(function (b) {
+        return '<li>' + esc(b) + '</li>'; }).join('') +
+        (bad.length > 8 ? '<li>… and ' + (bad.length - 8) + ' more</li>' : '') + '</ul>';
+    }
+  }
+  $('imp-body').innerHTML = body;
+  pendingImport = missing.length ? null : good;
+  $('imp-append').disabled = !good.length;
+  $('imp-replace').disabled = !good.length;
+  $('imp-replace').textContent = rows.length ? 'Replace all (' + rows.length + ')' : 'Replace all';
+  $('imp').hidden = false;
+}
+
+function closeImport() { $('imp').hidden = true; pendingImport = null; }
+$('imp-cancel').addEventListener('click', closeImport);
+$('imp').addEventListener('click', function (e) { if (e.target === $('imp')) closeImport(); });
+
+function finishImport(replace) {
+  if (!pendingImport || !pendingImport.length) return;
+  var n = pendingImport.length;
+  rows = replace ? pendingImport.slice() : rows.concat(pendingImport);
+  save(); closeImport(); clearForm(); refreshSaved();
+  fitSaved();
+  toast((replace ? 'Replaced with ' : 'Imported ') + n + ' record' + (n === 1 ? '' : 's'));
+}
+$('imp-append').addEventListener('click', function () { finishImport(false); });
+$('imp-replace').addEventListener('click', function () { finishImport(true); });
+
+function fitSaved() {
+  if (!pickMap || !rows.length) return;
+  var b = new mapboxgl.LngLatBounds();
+  var any = false;
+  rows.forEach(function (r) {
+    if (isFinite(r['x-coord']) && isFinite(r['y-coord'])) { b.extend([r['x-coord'], r['y-coord']]); any = true; }
+  });
+  if (any) pickMap.fitBounds(b, { padding: 50, maxZoom: 15, duration: 500 });
+}
 
 // ---------- start ----------
 load();
