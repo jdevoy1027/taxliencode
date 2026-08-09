@@ -214,6 +214,11 @@
         <span id="cb-op-v">60%</span>
       </div>
       <label class="row" style="margin-top:6px">
+        <input type="checkbox" id="t-ap">
+        <span class="lbl">Alquist-Priolo zones</span>
+        <span class="cnt">1,463</span>
+      </label>
+      <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-contours">
         <span class="lbl">Contours</span>
         <span class="cnt" id="ct-cap">10 ft</span>
@@ -254,6 +259,17 @@
       <div id="cb-legend"></div>
       <div class="ctmeta">2025 median household net worth · US Census blocks<br>
         Vector tileset · 235,799 blocks · 72 attributes</div>
+    </div>
+
+    <div class="sec" id="ap-sec" hidden>
+      <h2>Alquist-Priolo</h2>
+      <div class="ctrow">
+        <span class="sw"><i style="height:13px;background:#756bb1;opacity:.55;
+          border:1px dashed #54278f"></i></span>
+        <span>Earthquake fault zone</span>
+      </div>
+      <div class="ctmeta">State-regulated zones around active fault traces.<br>
+        1,463 zones · CGS · released 1974–2025</div>
     </div>
 
     <div class="sec" id="ct-sec" hidden>
@@ -340,6 +356,7 @@ var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
 var showBores = true, showBoreLabels = true, showSat = false;
 var showContours = false;
+var showAP = false;
 var showBlocks = false, blockOpacity = 0.6;
 
 function geoColorExpr() {
@@ -437,6 +454,26 @@ function addLayers() {
       minzoom: 11,
       paint: { 'line-color': 'rgba(30,45,70,.35)',
                'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.2, 15, 0.7] }
+    });
+  }
+  if (!map.getSource('apzones')) {
+    map.addSource('apzones', { type: 'geojson', data: './ap_zones.geojson' });
+  }
+  if (!map.getLayer('ap-fill')) {
+    map.addLayer({
+      id: 'ap-fill', type: 'fill', source: 'apzones',
+      paint: { 'fill-color': '#756bb1', 'fill-opacity': 0.28 }
+    });
+  }
+  if (!map.getLayer('ap-line')) {
+    map.addLayer({
+      id: 'ap-line', type: 'line', source: 'apzones',
+      layout: { 'line-join': 'round' },
+      paint: {
+        'line-color': '#54278f',
+        'line-dasharray': [3, 2],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 11, 1.4, 15, 2.2]
+      }
     });
   }
   if (!map.getSource('contours')) {
@@ -640,6 +677,11 @@ function applyState() {
   if (cbSec) cbSec.hidden = !showBlocks;
   var ctSec = document.getElementById('ct-sec');
   if (ctSec) ctSec.hidden = !showContours;
+  ['ap-fill', 'ap-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showAP ? 'visible' : 'none');
+  });
+  var apSec = document.getElementById('ap-sec');
+  if (apSec) apSec.hidden = !showAP;
   ['contour-line', 'contour-label'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showContours ? 'visible' : 'none');
   });
@@ -673,17 +715,18 @@ map.on('load', function () {
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
-      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill'].filter(function (id) { return map.getLayer(id); })
+      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill'].filter(function (id) { return map.getLayer(id); })
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null;
     hits.forEach(function (h) {
+      if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap) return;
 
     var html = '';
     if (bore && showBores) {
@@ -723,6 +766,20 @@ map.on('load', function () {
               esc(soil.n || soil.c || 'Unnamed unit') + '</div>';
       html += '<div class="pop-row">Order: ' + esc(soil.o || 'Other') +
               (soil.c && soil.n ? ' · dominant component ' + esc(soil.c) : '') + '</div>';
+    }
+    if (ap && showAP) {
+      if (fault || unit || soil || bore) html += '<div class="pop-sep"></div>';
+      html += '<div class="pop-row"><b>Alquist-Priolo zone</b></div>';
+      if (ap.q) html += '<div class="pop-row">' + esc(ap.q) + ' quadrangle</div>';
+      var apb = [];
+      if (ap.zr) apb.push('zone ' + esc(String(ap.zr).slice(0, 10)));
+      if (ap.rv === 'Y') apb.push('revised');
+      if (apb.length) html += '<div class="pop-row">' + apb.join(' · ') + '</div>';
+      var lk = [];
+      if (ap.pdf) lk.push('<a href="' + esc(ap.pdf) + '" target="_blank" rel="noopener">Map PDF</a>');
+      if (ap.rpt) lk.push('<a href="' + esc(String(ap.rpt).split(';')[0].trim()) +
+                          '" target="_blank" rel="noopener">Report</a>');
+      if (lk.length) html += '<div class="pop-row">' + lk.join(' · ') + '</div>';
     }
     if (blk && showBlocks) {
       if (fault || unit || soil || bore) html += '<div class="pop-sep"></div>';
@@ -820,6 +877,9 @@ document.getElementById('t-faults').addEventListener('change', function () {
 });
 document.getElementById('t-soil-labels').addEventListener('change', function () {
   showSoilLabels = this.checked; applyState();
+});
+document.getElementById('t-ap').addEventListener('change', function () {
+  showAP = this.checked; applyState();
 });
 document.getElementById('t-contours').addEventListener('change', function () {
   showContours = this.checked; applyState();
