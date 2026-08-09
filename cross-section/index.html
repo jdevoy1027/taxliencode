@@ -83,6 +83,10 @@
         font-variant-numeric:tabular-nums;font-size:11px}
   .fam{min-width:210px}
 
+  .note{
+    margin-top:12px;font-size:12.5px;color:#4a5a52;background:#eef5f2;
+    border:1px solid #cfe3db;border-radius:8px;padding:9px 12px;line-height:1.5
+  }
   .warn{
     margin-top:12px;font-size:12.5px;color:#8a5a12;background:#fdf3e3;
     border:1px solid #f0dfc0;border-radius:8px;padding:9px 12px
@@ -119,6 +123,12 @@
         <option value="auto">auto</option>
         <option value="1">1×</option><option value="2">2×</option><option value="5">5×</option>
         <option value="10">10×</option><option value="20">20×</option><option value="50">50×</option>
+      </select>
+    </label>
+    <label class="ctrl">Between holes
+      <select id="c-fill">
+        <option value="none">Columns only</option>
+        <option value="nearest" selected>Continuous fill</option>
       </select>
     </label>
     <label class="ctrl">Datum
@@ -207,7 +217,7 @@ function esc(s) {
 
 // ---------- state ----------
 var LINE = parseLine(), BORES = null, LITH = null;
-var opts = { buf: 1000, ve: 'auto', datum: 'elev' };
+var opts = { buf: 1000, ve: 'auto', datum: 'elev', fill: 'nearest' };
 
 function showEmpty(msg) {
   document.getElementById('main').innerHTML =
@@ -277,6 +287,9 @@ function bind() {
   });
   document.getElementById('c-datum').addEventListener('change', function () {
     opts.datum = this.value; render();
+  });
+  document.getElementById('c-fill').addEventListener('change', function () {
+    opts.fill = this.value; render();
   });
   document.getElementById('c-orient').addEventListener('change', function () {
     setPageSize(); render();
@@ -523,8 +536,51 @@ function render() {
   o.push('<text x="' + (M.l + PLOT_W) + '" y="' + (M.t - 22) + '" text-anchor="end" font-size="13" ' +
          'font-weight="700" fill="#1a1a18">A′</text>');
 
-  // ---- borehole columns ----
+  // ---- continuous fill between holes ----
+  // Between each adjacent pair the panel is split at the midpoint: the left half
+  // takes the left hole's log, the right half the right hole's. Each interval is
+  // drawn as a trapezoid whose top and bottom follow the ground surface, which is
+  // interpolated linearly between collar elevations. Individual layers are NOT
+  // correlated hole-to-hole — that is interpretation, so lithology changes at the
+  // midpoint rather than sloping into the neighbouring hole's sequence.
   var used = {};
+  if (opts.fill === 'nearest' && hits.length > 1) {
+    var surfOf = function (h) { return opts.datum === 'elev' ? h.elev : 0; };
+    for (var q = 0; q < hits.length - 1; q++) {
+      var A = hits[q], B = hits[q + 1];
+      var aX = A.along, bX = B.along, mX = (aX + bX) / 2;
+      var aS = surfOf(A), bS = surfOf(B);
+      var lerpS = function (xx) {
+        var t = (bX - aX) > 0 ? (xx - aX) / (bX - aX) : 0;
+        return aS + (bS - aS) * t;
+      };
+      [[A, aX, mX], [B, mX, bX]].forEach(function (panel) {
+        var hole = panel[0], xa = panel[1], xb = panel[2];
+        if (xb <= xa) return;
+        var sA = lerpS(xa), sB = lerpS(xb);
+        var pxa = sx(xa), pxb = sx(xb);
+        hole.iv.forEach(function (seg) {
+          var t0 = seg[0], b0 = seg[1], code = seg[2];
+          used[code] = used[code] || 0;
+          var pts = [
+            pxa.toFixed(1) + ',' + sy(sA - t0).toFixed(1),
+            pxb.toFixed(1) + ',' + sy(sB - t0).toFixed(1),
+            pxb.toFixed(1) + ',' + sy(sB - b0).toFixed(1),
+            pxa.toFixed(1) + ',' + sy(sA - b0).toFixed(1)
+          ].join(' ');
+          o.push('<polygon points="' + pts + '" fill="' + (LITHO_COLOR[code] || '#cccccc') +
+                 '" opacity="0.62"/>');
+        });
+      });
+    }
+    // interpolated ground surface
+    var surfPts = hits.map(function (h) {
+      return sx(h.along).toFixed(1) + ',' + sy(opts.datum === 'elev' ? h.elev : 0).toFixed(1);
+    });
+    o.push('<polyline points="' + surfPts.join(' ') + '" fill="none" stroke="#6f6f66" stroke-width="1"/>');
+  }
+
+  // ---- borehole columns ----
   hits.forEach(function (h) {
     var cx = sx(h.along), top = opts.datum === 'elev' ? h.elev : 0;
     h.iv.forEach(function (seg) {
@@ -534,8 +590,8 @@ function render() {
       var hgt = Math.max(0.7, yBot - yTop);
       o.push('<rect x="' + (cx - COLW / 2).toFixed(1) + '" y="' + yTop.toFixed(1) +
              '" width="' + COLW.toFixed(1) + '" height="' + hgt.toFixed(1) +
-             '" fill="' + (LITHO_COLOR[code] || '#cccccc') + '" stroke="rgba(0,0,0,.28)" ' +
-             'stroke-width="0.4"><title>' + esc(h.name) + '  ' + t + '–' + b + ' ft\n' +
+             '" fill="' + (LITHO_COLOR[code] || '#cccccc') + '" stroke="rgba(0,0,0,.55)" ' +
+             'stroke-width="' + (opts.fill === 'nearest' ? 0.8 : 0.4) + '"><title>' + esc(h.name) + '  ' + t + '–' + b + ' ft\n' +
              esc(code) + ' · ' + esc(LITHO_LABEL[code] || code) + '</title></rect>');
     });
     // collar tick + name
@@ -565,6 +621,13 @@ function render() {
 
   var noElev = hits.filter(function (h) { return !h.hasElev; }).length;
   var warn = '';
+  if (opts.fill === 'nearest') {
+    warn += '<div class="note">Colour between holes is <b>interpolated</b>. Each panel is ' +
+            'split at the midpoint and takes the log of the nearer borehole; the ground ' +
+            'surface follows a straight line between collar elevations. Individual layers ' +
+            'are <b>not</b> correlated hole-to-hole — that is interpretation, not data — so ' +
+            'lithology changes at the midpoint. The outlined columns are the logged intervals.</div>';
+  }
   if (opts.datum === 'elev' && noElev) {
     warn = '<div class="warn">' + noElev + ' of ' + hits.length + ' boreholes have no collar ' +
            'elevation in the source data and are hung from 0 ft. Switch Datum to ' +
