@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Data Input — Geonomics</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
 <style>
   :root{--bg:#fbfbfa;--panel:#fff;--fg:#1a1a18;--muted:#6b6b66;--line:#e4e4e0;
         --line2:#d0d0ca;--accent:#2d6a5a;--bad:#a8321f;--badbg:#fdeeeb}
@@ -37,6 +38,14 @@
   .fld .err{font-size:11.5px;color:var(--bad);margin-top:4px;min-height:14px}
   .fld .hint{font-size:11.5px;color:#9a9a92;margin-top:4px}
 
+  #pick{height:330px;border:1px solid var(--line2);border-radius:9px;overflow:hidden;
+        margin-bottom:15px;position:relative}
+  .pickbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+           font-size:12.5px;color:var(--muted);margin:-6px 0 13px}
+  .pickbar b{color:var(--fg);font-weight:560;font-variant-numeric:tabular-nums}
+  .pickbar .tag{background:#eef5f2;color:var(--accent);border:1px solid #cfe3db;
+                border-radius:20px;padding:2px 10px;font-size:11.5px;font-weight:560}
+  .fld input[readonly]{background:#f4f4f1;color:#55554f;cursor:default}
   .actions{display:flex;gap:9px;align-items:center;margin-top:15px;flex-wrap:wrap}
   button{font:inherit;font-size:13px;font-weight:560;padding:8px 15px;border-radius:8px;cursor:pointer}
   .go{border:1px solid var(--accent);background:var(--accent);color:#fff}
@@ -74,6 +83,12 @@
 
   <div class="card">
     <h2>Add a record</h2>
+    <div id="pick"></div>
+    <div class="pickbar">
+      <span class="tag" id="pick-state">Click the map to place the point</span>
+      <span>Selected: <b id="pick-ll">—</b></span>
+      <span>Drag the marker to adjust.</span>
+    </div>
     <div class="grid">
       <div class="fld">
         <label for="f-name">Well_name<span class="req">*</span></label>
@@ -81,13 +96,13 @@
         <div class="err" id="e-name"></div>
       </div>
       <div class="fld">
-        <label for="f-x">x-coord<span class="req">*</span></label>
-        <input id="f-x" type="number" step="any" inputmode="decimal" placeholder="-117.991">
+        <label for="f-x">x-coord — longitude<span class="req">*</span></label>
+        <input id="f-x" type="number" step="any" inputmode="decimal" placeholder="click the map" readonly>
         <div class="err" id="e-x"></div>
       </div>
       <div class="fld">
-        <label for="f-y">y-coord<span class="req">*</span></label>
-        <input id="f-y" type="number" step="any" inputmode="decimal" placeholder="33.865">
+        <label for="f-y">y-coord — latitude<span class="req">*</span></label>
+        <input id="f-y" type="number" step="any" inputmode="decimal" placeholder="click the map" readonly>
         <div class="err" id="e-y"></div>
       </div>
       <div class="fld">
@@ -101,14 +116,14 @@
       </div>
       <div class="fld">
         <label for="f-date">date_input</label>
-        <input id="f-date" type="date">
-        <div class="err" id="e-date"></div>
+        <input id="f-date" type="date" readonly>
+        <div class="hint">Stamped when you add the record</div>
       </div>
     </div>
     <div class="actions">
       <button class="go" id="b-add">Add record</button>
       <button class="ghost" id="b-cancel" hidden>Cancel edit</button>
-      <span class="count spacer" id="hint">x is longitude, y is latitude (WGS84)</span>
+      <span class="count spacer" id="hint">Coordinates are WGS84 decimal degrees (EPSG:4326)</span>
     </div>
   </div>
 
@@ -136,6 +151,7 @@
 </div>
 <div class="toast" id="toast" hidden></div>
 
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
 <script>
 var KEY = 'geonomics.datainput.v1';
 var COLS = ['Well_name', 'x-coord', 'y-coord', 'type', 'date_input'];
@@ -168,11 +184,12 @@ function save() {
 
 // ---------- validation ----------
 function validate() {
+  var val = function (id) { return String($(id).value == null ? '' : $(id).value).trim(); };
   var v = {
-    'Well_name': $('f-name').value.trim(),
-    'x-coord': $('f-x').value.trim(),
-    'y-coord': $('f-y').value.trim(),
-    'type': $('f-type').value.trim(),
+    'Well_name': val('f-name'),
+    'x-coord': val('f-x'),
+    'y-coord': val('f-y'),
+    'type': val('f-type'),
     'date_input': $('f-date').value
   };
   var errs = {};
@@ -204,7 +221,8 @@ function validate() {
 
 // ---------- form ----------
 function clearForm() {
-  ['f-name', 'f-x', 'f-y', 'f-type'].forEach(function (id) { $(id).value = ''; });
+  ['f-name', 'f-type'].forEach(function (id) { $(id).value = ''; });
+  clearPoint();
   $('f-date').value = todayISO();
   ['name', 'x', 'y', 'type', 'date'].forEach(function (k) {
     var b = $('e-' + k); if (b) b.textContent = '';
@@ -224,9 +242,15 @@ function todayISO() {
 $('b-add').addEventListener('click', function () {
   var v = validate();
   if (!v) return;
-  if (editIndex >= 0) { rows[editIndex] = v; toast('Record updated'); }
-  else { rows.push(v); toast('Record added'); }
-  save(); clearForm(); $('f-name').focus();
+  if (editIndex >= 0) {
+    // keep the original input date; it records when the record was first entered
+    v['date_input'] = rows[editIndex]['date_input'] || todayISO();
+    rows[editIndex] = v; toast('Record updated');
+  } else {
+    v['date_input'] = todayISO();      // stamped now
+    rows.push(v); toast('Record added');
+  }
+  save(); clearForm(); refreshSaved(); $('f-name').focus();
 });
 $('b-cancel').addEventListener('click', clearForm);
 
@@ -266,13 +290,16 @@ $('tbody').addEventListener('click', function (e) {
     var i = +b.dataset.del;
     rows.splice(i, 1);
     if (editIndex === i) clearForm(); else if (editIndex > i) editIndex--;
-    save(); render(); toast('Record deleted');
+    save(); render(); refreshSaved(); toast('Record deleted');
   } else if (b.dataset.edit != null) {
     editIndex = +b.dataset.edit;
     var r = rows[editIndex];
     $('f-name').value = r['Well_name'] || '';
-    $('f-x').value = r['x-coord'];
-    $('f-y').value = r['y-coord'];
+    if (pickMap && isFinite(r['x-coord']) && isFinite(r['y-coord'])) {
+      ensureMarker(r['x-coord'], r['y-coord']);
+      setPoint(r['x-coord'], r['y-coord']);
+      pickMap.easeTo({ center: [r['x-coord'], r['y-coord']], duration: 400 });
+    }
     setTypeValue(r['type'] || '');
     $('f-date').value = r['date_input'] || '';
     $('b-add').textContent = 'Update record';
@@ -292,6 +319,85 @@ function setTypeValue(v) {
     sel.appendChild(o);
   }
   sel.value = v;
+}
+
+// ---------- map picker ----------
+// Coordinates come from the map, not typing: click to place, drag to refine.
+// WGS84 decimal degrees (EPSG:4326), which is what Mapbox reports natively.
+mapboxgl.accessToken = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGN6bGljVE0xZURCamRHWXpNRzlsYkhZMmVub3hPRFFpZlEuWTBrbWgxTzNWbVpuV2tQX0lMaWJuQQ==');
+
+var pickMap = null, marker = null;
+var DEC = 6;   // ~0.1 m
+
+function setPoint(lng, lat, moveMarker) {
+  lng = +(+lng).toFixed(DEC); lat = +(+lat).toFixed(DEC);
+  $('f-x').value = String(lng);      // inputs hold strings; keep that explicit
+  $('f-y').value = String(lat);
+  $('pick-ll').textContent = 'lon ' + lng.toFixed(DEC) + ', lat ' + lat.toFixed(DEC);
+  $('pick-state').textContent = 'Point placed';
+  $('e-x').textContent = ''; $('e-y').textContent = '';
+  $('f-x').classList.remove('bad'); $('f-y').classList.remove('bad');
+  if (moveMarker !== false && marker) marker.setLngLat([lng, lat]);
+}
+
+function clearPoint() {
+  $('f-x').value = ''; $('f-y').value = '';
+  $('pick-ll').textContent = '—';
+  $('pick-state').textContent = 'Click the map to place the point';
+  if (marker) marker.remove();
+  marker = null;
+}
+
+function ensureMarker(lng, lat) {
+  if (marker) { marker.setLngLat([lng, lat]); return; }
+  marker = new mapboxgl.Marker({ color: '#2d6a5a', draggable: true })
+    .setLngLat([lng, lat]).addTo(pickMap);
+  marker.on('drag', function () {
+    var p = marker.getLngLat(); setPoint(p.lng, p.lat, false);
+  });
+}
+
+function savedPointsFC() {
+  return { type: 'FeatureCollection', features: rows
+    .filter(function (r) { return isFinite(r['x-coord']) && isFinite(r['y-coord']); })
+    .map(function (r) {
+      return { type: 'Feature', properties: { n: r['Well_name'] || '' },
+               geometry: { type: 'Point', coordinates: [r['x-coord'], r['y-coord']] } };
+    }) };
+}
+function refreshSaved() {
+  if (pickMap && pickMap.getSource('saved')) pickMap.getSource('saved').setData(savedPointsFC());
+}
+
+function initPicker(center) {
+  pickMap = new mapboxgl.Map({
+    container: 'pick',
+    style: 'mapbox://styles/mapbox/streets-v12',
+    center: center, zoom: 13
+  });
+  pickMap.addControl(new mapboxgl.NavigationControl({ visualizePitch: false }), 'top-right');
+  pickMap.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+  pickMap.addControl(new mapboxgl.GeolocateControl({ trackUserLocation: false }), 'top-right');
+
+  pickMap.on('load', function () {
+    pickMap.addSource('saved', { type: 'geojson', data: savedPointsFC() });
+    pickMap.addLayer({ id: 'saved-dot', type: 'circle', source: 'saved',
+      paint: { 'circle-radius': 5, 'circle-color': '#8a6a4a',
+               'circle-stroke-color': '#fff', 'circle-stroke-width': 1.6, 'circle-opacity': .9 } });
+    pickMap.addLayer({ id: 'saved-label', type: 'symbol', source: 'saved', minzoom: 12,
+      layout: { 'text-field': ['get', 'n'],
+                'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+                'text-size': 10.5, 'text-offset': [0, 1.1], 'text-anchor': 'top',
+                'text-allow-overlap': false },
+      paint: { 'text-color': '#6b4f36', 'text-halo-color': 'rgba(255,255,255,.95)',
+               'text-halo-width': 1.4 } });
+  });
+
+  pickMap.on('click', function (e) {
+    ensureMarker(e.lngLat.lng, e.lngLat.lat);
+    setPoint(e.lngLat.lng, e.lngLat.lat, false);
+  });
+  pickMap.getCanvas().style.cursor = 'crosshair';
 }
 
 // ---------- export ----------
@@ -323,7 +429,7 @@ $('b-geojson').addEventListener('click', function () {
 $('b-clear').addEventListener('click', function () {
   if (!confirm('Delete all ' + rows.length + ' record' + (rows.length === 1 ? '' : 's') +
                '? This cannot be undone.')) return;
-  rows = []; save(); clearForm(); toast('All records cleared');
+  rows = []; save(); clearForm(); refreshSaved(); toast('All records cleared');
 });
 
 // ---------- start ----------
@@ -331,11 +437,9 @@ load();
 $('f-date').value = todayISO();
 // the map passes its centre so coordinates start somewhere sensible
 var q = new URLSearchParams(location.search);
-if (q.get('x') && q.get('y')) {
-  $('f-x').value = q.get('x');
-  $('f-y').value = q.get('y');
-  $('hint').textContent = 'x/y prefilled from the map centre — edit as needed';
-}
+var cx = parseFloat(q.get('x')), cy = parseFloat(q.get('y'));
+if (!isFinite(cx) || !isFinite(cy)) { cx = -117.95; cy = 33.86; }   // borehole cluster
+initPicker([cx, cy]);
 render();
 $('f-name').focus();
 </script>
