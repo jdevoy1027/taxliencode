@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Input — Geonomics</title>
+<style>
+  :root{--bg:#fbfbfa;--panel:#fff;--fg:#1a1a18;--muted:#6b6b66;--line:#e4e4e0;
+        --line2:#d0d0ca;--accent:#2d6a5a;--bad:#a8321f;--badbg:#fdeeeb}
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{background:var(--bg);color:var(--fg);
+    font:14px/1.5 ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px}
+
+  header{margin-bottom:18px}
+  .back{font-size:12.5px;color:var(--muted);text-decoration:none}
+  .back:hover{color:var(--accent)}
+  h1{margin:6px 0 3px;font-size:20px;font-weight:660;letter-spacing:-.02em}
+  .sub{margin:0;font-size:13px;color:var(--muted)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:18px;margin-bottom:18px}
+  .card h2{margin:0 0 14px;font-size:13px;font-weight:640;letter-spacing:.05em;
+           text-transform:uppercase;color:#85857e}
+
+  .grid{display:grid;gap:13px;grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+  .fld label{display:block;font-size:11.5px;font-weight:600;letter-spacing:.04em;
+             text-transform:uppercase;color:#85857e;margin-bottom:5px}
+  .fld label .req{color:var(--bad);margin-left:2px}
+  .fld input{width:100%;font:inherit;font-size:13.5px;padding:8px 10px;
+             border:1px solid var(--line2);border-radius:7px;background:#fff;color:var(--fg)}
+  .fld input:focus{outline:2px solid rgba(45,106,90,.35);outline-offset:1px;border-color:var(--accent)}
+  .fld input.bad{border-color:var(--bad);background:var(--badbg)}
+  .fld .err{font-size:11.5px;color:var(--bad);margin-top:4px;min-height:14px}
+  .fld .hint{font-size:11.5px;color:#9a9a92;margin-top:4px}
+
+  .actions{display:flex;gap:9px;align-items:center;margin-top:15px;flex-wrap:wrap}
+  button{font:inherit;font-size:13px;font-weight:560;padding:8px 15px;border-radius:8px;cursor:pointer}
+  .go{border:1px solid var(--accent);background:var(--accent);color:#fff}
+  .ghost{border:1px solid var(--line2);background:#fff;color:#3a3a35}
+  .danger{border:1px solid #e0bbb3;background:#fff;color:var(--bad)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .spacer{margin-left:auto}
+
+  .tablewrap{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{font-size:11px;font-weight:640;letter-spacing:.05em;text-transform:uppercase;
+     color:#85857e;background:#fafaf8;position:sticky;top:0}
+  tbody tr:hover{background:#f7faf9}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  td.act{text-align:right}
+  td.act button{padding:3px 9px;font-size:11.5px;border-radius:6px;margin-left:5px}
+  tr.editing{background:#eef5f2}
+  .empty{padding:30px;text-align:center;color:var(--muted);font-size:13px}
+  .count{font-size:12.5px;color:var(--muted)}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:24px;
+         background:rgba(20,20,20,.9);color:#fff;padding:9px 16px;border-radius:22px;font-size:12.5px}
+  .toast[hidden]{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <a class="back" href="../faults/">← Geology &amp; Faults map</a>
+    <h1>Data Input</h1>
+    <p class="sub">Records are saved in this browser as you add them, and the table below
+      stays in sync. Columns match <b>DraftDatainput.xlsx</b>.</p>
+  </header>
+
+  <div class="card">
+    <h2>Add a record</h2>
+    <div class="grid">
+      <div class="fld">
+        <label for="f-name">Well_name<span class="req">*</span></label>
+        <input id="f-name" type="text" autocomplete="off" placeholder="e.g. 89UT003">
+        <div class="err" id="e-name"></div>
+      </div>
+      <div class="fld">
+        <label for="f-x">x-coord<span class="req">*</span></label>
+        <input id="f-x" type="number" step="any" inputmode="decimal" placeholder="-117.991">
+        <div class="err" id="e-x"></div>
+      </div>
+      <div class="fld">
+        <label for="f-y">y-coord<span class="req">*</span></label>
+        <input id="f-y" type="number" step="any" inputmode="decimal" placeholder="33.865">
+        <div class="err" id="e-y"></div>
+      </div>
+      <div class="fld">
+        <label for="f-type">type</label>
+        <input id="f-type" type="text" list="types" autocomplete="off" placeholder="SPT">
+        <datalist id="types">
+          <option value="SPT"></option><option value="STRAT"></option>
+          <option value="STR"></option><option value="CPT"></option>
+          <option value="Boring"></option><option value="Monitoring well"></option>
+        </datalist>
+        <div class="err" id="e-type"></div>
+      </div>
+      <div class="fld">
+        <label for="f-date">date_input</label>
+        <input id="f-date" type="date">
+        <div class="err" id="e-date"></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="go" id="b-add">Add record</button>
+      <button class="ghost" id="b-cancel" hidden>Cancel edit</button>
+      <span class="count spacer" id="hint">x is longitude, y is latitude (WGS84)</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Table</h2>
+    <div class="actions" style="margin:0 0 13px">
+      <span class="count" id="count">No records yet</span>
+      <span class="spacer"></span>
+      <button class="ghost" id="b-csv">Export CSV</button>
+      <button class="ghost" id="b-geojson">Export GeoJSON</button>
+      <button class="danger" id="b-clear">Clear all</button>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Well_name</th><th>x-coord</th><th>y-coord</th>
+          <th>type</th><th>date_input</th><th></th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty">Nothing entered yet — add a record above.</div>
+  </div>
+
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+var KEY = 'geonomics.datainput.v1';
+var COLS = ['Well_name', 'x-coord', 'y-coord', 'type', 'date_input'];
+var rows = [];
+var editIndex = -1;
+
+function $(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function toast(msg) {
+  var t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(function () { t.hidden = true; }, 2600);
+}
+
+// ---------- storage ----------
+function load() {
+  try {
+    var raw = localStorage.getItem(KEY);
+    rows = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(rows)) rows = [];
+  } catch (e) { rows = []; }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(rows)); }
+  catch (e) { toast('Could not save to this browser: ' + e.message); }
+}
+
+// ---------- validation ----------
+function validate() {
+  var v = {
+    'Well_name': $('f-name').value.trim(),
+    'x-coord': $('f-x').value.trim(),
+    'y-coord': $('f-y').value.trim(),
+    'type': $('f-type').value.trim(),
+    'date_input': $('f-date').value
+  };
+  var errs = {};
+  if (!v['Well_name']) errs['name'] = 'Required.';
+
+  ['x', 'y'].forEach(function (ax) {
+    var key = ax + '-coord', raw = v[key];
+    if (raw === '') { errs[ax] = 'Required.'; return; }
+    var n = Number(raw);
+    if (!isFinite(n)) { errs[ax] = 'Must be a number.'; return; }
+    var lim = ax === 'x' ? 180 : 90;
+    if (n < -lim || n > lim) {
+      errs[ax] = (ax === 'x' ? 'Longitude' : 'Latitude') + ' must be between -' + lim + ' and ' + lim + '.';
+      return;
+    }
+    v[key] = n;
+  });
+  // a very common slip: entering lat in x and lon in y
+  if (!errs.x && !errs.y && Math.abs(v['x-coord']) <= 90 && Math.abs(v['y-coord']) > 90) {
+    errs.x = 'x and y look swapped — x is longitude.';
+  }
+  ['name', 'x', 'y', 'type', 'date'].forEach(function (k) {
+    var box = $('e-' + k), input = $('f-' + (k === 'name' ? 'name' : k));
+    if (box) box.textContent = errs[k] || '';
+    if (input) input.classList.toggle('bad', !!errs[k]);
+  });
+  return Object.keys(errs).length ? null : v;
+}
+
+// ---------- form ----------
+function clearForm() {
+  ['f-name', 'f-x', 'f-y', 'f-type'].forEach(function (id) { $(id).value = ''; });
+  $('f-date').value = todayISO();
+  ['name', 'x', 'y', 'type', 'date'].forEach(function (k) {
+    var b = $('e-' + k); if (b) b.textContent = '';
+    var i = $('f-' + k); if (i) i.classList.remove('bad');
+  });
+  editIndex = -1;
+  $('b-add').textContent = 'Add record';
+  $('b-cancel').hidden = true;
+  render();
+}
+function todayISO() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+         '-' + String(d.getDate()).padStart(2, '0');
+}
+
+$('b-add').addEventListener('click', function () {
+  var v = validate();
+  if (!v) return;
+  if (editIndex >= 0) { rows[editIndex] = v; toast('Record updated'); }
+  else { rows.push(v); toast('Record added'); }
+  save(); clearForm(); $('f-name').focus();
+});
+$('b-cancel').addEventListener('click', clearForm);
+
+// Enter anywhere in the form adds the record
+['f-name', 'f-x', 'f-y', 'f-type', 'f-date'].forEach(function (id) {
+  $(id).addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); $('b-add').click(); }
+  });
+});
+
+// ---------- table ----------
+function render() {
+  var tb = $('tbody');
+  tb.innerHTML = rows.map(function (r, i) {
+    return '<tr' + (i === editIndex ? ' class="editing"' : '') + '>' +
+      '<td class="num">' + (i + 1) + '</td>' +
+      '<td>' + esc(r['Well_name']) + '</td>' +
+      '<td class="num">' + esc(r['x-coord']) + '</td>' +
+      '<td class="num">' + esc(r['y-coord']) + '</td>' +
+      '<td>' + esc(r['type']) + '</td>' +
+      '<td>' + esc(r['date_input']) + '</td>' +
+      '<td class="act">' +
+        '<button class="ghost" data-edit="' + i + '">Edit</button>' +
+        '<button class="danger" data-del="' + i + '">Delete</button>' +
+      '</td></tr>';
+  }).join('');
+  $('empty').hidden = rows.length > 0;
+  $('count').textContent = rows.length
+    ? rows.length + ' record' + (rows.length === 1 ? '' : 's')
+    : 'No records yet';
+  ['b-csv', 'b-geojson', 'b-clear'].forEach(function (id) { $(id).disabled = !rows.length; });
+}
+
+$('tbody').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.del != null) {
+    var i = +b.dataset.del;
+    rows.splice(i, 1);
+    if (editIndex === i) clearForm(); else if (editIndex > i) editIndex--;
+    save(); render(); toast('Record deleted');
+  } else if (b.dataset.edit != null) {
+    editIndex = +b.dataset.edit;
+    var r = rows[editIndex];
+    $('f-name').value = r['Well_name'] || '';
+    $('f-x').value = r['x-coord'];
+    $('f-y').value = r['y-coord'];
+    $('f-type').value = r['type'] || '';
+    $('f-date').value = r['date_input'] || '';
+    $('b-add').textContent = 'Update record';
+    $('b-cancel').hidden = false;
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+});
+
+// ---------- export ----------
+function download(name, mime, text) {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+  a.download = name; a.click();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+}
+function csvCell(v) {
+  v = v == null ? '' : String(v);
+  return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+$('b-csv').addEventListener('click', function () {
+  var lines = [COLS.join(',')];
+  rows.forEach(function (r) { lines.push(COLS.map(function (c) { return csvCell(r[c]); }).join(',')); });
+  download('datainput.csv', 'text/csv', lines.join('\r\n') + '\r\n');
+  toast('CSV exported — opens directly in Excel');
+});
+$('b-geojson').addEventListener('click', function () {
+  var fc = { type: 'FeatureCollection', features: rows.map(function (r) {
+    return { type: 'Feature',
+             properties: { Well_name: r['Well_name'], type: r['type'], date_input: r['date_input'] },
+             geometry: { type: 'Point', coordinates: [r['x-coord'], r['y-coord']] } };
+  }) };
+  download('datainput.geojson', 'application/geo+json', JSON.stringify(fc, null, 1));
+  toast('GeoJSON exported — ' + rows.length + ' point' + (rows.length === 1 ? '' : 's'));
+});
+$('b-clear').addEventListener('click', function () {
+  if (!confirm('Delete all ' + rows.length + ' record' + (rows.length === 1 ? '' : 's') +
+               '? This cannot be undone.')) return;
+  rows = []; save(); clearForm(); toast('All records cleared');
+});
+
+// ---------- start ----------
+load();
+$('f-date').value = todayISO();
+// the map passes its centre so coordinates start somewhere sensible
+var q = new URLSearchParams(location.search);
+if (q.get('x') && q.get('y')) {
+  $('f-x').value = q.get('x');
+  $('f-y').value = q.get('y');
+  $('hint').textContent = 'x/y prefilled from the map centre — edit as needed';
+}
+render();
+$('f-name').focus();
+</script>
+</body>
+</html>

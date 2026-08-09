@@ -236,7 +236,10 @@
 
     <div class="sec">
       <h2>Tools</h2>
-      <div class="toolbar"><button class="mbtn" id="m-tools">Tools ▾</button></div>
+      <div class="toolbar">
+        <button class="mbtn" id="m-tools">Tools ▾</button>
+        <button class="mbtn" id="m-data">Data input</button>
+      </div>
       <div class="menu" id="menu" hidden>
         <div class="mh">Analysis</div>
         <button id="m-contour">Contour…</button>
@@ -862,6 +865,13 @@ function usd(v) {
        : v >= 1000     ? '$' + Math.round(v / 1000).toLocaleString() + 'k'
        : '$' + v.toLocaleString();
 }
+
+// Data input form. The map's centre seeds the coordinate fields so a new record
+// starts somewhere sensible rather than at 0,0.
+document.getElementById('m-data').addEventListener('click', function () {
+  var c = map.getCenter();
+  window.open('../data-input/?x=' + c.lng.toFixed(6) + '&y=' + c.lat.toFixed(6), '_blank');
+});
 
 // ================= Contour legend =================
 var ctInfo = null;   // { label, field, interval, indexEvery, zmin, zmax, clipped, lines, levels }
