@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Borehole Cross-Section — Geonomics</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
-<style id="pagecss">@page{size:11in 8.5in;margin:1in .35in .35in 1in}</style>
+<style id="pagecss">@page{size:11in 8.5in;margin:1in 1in .35in 1in}</style>
 <style>
   :root{
     --bg:#fbfbfa; --panel:#fff; --fg:#1a1a18; --muted:#6b6b66;
@@ -40,7 +40,7 @@
   }
   button.act.ghost{background:#fff;color:var(--accent)}
 
-  main{flex:1;min-height:0;overflow:auto;padding:0 14px 14px}
+  main{flex:1;min-height:0;overflow:auto;padding:0 14px 14px 81px}
   .wrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;
         padding:12px 14px 14px;display:inline-block;min-width:min-content}
   #svghost{display:block}
@@ -64,13 +64,13 @@
   }
   .strip .mapboxgl-ctrl-logo,.strip .mapboxgl-ctrl-attrib{transform:scale(.82);transform-origin:bottom left}
   .leghead{
-    flex:none;margin:14px 0 0 67px;padding-top:14px;border-top:1px solid var(--line);
+    flex:none;margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line);
     display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px
   }
   .leghead h2{margin:0;font-size:12.5px;font-weight:640;letter-spacing:-.01em}
   .leghead .n{font-size:11.5px;color:var(--muted)}
   .legend{
-    margin-top:11px;margin-left:67px;
+    margin-top:11px;
     display:flex;flex-wrap:wrap;gap:16px 26px;
   }
   .legend:empty{display:none}
@@ -256,7 +256,7 @@ Promise.all([
 
 // ---------- fit the whole sheet onto one 11 x 8.5 page ----------
 // 1in binding margin at the top and left; the trailing edges stay tight.
-var MARGIN = { top: 1, right: 0.35, bottom: 0.35, left: 1 };
+var MARGIN = { top: 1, right: 1, bottom: 0.35, left: 1 };
 function pageBoxPx() {
   var portrait = document.getElementById('c-orient') &&
                  document.getElementById('c-orient').value === 'portrait';
@@ -671,8 +671,8 @@ function render() {
 
   // Strip spans exactly the plot area so plan view and section share an x-extent.
   var sw = document.getElementById('stripwrap');
-  sw.style.marginLeft = M.l + 'px';
-  sw.style.width = PLOT_W + 'px';
+  sw.style.marginLeft = '0px';
+  sw.style.width = W + 'px';
   document.getElementById('svghost').innerHTML = o.join('');
   document.getElementById('warnhost').innerHTML = warn;
   var nUnits = Object.keys(used).length;
