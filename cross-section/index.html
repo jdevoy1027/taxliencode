@@ -96,15 +96,21 @@
   @media print{
     /* A section can be far wider than a page, so #xs-wrap is scaled to fit by
        fitForPrint() before the dialog opens. Printable area at .35in margins on
-       11x8.5 paper is 10.3 x 7.8in. */
-    html,body{background:#fff;height:auto}
+       11x8.5 paper is 10.3 x 7.8in. `zoom` shrinks the layout box (unlike
+       transform), so ordinary flex centring puts the scaled sheet in the middle
+       of the page both ways. */
+    html,body{background:#fff;height:100%}
+    body{display:flex;flex-direction:column}
     header .ctrls,.back{display:none}
-    header{padding:0 0 8px;border-bottom:1px solid #ccc}
-    main{padding:0;overflow:visible}
-    .wrap{border:0;padding:0;background:#fff}
+    header{padding:0 0 8px;border-bottom:1px solid #ccc;flex:none}
+    main{padding:0;overflow:visible;flex:1;min-height:0;
+         display:flex;align-items:center;justify-content:center}
+    .wrap{border:0;padding:0;background:#fff;min-height:0}
     .strip{border:1px solid #bbb}
-    #xs-wrap{transform-origin:top left}
+    #xs-wrap{margin:0 auto}
     .mapboxgl-ctrl-attrib-button{display:none}
+    #svghost{flex:none}
+    svg{display:block;margin:0 auto}
   }
 </style>
 </head>
@@ -268,8 +274,10 @@ function fitForPrint() {
   wrap.style.zoom = '';
   wrap.style.transform = '';
   var box = pageBoxPx();
-  // header eats a little vertical room in print
-  var avail = box.h - 34;
+  // measure the header rather than assuming its height
+  var hdr = document.querySelector('header');
+  var hdrH = hdr ? hdr.getBoundingClientRect().height : 34;
+  var avail = Math.max(120, box.h - hdrH - 10);
   var nw = wrap.scrollWidth, nh = wrap.scrollHeight;
   if (!nw || !nh) return;
   var z = Math.min(1, box.w / nw, avail / nh);
