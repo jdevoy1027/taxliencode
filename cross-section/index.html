@@ -20,7 +20,7 @@
     display:flex; flex-direction:column;
   }
   header{
-    padding:14px 20px 14px 1in; border-bottom:1px solid var(--line);
+    padding:14px 20px 10px 1in; border-bottom:1px solid var(--line);
     background:var(--panel); display:flex; flex-wrap:wrap; gap:14px 22px; align-items:center;
   }
   .back{font-size:12.5px;color:var(--muted);text-decoration:none}
@@ -40,10 +40,10 @@
   }
   button.act.ghost{background:#fff;color:var(--accent)}
 
-  main{flex:1;min-height:0;overflow:auto;padding:14px}
+  main{flex:1;min-height:0;overflow:auto;padding:0 14px 14px}
   .wrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;
-        padding:14px;display:flex;flex-direction:column;min-height:100%}
-  #svghost{flex:1;min-height:0}
+        padding:12px 14px 14px;display:inline-block;min-width:min-content}
+  #svghost{display:block}
   svg{display:block}
   .empty{
     max-width:640px;margin:64px auto;text-align:center;color:var(--muted);
@@ -52,7 +52,7 @@
   .empty code{background:#f0f0ec;padding:2px 6px;border-radius:4px;font-size:12.5px}
   .empty ol{text-align:left;display:inline-block;margin:14px 0 0;line-height:1.8}
 
-  .stripwrap{position:relative;margin-bottom:2px;flex:none}
+  .stripwrap{position:relative;margin:0 0 4px;flex:none}
   .strip{
     height:380px;border:1px solid var(--line2);border-radius:8px;overflow:hidden;
     background:#eceae4
@@ -129,8 +129,8 @@
     </label>
     <label class="ctrl">Vertical exaggeration
       <select id="c-ve">
-        <option value="fit" selected>Fit page</option>
-        <option value="auto">Auto (max 40×)</option>
+        <option value="auto" selected>Auto</option>
+        <option value="fit">Fit page</option>
         <option value="1">1×</option><option value="2">2×</option><option value="5">5×</option>
         <option value="10">10×</option><option value="20">20×</option><option value="50">50×</option>
       </select>
@@ -227,7 +227,7 @@ function esc(s) {
 
 // ---------- state ----------
 var LINE = parseLine(), BORES = null, LITH = null;
-var opts = { buf: 1000, ve: 'fit', datum: 'elev', fill: 'nearest' };
+var opts = { buf: 1000, ve: 'auto', datum: 'elev', fill: 'nearest' };
 
 function showEmpty(msg) {
   document.getElementById('main').innerHTML =
@@ -496,36 +496,27 @@ function render() {
 
   var M = { l: 67, r: 26, t: 46, b: 56 };   // 67 + 29px of padding/border = 1in
 
-  // Fill the window: measure the space the shell actually leaves for the drawing
-  // rather than assuming a fixed canvas.
   ensureShell();
   var host = document.getElementById('svghost');
   var availW = Math.max(420, (host.clientWidth || window.innerWidth - 60));
   var availH = Math.max(240, (host.clientHeight || 420));
   var usedAvailH = availH;
 
-  var PLOT_W = Math.max(320, availW - M.l - M.r);
-  var ve, PLOT_H;
-  var veCapped = false;
+  var PLOT_W, PLOT_H, ve, veCapped = false;
   if (opts.ve === 'fit') {
-    // Fill the window vertically, whatever exaggeration that takes.
+    // opt-in: stretch to whatever space the window leaves
+    PLOT_W = Math.max(320, availW - M.l - M.r);
     PLOT_H = Math.max(200, availH - M.t - M.b);
     ve = (xRange / PLOT_W) / (yRange / PLOT_H);
-  } else if (opts.ve === 'auto') {
-    // Fill the height, but cap the exaggeration: a long, shallow section would
-    // otherwise need 100x+ to reach the bottom of the window, which reads as
-    // spikes rather than stratigraphy.
-    var VE_MAX = 40;
-    PLOT_H = Math.max(200, availH - M.t - M.b);
-    ve = (xRange / PLOT_W) / (yRange / PLOT_H);
-    if (ve > VE_MAX) {
-      ve = VE_MAX; veCapped = true;
-      PLOT_H = Math.max(160, (yRange / (xRange / PLOT_W)) * ve);
-    }
   } else {
-    ve = +opts.ve;
-    PLOT_H = Math.max(160, (yRange / (xRange / PLOT_W)) * ve);
+    // original sizing: width follows section length, height follows exaggeration
+    PLOT_W = Math.min(1500, Math.max(760, xRange / 12));
+    ve = opts.ve === 'auto'
+      ? Math.max(1, Math.min(60, (xRange / PLOT_W) / (yRange / 420)))
+      : +opts.ve;
+    PLOT_H = Math.max(260, Math.min(900, (yRange / (xRange / PLOT_W)) * ve));
   }
+
   var W = PLOT_W + M.l + M.r, H = PLOT_H + M.t + M.b;
   var sx = function (v) { return M.l + (v / xRange) * PLOT_W; };
   var sy = function (v) { return M.t + ((hi - v) / yRange) * PLOT_H; };
@@ -707,7 +698,7 @@ function render() {
     Math.round(got.total).toLocaleString() + ' ft section · ' + hits.length +
     ' boreholes · ±' + opts.buf.toLocaleString() + ' ft corridor · VE ' +
     (Math.round(ve * 10) / 10) + '×' +
-    (opts.ve === 'fit' ? ' (fit page)' : veCapped ? ' (auto, capped)' : '');
+    (opts.ve === 'fit' ? ' (fit page)' : '');
 }
 </script>
 </body>
