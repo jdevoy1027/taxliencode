@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Contour Map — Geonomics</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
-<style id="pagecss">@page{size:11in 8.5in;margin:.25in}</style>
+<style id="pagecss">@page{size:11in 8.5in;margin:1in .25in .25in 1in}</style>
 <style>
   :root{--bg:#f2f2ef;--panel:#fff;--fg:#1a1a18;--muted:#6b6b66;--line:#e4e4e0;
         --line2:#d0d0ca;--accent:#2d6a5a;--ink:#8a6a4a}
@@ -72,8 +72,8 @@
     .bar{display:none}
     .stage{padding:0;overflow:visible;display:block}
     .sheet{box-shadow:none;border:0;margin:0;padding:.22in;overflow:hidden;
-           width:10.5in;height:8in;page-break-after:avoid;page-break-inside:avoid}
-    .sheet.portrait{width:8in;height:10.5in}
+           width:9.75in;height:7.25in;page-break-after:avoid;page-break-inside:avoid}
+    .sheet.portrait{width:7.25in;height:9.75in}
     .mapboxgl-ctrl-attrib-button{display:none}
   }
 </style>
@@ -307,7 +307,7 @@ function fitAll() {
 document.getElementById('fit').addEventListener('click', fitAll);
 function setPageSize(portrait) {
   document.getElementById('pagecss').textContent =
-    '@page{size:' + (portrait ? '8.5in 11in' : '11in 8.5in') + ';margin:.25in}';
+    '@page{size:' + (portrait ? '8.5in 11in' : '11in 8.5in') + ';margin:1in .25in .25in 1in}';
 }
 setPageSize(false);
 
