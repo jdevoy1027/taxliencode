@@ -20,7 +20,7 @@
     display:flex; flex-direction:column;
   }
   header{
-    padding:14px 20px; border-bottom:1px solid var(--line);
+    padding:14px 20px 14px 1in; border-bottom:1px solid var(--line);
     background:var(--panel); display:flex; flex-wrap:wrap; gap:14px 22px; align-items:center;
   }
   .back{font-size:12.5px;color:var(--muted);text-decoration:none}
@@ -54,7 +54,7 @@
 
   .stripwrap{position:relative;margin-bottom:2px;flex:none}
   .strip{
-    height:190px;border:1px solid var(--line2);border-radius:8px;overflow:hidden;
+    height:380px;border:1px solid var(--line2);border-radius:8px;overflow:hidden;
     background:#eceae4
   }
   .stripcap{
@@ -64,13 +64,13 @@
   }
   .strip .mapboxgl-ctrl-logo,.strip .mapboxgl-ctrl-attrib{transform:scale(.82);transform-origin:bottom left}
   .leghead{
-    flex:none;margin:14px 0 0;padding-top:14px;border-top:1px solid var(--line);
+    flex:none;margin:14px 0 0 67px;padding-top:14px;border-top:1px solid var(--line);
     display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px
   }
   .leghead h2{margin:0;font-size:12.5px;font-weight:640;letter-spacing:-.01em}
   .leghead .n{font-size:11.5px;color:var(--muted)}
   .legend{
-    margin-top:11px;
+    margin-top:11px;margin-left:67px;
     display:flex;flex-wrap:wrap;gap:16px 26px;
   }
   .legend:empty{display:none}
@@ -103,14 +103,15 @@
     body{display:flex;flex-direction:column}
     header .ctrls,.back{display:none}
     header{padding:0 0 8px;border-bottom:1px solid #ccc;flex:none}
+    .leghead,.legend{margin-left:0}
     main{padding:0;overflow:visible;flex:1;min-height:0;
-         display:flex;align-items:center;justify-content:center}
+         display:flex;align-items:center;justify-content:flex-start}
     .wrap{border:0;padding:0;background:#fff;min-height:0}
     .strip{border:1px solid #bbb}
-    #xs-wrap{margin:0 auto}
+    #xs-wrap{margin:0}
     .mapboxgl-ctrl-attrib-button{display:none}
     #svghost{flex:none}
-    svg{display:block;margin:0 auto}
+    svg{display:block;margin:0}
   }
 </style>
 </head>
@@ -493,7 +494,7 @@ function render() {
   var xRange = Math.max(got.total, 1);
   var yRange = Math.max(hi - lo, 1);
 
-  var M = { l: 74, r: 26, t: 46, b: 56 };
+  var M = { l: 67, r: 26, t: 46, b: 56 };   // 67 + 29px of padding/border = 1in
 
   // Fill the window: measure the space the shell actually leaves for the drawing
   // rather than assuming a fixed canvas.
