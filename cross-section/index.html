@@ -386,6 +386,11 @@ function initStrip() {
     attributionControl: true, interactive: true
   });
   stripMap.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
+  // the strip is interactive, so keep the rose true if the user rotates or pans
+  stripMap.on('rotate', syncNorth);
+  stripMap.on('rotateend', syncNorth);
+  stripMap.on('move', syncNorth);
+
   stripMap.on('load', function () {
     stripMap.addSource('xs-line', { type: 'geojson', data: emptyFC() });
     stripMap.addSource('xs-bores', { type: 'geojson', data: emptyFC() });
