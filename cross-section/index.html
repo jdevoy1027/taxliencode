@@ -355,6 +355,15 @@ function collect() {
 // Rotated so the section runs left-to-right, matching the diagram beneath it.
 var stripMap = null, stripReady = false, pendingStrip = null;
 
+// Mapbox `bearing` is the compass direction drawn at the TOP of the map, so to
+// lay the section out left-to-right (A on the left, A' on the right) the map must
+// be rotated to the line's bearing MINUS 90 — that puts the line's heading on the
+// screen's x-axis instead of its y-axis.
+function sectionBearing() {
+  var a = LINE[0], b = LINE[LINE.length - 1];
+  return (bearingOf(a, b) - 90 + 360) % 360;
+}
+
 function bearingOf(a, b) {
   var la1 = a[1] * Math.PI / 180, la2 = b[1] * Math.PI / 180;
   var dLo = (b[0] - a[0]) * Math.PI / 180;
@@ -441,7 +450,7 @@ function updateStrip(hits) {
   hits.forEach(function (h) { b.extend(h.lonlat); });
   stripMap.resize();
   stripMap.fitBounds(b, {
-    bearing: bearingOf(LINE[0], LINE[LINE.length - 1]),
+    bearing: sectionBearing(),
     padding: { top: 34, bottom: 34, left: 44, right: 44 },
     duration: 0
   });
