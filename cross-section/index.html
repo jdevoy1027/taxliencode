@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Borehole Cross-Section — Geonomics</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
-<style id="pagecss">@page{size:11in 8.5in;margin:1in 1in .35in 1in}</style>
+<style id="pagecss">@page{size:11in 8.5in;margin:1in 1.5in .35in 1in}</style>
 <style>
   :root{
     --bg:#fbfbfa; --panel:#fff; --fg:#1a1a18; --muted:#6b6b66;
@@ -261,7 +261,7 @@ Promise.all([
 
 // ---------- fit the whole sheet onto one 11 x 8.5 page ----------
 // 1in binding margin at the top and left; the trailing edges stay tight.
-var MARGIN = { top: 1, right: 1, bottom: 0.35, left: 1 };
+var MARGIN = { top: 1, right: 1.5, bottom: 0.35, left: 1 };
 function pageBoxPx() {
   var portrait = document.getElementById('c-orient') &&
                  document.getElementById('c-orient').value === 'portrait';
