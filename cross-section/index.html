@@ -53,7 +53,7 @@
   .empty ol{text-align:left;display:inline-block;margin:14px 0 0;line-height:1.8}
 
   .stripwrap{position:relative;margin:0 0 4px;flex:none}
-  body.printing .strip{height:200px}
+  body.printing .strip{height:150px}
   .strip{
     height:380px;border:1px solid var(--line2);border-radius:8px;overflow:hidden;
     background:#eceae4
@@ -110,12 +110,14 @@
     header .ctrls,.back{display:none}
     header{padding:0 0 8px;border-bottom:1px solid #ccc;flex:none}
     .leghead,.legend{margin-left:0}
+    /* flex-start, not center: with align-items:center an over-tall sheet
+       overflows upward and prints on top of the title */
     main{padding:0;overflow:visible;flex:1;min-height:0;
-         display:flex;align-items:center;justify-content:flex-start}
+         display:flex;align-items:flex-start;justify-content:flex-start}
     .wrap{border:0;padding:0;background:#fff;min-height:0}
     .strip{border:1px solid #bbb}
     #xs-wrap{margin:0;zoom:1}
-    .strip{height:200px}
+    .strip{height:150px}
     .mapboxgl-ctrl-attrib-button{display:none}
     #svghost{flex:none}
     svg{display:block;margin:0}
@@ -286,7 +288,7 @@ function setPageSize() {
 // about 3.5pt. Instead, re-render the SVG at the printable size so type stays at
 // its designed pt size and the drawing fills the page margin to margin.
 var printMode = false;
-var PRINT_CHROME = { header: 45, stripcap: 18, strip: 200, legend: 130, gaps: 24 };
+var PRINT_CHROME = { header: 52, stripcap: 18, strip: 150, legend: 140, gaps: 24, slack: 16 };
 
 function printBoxPx() { return pageBoxPx(); }
 
@@ -589,7 +591,8 @@ function render() {
     var pb = printBoxPx();
     availW = pb.w;
     availH = Math.max(150, pb.h - PRINT_CHROME.header - PRINT_CHROME.stripcap -
-                            PRINT_CHROME.strip - PRINT_CHROME.legend - PRINT_CHROME.gaps);
+                            PRINT_CHROME.strip - PRINT_CHROME.legend -
+                            PRINT_CHROME.gaps - PRINT_CHROME.slack);
   } else {
     availW = Math.max(420, (host.clientWidth || window.innerWidth - 60));
     availH = Math.max(240, (host.clientHeight || 420));
@@ -599,7 +602,7 @@ function render() {
   var PLOT_W, PLOT_H, ve, veCapped = false;
   if (printMode) {
     PLOT_W = Math.max(320, availW - M.l - M.r);
-    PLOT_H = Math.max(150, availH);
+    PLOT_H = Math.max(110, availH - M.t - M.b);   // axes live inside availH
     ve = (xRange / PLOT_W) / (yRange / PLOT_H);
   } else if (opts.ve === 'fit') {
     // opt-in: stretch to whatever space the window leaves
