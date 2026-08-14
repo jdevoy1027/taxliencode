@@ -53,6 +53,7 @@
   .empty ol{text-align:left;display:inline-block;margin:14px 0 0;line-height:1.8}
 
   .stripwrap{position:relative;margin:0 0 4px;flex:none}
+  body.printing .strip{height:200px}
   .strip{
     height:380px;border:1px solid var(--line2);border-radius:8px;overflow:hidden;
     background:#eceae4
@@ -113,7 +114,8 @@
          display:flex;align-items:center;justify-content:flex-start}
     .wrap{border:0;padding:0;background:#fff;min-height:0}
     .strip{border:1px solid #bbb}
-    #xs-wrap{margin:0}
+    #xs-wrap{margin:0;zoom:1}
+    .strip{height:200px}
     .mapboxgl-ctrl-attrib-button{display:none}
     #svghost{flex:none}
     svg{display:block;margin:0}
@@ -280,31 +282,40 @@ function setPageSize() {
     ';margin:' + MARGIN.top + 'in ' + MARGIN.right + 'in ' +
     MARGIN.bottom + 'in ' + MARGIN.left + '}';
 }
+// Printing used to CSS-zoom the whole sheet to fit, which shrank the axis text to
+// about 3.5pt. Instead, re-render the SVG at the printable size so type stays at
+// its designed pt size and the drawing fills the page margin to margin.
+var printMode = false;
+var PRINT_CHROME = { header: 45, stripcap: 18, strip: 200, legend: 130, gaps: 24 };
+
+function printBoxPx() { return pageBoxPx(); }
+
+function enterPrintLayout() {
+  printMode = true;
+  document.body.classList.add('printing');
+  render();
+  if (stripMap) stripMap.resize();
+}
+function exitPrintLayout() {
+  printMode = false;
+  document.body.classList.remove('printing');
+  render();
+  if (stripMap) stripMap.resize();
+}
+
 function fitForPrint() {
+  // no scaling any more — the drawing is rendered at print size directly
   var wrap = document.getElementById('xs-wrap');
-  if (!wrap) return;
-  wrap.style.zoom = '';
-  wrap.style.transform = '';
-  var box = pageBoxPx();
-  // measure the header rather than assuming its height
-  var hdr = document.querySelector('header');
-  var hdrH = hdr ? hdr.getBoundingClientRect().height : 34;
-  var avail = Math.max(120, box.h - hdrH - 10);
-  var nw = wrap.scrollWidth, nh = wrap.scrollHeight;
-  if (!nw || !nh) return;
-  var z = Math.min(box.w / nw, avail / nh);
-  wrap.style.zoom = z;
+  if (wrap) { wrap.style.zoom = ''; wrap.style.transform = ''; }
 }
 var rzTimer = null;
 window.addEventListener('resize', function () {
   clearTimeout(rzTimer);
   rzTimer = setTimeout(function () { if (LINE && BORES && LITH) render(); }, 140);
 });
-window.addEventListener('beforeprint', fitForPrint);
-window.addEventListener('afterprint', function () {
-  var w = document.getElementById('xs-wrap');
-  if (w) { w.style.zoom = ''; w.style.transform = ''; }
-});
+window.addEventListener('beforeprint', function () { if (!printMode) enterPrintLayout(); });
+window.addEventListener('afterprint', function () { if (printMode) exitPrintLayout(); });
+
 
 function bind() {
   document.getElementById('c-buf').addEventListener('change', function () {
@@ -323,8 +334,9 @@ function bind() {
     setPageSize(); render();
   });
   document.getElementById('c-print').addEventListener('click', function () {
-    setPageSize(); fitForPrint();
-    setTimeout(function () { window.print(); }, 250);
+    setPageSize();
+    enterPrintLayout();
+    setTimeout(function () { window.print(); exitPrintLayout(); }, 400);
   });
   setPageSize();
 }
@@ -547,12 +559,24 @@ function render() {
 
   ensureShell();
   var host = document.getElementById('svghost');
-  var availW = Math.max(420, (host.clientWidth || window.innerWidth - 60));
-  var availH = Math.max(240, (host.clientHeight || 420));
+  var availW, availH;
+  if (printMode) {
+    var pb = printBoxPx();
+    availW = pb.w;
+    availH = Math.max(150, pb.h - PRINT_CHROME.header - PRINT_CHROME.stripcap -
+                            PRINT_CHROME.strip - PRINT_CHROME.legend - PRINT_CHROME.gaps);
+  } else {
+    availW = Math.max(420, (host.clientWidth || window.innerWidth - 60));
+    availH = Math.max(240, (host.clientHeight || 420));
+  }
   var usedAvailH = availH;
 
   var PLOT_W, PLOT_H, ve, veCapped = false;
-  if (opts.ve === 'fit') {
+  if (printMode) {
+    PLOT_W = Math.max(320, availW - M.l - M.r);
+    PLOT_H = Math.max(150, availH);
+    ve = (xRange / PLOT_W) / (yRange / PLOT_H);
+  } else if (opts.ve === 'fit') {
     // opt-in: stretch to whatever space the window leaves
     PLOT_W = Math.max(320, availW - M.l - M.r);
     PLOT_H = Math.max(200, availH - M.t - M.b);
@@ -737,7 +761,7 @@ function render() {
   // The legend is written after the drawing is sized, so on the first pass svghost
   // measured taller than it ends up. Re-render once if the space actually changed.
   var nowH = document.getElementById('svghost').clientHeight;
-  if (!render._fixing && nowH && Math.abs(nowH - usedAvailH) > 18) {
+  if (!printMode && !render._fixing && nowH && Math.abs(nowH - usedAvailH) > 18) {
     render._fixing = true;
     render();
     render._fixing = false;
