@@ -93,8 +93,10 @@
 
   .note{
     margin-top:12px;font-size:12.5px;color:#4a5a52;background:#eef5f2;
-    border:1px solid #cfe3db;border-radius:8px;padding:9px 12px;line-height:1.5
+    border:1px solid #cfe3db;border-radius:8px;padding:9px 12px;line-height:1.5;
+    max-width:100%;box-sizing:border-box;overflow-wrap:break-word
   }
+  #warnhost{max-width:100%}
   .warn{
     margin-top:12px;font-size:12.5px;color:#8a5a12;background:#fdf3e3;
     border:1px solid #f0dfc0;border-radius:8px;padding:9px 12px
@@ -118,6 +120,7 @@
     .strip{border:1px solid #bbb}
     #xs-wrap{margin:0;zoom:1}
     .strip{height:150px}
+    #warnhost,.note{max-width:100%;box-sizing:border-box}
     .mapboxgl-ctrl-attrib-button{display:none}
     #svghost{flex:none}
     svg{display:block;margin:0}
@@ -288,7 +291,8 @@ function setPageSize() {
 // about 3.5pt. Instead, re-render the SVG at the printable size so type stays at
 // its designed pt size and the drawing fills the page margin to margin.
 var printMode = false;
-var PRINT_CHROME = { header: 52, stripcap: 18, strip: 150, legend: 140, gaps: 24, slack: 16 };
+var PRINT_CHROME = { header: 52, stripcap: 18, strip: 150, legend: 140, gaps: 24,
+                     note: 62, slack: 16 };
 
 function printBoxPx() { return pageBoxPx(); }
 
@@ -592,7 +596,8 @@ function render() {
     availW = pb.w;
     availH = Math.max(150, pb.h - PRINT_CHROME.header - PRINT_CHROME.stripcap -
                             PRINT_CHROME.strip - PRINT_CHROME.legend -
-                            PRINT_CHROME.gaps - PRINT_CHROME.slack);
+                            PRINT_CHROME.gaps - PRINT_CHROME.slack -
+                            (opts.fill === 'nearest' ? PRINT_CHROME.note : 0));
   } else {
     availW = Math.max(420, (host.clientWidth || window.innerWidth - 60));
     availH = Math.max(240, (host.clientHeight || 420));
@@ -769,6 +774,11 @@ function render() {
            'elevation in the source data and are hung from 0 ft. Switch Datum to ' +
            '“Depth below collar” to compare them on equal footing.</div>';
   }
+
+  // Pin the sheet to the printable width when printing: without this the wrap is
+  // shrink-to-fit and the note's long text can push it past the right margin.
+  var wrapEl = document.getElementById('xs-wrap');
+  if (wrapEl) wrapEl.style.width = printMode ? availW + 'px' : '';
 
   // Strip spans exactly the plot area so plan view and section share an x-extent.
   var sw = document.getElementById('stripwrap');
