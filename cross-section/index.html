@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Borehole Cross-Section — Geonomics</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
-<style id="pagecss">@page{size:11in 8.5in;margin:1in 1.5in .35in 0}</style>
+<style id="pagecss">@page{size:11in 8.5in;margin:1in 2in .35in 0}</style>
 <style>
   :root{
     --bg:#fbfbfa; --panel:#fff; --fg:#1a1a18; --muted:#6b6b66;
@@ -265,7 +265,7 @@ Promise.all([
 // browsers let the print dialog override @page margins, which is how the left
 // space disappeared. Padding survives whatever the dialog is set to.
 var LEFT_GUTTER = 2;
-var MARGIN = { top: 1, right: 1.5, bottom: 0.35, left: 0 };
+var MARGIN = { top: 1, right: 2, bottom: 0.35, left: 0 };
 function pageBoxPx() {
   var portrait = document.getElementById('c-orient') &&
                  document.getElementById('c-orient').value === 'portrait';
@@ -292,7 +292,7 @@ function fitForPrint() {
   var avail = Math.max(120, box.h - hdrH - 10);
   var nw = wrap.scrollWidth, nh = wrap.scrollHeight;
   if (!nw || !nh) return;
-  var z = Math.min(1, box.w / nw, avail / nh);
+  var z = Math.min(box.w / nw, avail / nh);
   wrap.style.zoom = z;
 }
 var rzTimer = null;
