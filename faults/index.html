@@ -214,6 +214,22 @@
         <span id="cb-op-v">60%</span>
       </div>
       <label class="row" style="margin-top:6px">
+        <input type="checkbox" id="t-parcels">
+        <span class="lbl">LA County parcels</span>
+        <span class="cnt">z13+</span>
+      </label>
+      <div class="slider">
+        <input type="range" id="pc-op" min="0" max="100" value="35" disabled>
+        <span id="pc-op-v">35%</span>
+      </div>
+      <div id="pc-sec" hidden style="margin:2px 0 4px 22px">
+        <select id="pc-by" style="width:100%;font-size:12px;padding:2px">
+          <option value="use">Colour by land use</option>
+          <option value="value">Colour by land value</option>
+        </select>
+        <div id="pc-legend" style="margin-top:4px"></div>
+      </div>
+      <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-ap">
         <span class="lbl">Alquist-Priolo zones</span>
         <span class="cnt">1,463</span>
@@ -358,6 +374,50 @@ var showBores = true, showBoreLabels = true, showSat = false;
 var showContours = false;
 var showAP = false;
 var showBlocks = false, blockOpacity = 0.6;
+var showParcels = false, parcelOpacity = 0.35, parcelColorBy = 'use';
+
+// LA County Assessor use codes are 4 characters and the FIRST digit is the major
+// class -- 0100 single-family, 0500 five-plus apartments, 1100 store, and so on.
+// Colouring on that leading character gives nine honest categories rather than
+// the several hundred full codes. Residential is 89.5% of the county, so the map
+// is deliberately mostly one colour.
+var PARCEL_USE = [
+  ['0', 'Residential',   '#4c78a8'],
+  ['1', 'Commercial',    '#e45756'],
+  ['2', 'Industrial',    '#72b7b2'],
+  ['3', 'Recreational',  '#54a24b'],
+  ['4', 'Institutional', '#eeca3b'],
+  ['5', 'Misc / vacant', '#b279a2'],
+  ['6', 'Rural',         '#ff9da6'],
+  ['7', 'Agricultural',  '#9d755d'],
+  ['8', 'Government',    '#bab0ac']
+];
+// Class breaks from the actual land-value distribution (p25/p50/p75/p90 of the
+// 2016 assessed values), not round numbers, so each colour holds a real quartile.
+var PARCEL_VALUE = [
+  [0,       '#fee5d9'],
+  [55000,   '#fcae91'],
+  [148000,  '#fb6a4a'],
+  [290000,  '#de2d26'],
+  [535000,  '#a50f15']
+];
+
+function parcelColorExpr() {
+  if (parcelColorBy === 'value') {
+    // 'step', not 'interpolate'. The breaks are discrete classes that the legend
+    // names one by one, and the style spec rejects interpolating between colour
+    // literals here anyway.
+    var v = ['step', ['coalesce', ['get', 'land_value'], 0], PARCEL_VALUE[0][1]];
+    PARCEL_VALUE.slice(1).forEach(function (s) { v.push(s[0], s[1]); });
+    return v;
+  }
+  // slice(0,1) rather than a match on the whole code: the leading character is
+  // the class, and there are far too many full codes to enumerate.
+  var e = ['match', ['slice', ['coalesce', ['get', 'use_code'], '?'], 0, 1]];
+  PARCEL_USE.forEach(function (u) { e.push(u[0], u[2]); });
+  e.push('#cccccc');
+  return e;
+}
 
 function geoColorExpr() {
   var e = ['match', ['get', 'PTYPE']];
@@ -454,6 +514,24 @@ function addLayers() {
       minzoom: 11,
       paint: { 'line-color': 'rgba(30,45,70,.35)',
                'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.2, 15, 0.7] }
+    });
+  }
+  if (!map.getSource('parcels')) {
+    map.addSource('parcels', { type: 'vector', url: 'mapbox://jdevoy.la-parcels' });
+  }
+  if (!map.getLayer('pc-fill')) {
+    map.addLayer({
+      id: 'pc-fill', type: 'fill', source: 'parcels', 'source-layer': 'parcels',
+      minzoom: 13,
+      paint: { 'fill-color': parcelColorExpr(), 'fill-opacity': parcelOpacity }
+    });
+  }
+  if (!map.getLayer('pc-line')) {
+    map.addLayer({
+      id: 'pc-line', type: 'line', source: 'parcels', 'source-layer': 'parcels',
+      minzoom: 15,
+      paint: { 'line-color': 'rgba(40,40,40,.45)',
+               'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.15, 18, 0.6] }
     });
   }
   if (!map.getSource('apzones')) {
@@ -673,6 +751,15 @@ function applyState() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showBlocks ? 'visible' : 'none');
   });
   if (map.getLayer('cb-fill')) map.setPaintProperty('cb-fill', 'fill-opacity', blockOpacity);
+  ['pc-fill', 'pc-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showParcels ? 'visible' : 'none');
+  });
+  if (map.getLayer('pc-fill')) {
+    map.setPaintProperty('pc-fill', 'fill-color', parcelColorExpr());
+    map.setPaintProperty('pc-fill', 'fill-opacity', parcelOpacity);
+  }
+  var pcSec = document.getElementById('pc-sec');
+  if (pcSec) pcSec.hidden = !showParcels;
   var cbSec = document.getElementById('cb-sec');
   if (cbSec) cbSec.hidden = !showBlocks;
   var ctSec = document.getElementById('ct-sec');
@@ -715,10 +802,11 @@ map.on('load', function () {
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
-      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill'].filter(function (id) { return map.getLayer(id); })
+      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill', 'pc-fill'].filter(function (id) { return map.getLayer(id); })
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null;
     hits.forEach(function (h) {
+      if (h.layer.id === 'pc-fill' && !parc) parc = h.properties;
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
@@ -726,9 +814,36 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !parc) return;
 
     var html = '';
+    if (parc && showParcels) {
+      var pcls = (PARCEL_USE.filter(function (u) {
+        return u[0] === String(parc.use_code || '').charAt(0);
+      })[0] || [null, 'Unclassified', '#cccccc']);
+      var addr = [parc.situs_no, parc.situs_street].filter(Boolean).join(' ');
+      html += '<div class="pop-name">' + esc(addr || 'Parcel ' + (parc.ain || '')) + '</div>';
+      if (parc.situs_city) {
+        html += '<div class="pop-row">' + esc(parc.situs_city) +
+                (parc.situs_zip ? ' ' + esc(parc.situs_zip) : '') + '</div>';
+      }
+      if (parc.owner) html += '<div class="pop-row"><b>Owner:</b> ' + esc(parc.owner) + '</div>';
+      if (parc.ain) html += '<div class="pop-row"><b>AIN:</b> ' + esc(parc.ain) + '</div>';
+      html += '<div class="pop-row pop-unit"><i style="background:' + pcls[2] + '"></i>' +
+              esc(pcls[1]) + (parc.use_code ? ' · code ' + esc(parc.use_code) : '') + '</div>';
+      var pb = [];
+      if (parc.zoning) pb.push('zoned ' + esc(parc.zoning));
+      if (parc.yr_built) pb.push('built ' + esc(parc.yr_built));
+      if (parc.sqft) pb.push(Number(parc.sqft).toLocaleString() + ' sq ft');
+      if (parc.units) pb.push(esc(parc.units) + ' unit' + (parc.units > 1 ? 's' : ''));
+      if (pb.length) html += '<div class="pop-row">' + pb.join(' · ') + '</div>';
+      var lv = usd(parc.land_value), iv = usd(parc.impr_value);
+      if (lv) html += '<div class="pop-row"><b>Land:</b> ' + lv +
+                      (iv ? ' · <b>Improvements:</b> ' + iv : '') + '</div>';
+      html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
+              'Assessor roll 2016</div>';
+      if (fault || unit || soil || bore || blk || ap) html += '<div class="pop-sep"></div>';
+    }
     if (bore && showBores) {
       html += '<div class="pop-name">Borehole ' + esc(bore.n || '(unnamed)') + '</div>';
       if (bore.s) html += '<div class="pop-row">' + esc(bore.s) + '</div>';
@@ -1016,6 +1131,46 @@ cbOp.addEventListener('input', function () {
   cbOpV.textContent = this.value + '%';
   applyState();
 });
+
+// ---- LA County parcels ----
+var pcOp = document.getElementById('pc-op'), pcOpV = document.getElementById('pc-op-v');
+function parcelLegend() {
+  var host = document.getElementById('pc-legend');
+  if (!host) return;
+  var rows;
+  if (parcelColorBy === 'value') {
+    rows = PARCEL_VALUE.map(function (s, i) {
+      var next = PARCEL_VALUE[i + 1];
+      var label = next ? ('$' + (s[0] / 1000) + 'k – $' + (next[0] / 1000) + 'k')
+                       : ('$' + (s[0] / 1000) + 'k +');
+      if (i === 0) label = 'under $' + (PARCEL_VALUE[1][0] / 1000) + 'k';
+      return { c: s[1], t: label };
+    });
+  } else {
+    rows = PARCEL_USE.map(function (u) { return { c: u[2], t: u[1] }; });
+  }
+  host.innerHTML = rows.map(function (r) {
+    return '<div class="pop-unit" style="font-size:11.5px;margin:1px 0">' +
+           '<i style="background:' + r.c + '"></i>' + esc(r.t) + '</div>';
+  }).join('');
+}
+document.getElementById('t-parcels').addEventListener('change', function () {
+  showParcels = this.checked;
+  pcOp.disabled = !showParcels;
+  parcelLegend();
+  applyState();
+});
+pcOp.addEventListener('input', function () {
+  parcelOpacity = this.value / 100;
+  pcOpV.textContent = this.value + '%';
+  applyState();
+});
+document.getElementById('pc-by').addEventListener('change', function () {
+  parcelColorBy = this.value;
+  parcelLegend();
+  applyState();
+});
+parcelLegend();
 
 // ================= Tools menu =================
 var MENU = document.getElementById('menu');
