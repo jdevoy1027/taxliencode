@@ -216,7 +216,7 @@
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-parcels">
         <span class="lbl">LA County parcels</span>
-        <span class="cnt">z13+</span>
+        <span class="cnt">z14+</span>
       </label>
       <div class="slider">
         <input type="range" id="pc-op" min="0" max="100" value="35" disabled>
@@ -522,7 +522,10 @@ function addLayers() {
   if (!map.getLayer('pc-fill')) {
     map.addLayer({
       id: 'pc-fill', type: 'fill', source: 'parcels', 'source-layer': 'parcels',
-      minzoom: 13,
+      // z14, not z13. MTS had to drop features from seven z13 tiles over the
+      // densest parts of the county to stay under the 2500 KB layer ceiling, so
+      // z13 would show a silently incomplete parcel fabric. z14 is complete.
+      minzoom: 14,
       paint: { 'fill-color': parcelColorExpr(), 'fill-opacity': parcelOpacity }
     });
   }
