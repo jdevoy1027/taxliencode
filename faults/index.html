@@ -239,6 +239,12 @@
         <div id="pc-legend" style="margin-top:4px"></div>
       </div>
       <label class="row" style="margin-top:6px">
+        <input type="checkbox" id="t-wells">
+        <span class="lbl">Oil &amp; gas wells</span>
+        <span class="cnt">z6+</span>
+      </label>
+      <div id="wl-sec" hidden style="margin:2px 0 4px 22px"></div>
+      <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-ap">
         <span class="lbl">Alquist-Priolo zones</span>
         <span class="cnt">1,463</span>
@@ -384,6 +390,7 @@ var showContours = false;
 var showAP = false;
 var showBlocks = false, blockOpacity = 0.6;
 var showParcels = false, parcelOpacity = 0.35, parcelColorBy = 'use';
+var showWells = false;
 
 // LA County Assessor use codes are 4 characters and the FIRST digit is the major
 // class -- 0100 single-family, 0500 five-plus apartments, 1100 store, and so on.
@@ -449,6 +456,23 @@ function parcelPopupHtml(parc) {
           (parc.county === 'OC' ? 'Orange County assessor roll' : 'LA County assessor roll 2016') +
           '</div>';
   return html;
+}
+
+// CalGEM/DOGGR well status codes. Plugged-and-abandoned is the largest class at
+// 45%, so it gets the recessive grey; active wells are the ones you look for.
+var WELL_STATUS = [
+  ['A', 'Active',              '#1a9850'],
+  ['I', 'Idle',                '#fdae61'],
+  ['P', 'Plugged & abandoned', '#8c8c8c'],
+  ['N', 'New / permitted',     '#3288bd'],
+  ['B', 'Buried',              '#755d9a'],
+  ['U', 'Unknown',             '#c6c6c6']
+];
+function wellColorExpr() {
+  var e = ['match', ['coalesce', ['get', 'status'], '?']];
+  WELL_STATUS.forEach(function (w) { e.push(w[0], w[2]); });
+  e.push('#c6c6c6');
+  return e;
 }
 
 // Orange County uses a single-digit USE_PROP_T on a different scheme from LA's
@@ -624,6 +648,22 @@ function addLayers() {
       minzoom: 15,
       paint: { 'line-color': 'rgba(40,40,40,.45)',
                'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.15, 18, 0.6] }
+    });
+  }
+  if (!map.getSource('wells')) {
+    map.addSource('wells', { type: 'vector', url: 'mapbox://jdevoy.doggr-wells' });
+  }
+  if (!map.getLayer('well-dot')) {
+    map.addLayer({
+      id: 'well-dot', type: 'circle', source: 'wells', 'source-layer': 'wells',
+      minzoom: 6,
+      paint: {
+        'circle-color': wellColorExpr(),
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.2, 10, 2.2, 14, 4.5, 18, 9],
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 0, 13, 0.6],
+        'circle-stroke-color': 'rgba(255,255,255,.85)',
+        'circle-opacity': 0.9
+      }
     });
   }
   if (!map.getSource('apzones')) {
@@ -854,6 +894,12 @@ function applyState() {
     map.setPaintProperty('pc2-fill', 'fill-color', parcelColorExprOC());
     map.setPaintProperty('pc2-fill', 'fill-opacity', parcelOpacity);
   }
+  if (map.getLayer('well-dot')) {
+    map.setLayoutProperty('well-dot', 'visibility', showWells ? 'visible' : 'none');
+    map.setPaintProperty('well-dot', 'circle-color', wellColorExpr());
+  }
+  var wlSec = document.getElementById('wl-sec');
+  if (wlSec) wlSec.hidden = !showWells;
   var pcSec = document.getElementById('pc-sec');
   if (pcSec) pcSec.hidden = !showParcels;
   var cbSec = document.getElementById('cb-sec');
@@ -898,10 +944,11 @@ map.on('load', function () {
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
-      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill', 'pc-fill', 'pc2-fill'].filter(function (id) { return map.getLayer(id); })
+      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill', 'pc-fill', 'pc2-fill', 'well-dot'].filter(function (id) { return map.getLayer(id); })
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null;
     hits.forEach(function (h) {
+      if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
@@ -910,9 +957,28 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !parc) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !parc && !well) return;
 
     var html = '';
+    if (well && showWells) {
+      var ws = (WELL_STATUS.filter(function (w) { return w[0] === well.status; })[0]
+                || ['?', 'Unknown', '#c6c6c6']);
+      var wname = [well.lease, well.wellno].filter(Boolean).join(' ');
+      html += '<div class="pop-name">' + esc(wname || 'Well ' + (well.api || '')) + '</div>';
+      html += '<div class="pop-row pop-unit"><i style="background:' + ws[2] + '"></i>' +
+              esc(ws[1]) + (well.dirdrill ? ' · directionally drilled' : '') + '</div>';
+      if (well.operator) html += '<div class="pop-row"><b>Operator:</b> ' + esc(well.operator) + '</div>';
+      if (well.field) html += '<div class="pop-row"><b>Field:</b> ' + esc(well.field) +
+                              (well.county ? ' · ' + esc(well.county) + ' County' : '') + '</div>';
+      var wb = [];
+      if (well.api) wb.push('API ' + esc(well.api));
+      if (well.depth) wb.push(Number(well.depth).toLocaleString() + ' ft deep');
+      if (well.spud) wb.push('spudded ' + esc(well.spud));
+      if (well.elev) wb.push('elev ' + esc(well.elev));
+      if (wb.length) html += '<div class="pop-row">' + wb.join(' · ') + '</div>';
+      html += '<div class="pop-row" style="font-size:11px;opacity:.65">CalGEM well database</div>';
+      if (parc || fault || unit || soil || bore || blk || ap) html += '<div class="pop-sep"></div>';
+    }
     if (parc && showParcels) {
       html += parcelPopupHtml(parc);
       if (fault || unit || soil || bore || blk || ap) html += '<div class="pop-sep"></div>';
@@ -1244,6 +1310,21 @@ document.getElementById('pc-by').addEventListener('change', function () {
   applyState();
 });
 parcelLegend();
+
+// ---- CalGEM oil & gas wells ----
+(function () {
+  var host = document.getElementById('wl-sec');
+  if (host) {
+    host.innerHTML = WELL_STATUS.map(function (w) {
+      return '<div class="pop-unit" style="font-size:11.5px;margin:1px 0">' +
+             '<i style="background:' + w[2] + '"></i>' + esc(w[1]) + '</div>';
+    }).join('');
+  }
+  document.getElementById('t-wells').addEventListener('change', function () {
+    showWells = this.checked;
+    applyState();
+  });
+})();
 
 // ================= Parcel search =================
 // Two different problems behind one box. A vector tileset can only be queried
