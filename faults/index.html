@@ -73,7 +73,9 @@
   .ctrow{display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px}
   .ctrow .sw{width:26px;flex:none;display:flex;align-items:center}
   .ctrow .sw i{display:block;width:100%;background:#8a6a4a;border-radius:1px}
-  /* Round swatch for point layers, so the key matches the circles on the map */
+  /* Shared legend swatch. Introduced for the point layers so the key matched the
+     circles on the map; now used by the parcel legend too, so the two read as
+     one system rather than two. */
   .ctrow .sw i.dot{width:13px;height:13px;margin:0 auto;border-radius:50%;
     border:1px solid rgba(255,255,255,.9);box-shadow:0 0 0 1px rgba(0,0,0,.18)}
   .ctmeta{font-size:11.5px;color:#85857e;line-height:1.5;margin-top:7px}
@@ -1332,7 +1334,7 @@ function parcelLegend() {
   }
   host.innerHTML = rows.map(function (r) {
     return '<div class="ctrow"><span class="sw">' +
-           '<i style="height:13px;background:' + r.c + '"></i></span>' +
+           '<i class="dot" style="background:' + r.c + '"></i></span>' +
            '<span>' + esc(r.t) + '</span></div>';
   }).join('');
 
