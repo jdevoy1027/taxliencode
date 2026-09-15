@@ -307,10 +307,13 @@
 
     <div class="sec" id="wt-sec" hidden>
       <h2>Groundwater wells</h2>
+      <select id="wt-by" style="width:100%;font-size:12.5px;padding:4px;margin-bottom:6px;
+        border:1px solid #cfd4dc;border-radius:4px">
+        <option value="use">Colour by well use</option>
+        <option value="dtw">Colour by depth to water</option>
+      </select>
       <div id="wt-legend"></div>
-      <div class="ctmeta">Well use from the DWR groundwater level monitoring
-        network.<br>47,642 wells statewide · nearly all reported under SGMA<br>
-        Use is unrecorded for 64% of them.</div>
+      <div class="ctmeta" id="wt-meta"></div>
     </div>
 
     <div class="sec" id="wl-sec" hidden>
@@ -506,7 +509,31 @@ var WATER_USE = [
   ['Other',         '#bdbdbd'],
   ['Unknown',       '#dcdcdc']
 ];
+// Depth to water, ft below ground surface, from DWR's gse_gwe. A sequential
+// single-hue ramp -- light shallow, dark deep -- with two exceptions that are
+// conditions rather than magnitudes: artesian wells, where the water is above
+// ground and the number is negative, and wells with no reading at all.
+// Breaks bracket the real distribution (p25 18 ft, median 60, p75 148, p90 271).
+var WATER_DEPTH = [
+  [0,   '#c6dbef', '0 – 25 ft'],
+  [25,  '#9ecae1', '25 – 50 ft'],
+  [50,  '#6baed6', '50 – 100 ft'],
+  [100, '#3182bd', '100 – 200 ft'],
+  [200, '#08519c', '200 – 400 ft'],
+  [400, '#08306b', '400 ft +']
+];
+var WATER_ARTESIAN = '#00a878', WATER_NODATA = '#dcdcdc';
+var waterColorBy = 'use';
+
 function waterColorExpr() {
+  if (waterColorBy === 'dtw') {
+    var step = ['step', ['get', 'dtw'], WATER_DEPTH[0][1]];
+    WATER_DEPTH.slice(1).forEach(function (d) { step.push(d[0], d[1]); });
+    return ['case',
+      ['!', ['has', 'dtw']], WATER_NODATA,
+      ['<', ['get', 'dtw'], 0], WATER_ARTESIAN,
+      step];
+  }
   var e = ['match', ['coalesce', ['get', 'use'], 'Unknown']];
   WATER_USE.forEach(function (w) { e.push(w[0], w[1]); });
   e.push('#dcdcdc');
@@ -1064,8 +1091,16 @@ map.on('load', function () {
       html += '<div class="pop-name">' + esc(water.name || water.swn || 'Groundwater well') + '</div>';
       html += '<div class="pop-row pop-unit"><i style="background:' + wu[1] + '"></i>' +
               esc(wu[0]) + ' well</div>';
+      if (water.dtw != null) {
+        html += '<div class="pop-row"><b>Depth to water:</b> ' +
+                Number(water.dtw).toLocaleString() + ' ft' +
+                (water.dtw < 0 ? ' (artesian — above ground)' : ' below ground') +
+                (water.dtw_date ? ' · ' + esc(water.dtw_date) : '') + '</div>';
+        if (water.dtw_qa) html += '<div class="pop-row" style="color:#a3671b">' +
+                'DWR flags this reading as ' + esc(water.dtw_qa.toLowerCase()) + '</div>';
+      }
       var tb = [];
-      if (water.depth) tb.push(Number(water.depth).toLocaleString() + ' ft deep');
+      if (water.depth) tb.push('well ' + Number(water.depth).toLocaleString() + ' ft deep');
       if (water.gse) tb.push('ground elev ' + Number(water.gse).toLocaleString() + ' ft');
       if (tb.length) html += '<div class="pop-row">' + tb.join(' · ') + '</div>';
       if (water.wtype) html += '<div class="pop-row">' + esc(water.wtype) + '</div>';
@@ -1450,17 +1485,41 @@ document.getElementById('pc-by').addEventListener('change', function () {
 parcelLegend();
 
 // ---- DWR groundwater wells ----
-(function () {
+function waterLegend() {
   var host = document.getElementById('wt-legend');
   if (host) {
-    host.innerHTML = WATER_USE.map(function (w) {
+    var rows = waterColorBy === 'dtw'
+      ? [[WATER_ARTESIAN, 'Artesian (above ground)']]
+          .concat(WATER_DEPTH.map(function (d) { return [d[1], d[2]]; }))
+          .concat([[WATER_NODATA, 'No reading']])
+      : WATER_USE.map(function (w) { return [w[1], w[0]]; });
+    host.innerHTML = rows.map(function (r) {
       return '<div class="ctrow"><span class="sw">' +
-             '<i class="dot" style="background:' + w[1] + '"></i></span>' +
-             '<span>' + esc(w[0]) + '</span></div>';
+             '<i class="dot" style="background:' + r[0] + '"></i></span>' +
+             '<span>' + esc(r[1]) + '</span></div>';
     }).join('');
   }
+  var meta = document.getElementById('wt-meta');
+  if (meta) {
+    meta.innerHTML = waterColorBy === 'dtw'
+      ? 'Most recent measured depth to groundwater, feet below ground surface ' +
+        '(DWR <b>gse_gwe</b>).<br>44,745 of 47,642 wells have a reading; the ' +
+        'measurement date is in the popup and many are years old.<br>' +
+        'Negative values are artesian wells, where water stands above ground.'
+      : 'Well use from the DWR groundwater level monitoring network.<br>' +
+        '47,642 wells statewide · nearly all reported under SGMA<br>' +
+        'Use is unrecorded for 64% of them.';
+  }
+}
+(function () {
+  waterLegend();
   document.getElementById('t-water').addEventListener('change', function () {
     showWater = this.checked;
+    applyState();
+  });
+  document.getElementById('wt-by').addEventListener('change', function () {
+    waterColorBy = this.value;
+    waterLegend();
     applyState();
   });
 })();
