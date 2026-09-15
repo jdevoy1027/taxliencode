@@ -73,6 +73,9 @@
   .ctrow{display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px}
   .ctrow .sw{width:26px;flex:none;display:flex;align-items:center}
   .ctrow .sw i{display:block;width:100%;background:#8a6a4a;border-radius:1px}
+  /* Round swatch for point layers, so the key matches the circles on the map */
+  .ctrow .sw i.dot{width:13px;height:13px;margin:0 auto;border-radius:50%;
+    border:1px solid rgba(255,255,255,.9);box-shadow:0 0 0 1px rgba(0,0,0,.18)}
   .ctmeta{font-size:11.5px;color:#85857e;line-height:1.5;margin-top:7px}
   .ctmeta b{color:#3a3a35;font-weight:560}
 
@@ -243,7 +246,6 @@
         <span class="lbl">Oil &amp; gas wells</span>
         <span class="cnt">z6+</span>
       </label>
-      <div id="wl-sec" hidden style="margin:2px 0 4px 22px"></div>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-ap">
         <span class="lbl">Alquist-Priolo zones</span>
@@ -290,6 +292,14 @@
       <div id="cb-legend"></div>
       <div class="ctmeta">2025 median household net worth · US Census blocks<br>
         Vector tileset · 235,799 blocks · 72 attributes</div>
+    </div>
+
+    <div class="sec" id="wl-sec" hidden>
+      <h2>Oil &amp; gas wells</h2>
+      <div id="wl-legend"></div>
+      <div class="ctmeta">Well status from the CalGEM (formerly DOGGR) database.<br>
+        216,581 wells statewide · complete at zoom 12+<br>
+        Below zoom 12 the densest fields are thinned to fit tile limits.</div>
     </div>
 
     <div class="sec" id="ap-sec" hidden>
@@ -1313,11 +1323,12 @@ parcelLegend();
 
 // ---- CalGEM oil & gas wells ----
 (function () {
-  var host = document.getElementById('wl-sec');
+  var host = document.getElementById('wl-legend');
   if (host) {
     host.innerHTML = WELL_STATUS.map(function (w) {
-      return '<div class="pop-unit" style="font-size:11.5px;margin:1px 0">' +
-             '<i style="background:' + w[2] + '"></i>' + esc(w[1]) + '</div>';
+      return '<div class="ctrow"><span class="sw">' +
+             '<i class="dot" style="background:' + w[2] + '"></i></span>' +
+             '<span>' + esc(w[1]) + '</span></div>';
     }).join('');
   }
   document.getElementById('t-wells').addEventListener('change', function () {
