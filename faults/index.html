@@ -234,13 +234,6 @@
         <input type="range" id="pc-op" min="0" max="100" value="35" disabled>
         <span id="pc-op-v">35%</span>
       </div>
-      <div id="pc-sec" hidden style="margin:2px 0 4px 22px">
-        <select id="pc-by" style="width:100%;font-size:12px;padding:2px">
-          <option value="use">Colour by land use</option>
-          <option value="value">Colour by land value</option>
-        </select>
-        <div id="pc-legend" style="margin-top:4px"></div>
-      </div>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-wells">
         <span class="lbl">Oil &amp; gas wells</span>
@@ -292,6 +285,17 @@
       <div id="cb-legend"></div>
       <div class="ctmeta">2025 median household net worth · US Census blocks<br>
         Vector tileset · 235,799 blocks · 72 attributes</div>
+    </div>
+
+    <div class="sec" id="pc-sec" hidden>
+      <h2>Parcels</h2>
+      <select id="pc-by" style="width:100%;font-size:12.5px;padding:4px;margin-bottom:6px;
+        border:1px solid #cfd4dc;border-radius:4px">
+        <option value="use">Colour by land use</option>
+        <option value="value">Colour by land value</option>
+      </select>
+      <div id="pc-legend"></div>
+      <div class="ctmeta" id="pc-meta"></div>
     </div>
 
     <div class="sec" id="wl-sec" hidden>
@@ -386,7 +390,11 @@ var map = new mapboxgl.Map({
   style: 'mapbox://styles/mapbox/light-v11',
   center: [-119.6, 36.6],
   zoom: 5.1,
-  maxZoom: 16
+  // One level past the parcel tileset's maxzoom of 16. Vector tiles overzoom
+  // cleanly -- z16 geometry is re-scaled rather than re-fetched -- so this buys
+  // 2x magnification on parcels at no tile cost. It also un-caps the search,
+  // which asks to fly to z17 and was silently being clamped to 16.
+  maxZoom: 17
 });
 map.addControl(new mapboxgl.NavigationControl({ visualizePitch: false }), 'top-right');
 map.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
@@ -660,6 +668,24 @@ function addLayers() {
                'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.15, 18, 0.6] }
     });
   }
+  // Search highlight. One per source because LA and Orange are separate
+  // tilesets. The filter starts matching nothing; searchAIN points it at the
+  // parcel it found. Magenta is the one strong hue not used by any use class.
+  ['pc', 'pc2'].forEach(function (k) {
+    var id = k + '-hl';
+    if (map.getLayer(id)) return;
+    map.addLayer({
+      id: id, type: 'line',
+      source: k === 'pc' ? 'parcels' : 'parcels_oc', 'source-layer': 'parcels',
+      minzoom: 14,
+      filter: ['==', ['get', 'ain'], '\u0000'],
+      paint: {
+        'line-color': '#ff00c8',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 4.5],
+        'line-opacity': 0.95
+      }
+    });
+  });
   if (!map.getSource('wells')) {
     map.addSource('wells', { type: 'vector', url: 'mapbox://jdevoy.doggr-wells' });
   }
@@ -893,7 +919,7 @@ function applyState() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showBlocks ? 'visible' : 'none');
   });
   if (map.getLayer('cb-fill')) map.setPaintProperty('cb-fill', 'fill-opacity', blockOpacity);
-  ['pc-fill', 'pc-line', 'pc2-fill', 'pc2-line'].forEach(function (id) {
+  ['pc-fill', 'pc-line', 'pc2-fill', 'pc2-line', 'pc-hl', 'pc2-hl'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showParcels ? 'visible' : 'none');
   });
   if (map.getLayer('pc-fill')) {
@@ -1283,6 +1309,10 @@ cbOp.addEventListener('input', function () {
 
 // ---- LA County parcels ----
 var pcOp = document.getElementById('pc-op'), pcOpV = document.getElementById('pc-op-v');
+// One legend for both counties. Orange County's single-digit use codes are
+// mapped onto these same classes by parcelColorExprOC, so a single key is
+// honest for both -- with the caveat, stated in the note below, that three of
+// Orange County's codes are inferred rather than documented.
 function parcelLegend() {
   var host = document.getElementById('pc-legend');
   if (!host) return;
@@ -1296,12 +1326,29 @@ function parcelLegend() {
       return { c: s[1], t: label };
     });
   } else {
+    // Orange County has nothing in the Recreational, Rural or Agricultural
+    // classes, but LA does, so every class stays listed.
     rows = PARCEL_USE.map(function (u) { return { c: u[2], t: u[1] }; });
   }
   host.innerHTML = rows.map(function (r) {
-    return '<div class="pop-unit" style="font-size:11.5px;margin:1px 0">' +
-           '<i style="background:' + r.c + '"></i>' + esc(r.t) + '</div>';
+    return '<div class="ctrow"><span class="sw">' +
+           '<i style="height:13px;background:' + r.c + '"></i></span>' +
+           '<span>' + esc(r.t) + '</span></div>';
   }).join('');
+
+  var meta = document.getElementById('pc-meta');
+  if (meta) {
+    meta.innerHTML = parcelColorBy === 'value'
+      ? 'Assessed land value. Class breaks are the 25th, 50th, 75th and 90th ' +
+        'percentiles of the LA County roll.<br>' +
+        '<b>LA County</b> 2,397,061 parcels (2016 roll) · ' +
+        '<b>Orange County</b> 674,851 parcels'
+      : '<b>LA County</b> 2,397,061 parcels (2016 roll), coloured on the leading ' +
+        'digit of the Assessor use code.<br>' +
+        '<b>Orange County</b> 674,851 parcels, mapped onto the same classes from ' +
+        'its own single-digit codes — residential, commercial and government are ' +
+        'certain; industrial and vacant are inferred.<br>Parcels draw at zoom 14+.';
+  }
 }
 document.getElementById('t-parcels').addEventListener('change', function () {
   showParcels = this.checked;
@@ -1355,6 +1402,16 @@ function searchMsg(t) {
   if (el) el.innerHTML = t || '';
 }
 
+// Outline the parcel a search landed on. Passing null clears both counties,
+// which every new search does first so a stale highlight never lingers.
+function highlightParcel(ain) {
+  ['pc-hl', 'pc2-hl'].forEach(function (id) {
+    if (map.getLayer(id)) {
+      map.setFilter(id, ['==', ['get', 'ain'], ain == null ? ' ' : String(ain)]);
+    }
+  });
+}
+
 function ensureParcelsOn() {
   if (showParcels) return;
   showParcels = true;
@@ -1397,6 +1454,7 @@ function openParcelAt(lngLat, wantAin, wantAddr) {
     }
 
     if (hit) {
+      if (hit.ain) highlightParcel(hit.ain);
       new mapboxgl.Popup({ closeButton: true, maxWidth: '290px' })
         .setLngLat(lngLat).setHTML(parcelPopupHtml(hit)).addTo(map);
       searchMsg('');
@@ -1462,6 +1520,7 @@ function searchAddress(q) {
 function doParcelSearch() {
   var q = (document.getElementById('pq').value || '').trim();
   if (!q) return;
+  highlightParcel(null);
   var digits = q.replace(/\D/g, '');
   // Digits/spaces/dashes only, and either 10 (LA AIN) or 8 (Orange County APN,
   // usually typed 276-112-21). Anything else is an address -- a street number
