@@ -179,7 +179,7 @@
     <div class="sec">
       <h2>Find a parcel</h2>
       <div style="display:flex;gap:4px">
-        <input id="pq" type="text" placeholder="AIN or address" autocomplete="off"
+        <input id="pq" type="text" placeholder="AIN / APN or address" autocomplete="off"
                style="flex:1;min-width:0;font-size:12px;padding:5px 6px;border:1px solid #cfd4dc;border-radius:4px">
         <button id="pgo" style="font-size:12px;padding:5px 10px;border:1px solid #cfd4dc;border-radius:4px;background:#fff;cursor:pointer">Go</button>
       </div>
@@ -224,7 +224,7 @@
       </div>
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-parcels">
-        <span class="lbl">LA County parcels</span>
+        <span class="lbl">Parcels (LA + Orange)</span>
         <span class="cnt">z14+</span>
       </label>
       <div class="slider">
@@ -411,6 +411,14 @@ var PARCEL_VALUE = [
   [535000,  '#a50f15']
 ];
 
+// Orange County writes its 8-digit APN as 276-112-21; LA's 10-digit AIN is
+// conventionally unpunctuated. Stored digits-only either way so the map can
+// filter on an exact match.
+function fmtApn(a) {
+  a = String(a || '');
+  return a.length === 8 ? a.slice(0, 3) + '-' + a.slice(3, 6) + '-' + a.slice(6) : a;
+}
+
 // Shared by the click handler and the search box so a parcel reads identically
 // however you arrived at it.
 function parcelPopupHtml(parc) {
@@ -424,7 +432,8 @@ function parcelPopupHtml(parc) {
             (parc.situs_zip ? ' ' + esc(parc.situs_zip) : '') + '</div>';
   }
   if (parc.owner) html += '<div class="pop-row"><b>Owner:</b> ' + esc(parc.owner) + '</div>';
-  if (parc.ain) html += '<div class="pop-row"><b>AIN:</b> ' + esc(parc.ain) + '</div>';
+  if (parc.ain) html += '<div class="pop-row"><b>' + (parc.county === 'OC' ? 'APN' : 'AIN') +
+                        ':</b> ' + esc(fmtApn(parc.ain)) + '</div>';
   html += '<div class="pop-row pop-unit"><i style="background:' + pcls[2] + '"></i>' +
           esc(pcls[1]) + (parc.use_code ? ' · code ' + esc(parc.use_code) : '') + '</div>';
   var pb = [];
@@ -436,8 +445,32 @@ function parcelPopupHtml(parc) {
   var lv = usd(parc.land_value), iv = usd(parc.impr_value);
   if (lv) html += '<div class="pop-row"><b>Land:</b> ' + lv +
                   (iv ? ' · <b>Improvements:</b> ' + iv : '') + '</div>';
-  html += '<div class="pop-row" style="font-size:11px;opacity:.65">Assessor roll 2016</div>';
+  html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
+          (parc.county === 'OC' ? 'Orange County assessor roll' : 'LA County assessor roll 2016') +
+          '</div>';
   return html;
+}
+
+// Orange County uses a single-digit USE_PROP_T on a different scheme from LA's
+// 4-character codes, so it gets its own expression mapped onto the SAME class
+// colours -- that way one legend describes both counties.
+//
+// 1 residential, 3 commercial and 8 government/exempt are unambiguous in the
+// data (school districts, the State, redevelopment agencies all carry 8; 5 is
+// near-zero-value land held by Chevron and Irvine Land Co). Codes 2, 4 and 6
+// are inferred from owner names and median values rather than documented, and
+// together cover 5.6% of Orange County parcels.
+function parcelColorExprOC() {
+  if (parcelColorBy === 'value') return parcelColorExpr();
+  return ['match', ['coalesce', ['get', 'use_code'], '?'],
+    '1', '#4c78a8',   // residential
+    '2', '#4c78a8',   // residential income (inferred)
+    '3', '#e45756',   // commercial
+    '4', '#72b7b2',   // industrial (inferred)
+    '5', '#b279a2',   // vacant / open space
+    '6', '#b279a2',   // minor interests (inferred)
+    '8', '#bab0ac',   // government / exempt
+    '#cccccc'];
 }
 
 function parcelColorExpr() {
@@ -570,6 +603,24 @@ function addLayers() {
   if (!map.getLayer('pc-line')) {
     map.addLayer({
       id: 'pc-line', type: 'line', source: 'parcels', 'source-layer': 'parcels',
+      minzoom: 15,
+      paint: { 'line-color': 'rgba(40,40,40,.45)',
+               'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.15, 18, 0.6] }
+    });
+  }
+  if (!map.getSource('parcels_oc')) {
+    map.addSource('parcels_oc', { type: 'vector', url: 'mapbox://jdevoy.oc-parcels' });
+  }
+  if (!map.getLayer('pc2-fill')) {
+    map.addLayer({
+      id: 'pc2-fill', type: 'fill', source: 'parcels_oc', 'source-layer': 'parcels',
+      minzoom: 14,
+      paint: { 'fill-color': parcelColorExprOC(), 'fill-opacity': parcelOpacity }
+    });
+  }
+  if (!map.getLayer('pc2-line')) {
+    map.addLayer({
+      id: 'pc2-line', type: 'line', source: 'parcels_oc', 'source-layer': 'parcels',
       minzoom: 15,
       paint: { 'line-color': 'rgba(40,40,40,.45)',
                'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.15, 18, 0.6] }
@@ -792,12 +843,16 @@ function applyState() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showBlocks ? 'visible' : 'none');
   });
   if (map.getLayer('cb-fill')) map.setPaintProperty('cb-fill', 'fill-opacity', blockOpacity);
-  ['pc-fill', 'pc-line'].forEach(function (id) {
+  ['pc-fill', 'pc-line', 'pc2-fill', 'pc2-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showParcels ? 'visible' : 'none');
   });
   if (map.getLayer('pc-fill')) {
     map.setPaintProperty('pc-fill', 'fill-color', parcelColorExpr());
     map.setPaintProperty('pc-fill', 'fill-opacity', parcelOpacity);
+  }
+  if (map.getLayer('pc2-fill')) {
+    map.setPaintProperty('pc2-fill', 'fill-color', parcelColorExprOC());
+    map.setPaintProperty('pc2-fill', 'fill-opacity', parcelOpacity);
   }
   var pcSec = document.getElementById('pc-sec');
   if (pcSec) pcSec.hidden = !showParcels;
@@ -843,11 +898,11 @@ map.on('load', function () {
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
-      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill', 'pc-fill'].filter(function (id) { return map.getLayer(id); })
+      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill', 'pc-fill', 'pc2-fill'].filter(function (id) { return map.getLayer(id); })
     });
     var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null;
     hits.forEach(function (h) {
-      if (h.layer.id === 'pc-fill' && !parc) parc = h.properties;
+      if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
@@ -1267,20 +1322,31 @@ function goTo(lngLat, wantAin, wantAddr) {
   map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), 17) });
 }
 
+// Ten digits is an LA AIN, eight is an Orange County APN. The two counties keep
+// separate index trees because their book numbers are different lengths (4 vs 3)
+// and would otherwise collide.
+var PARCEL_IDS = {
+  10: { dir: './ain/',    book: 4, label: 'LA County',     roll: 'the 2016 roll' },
+  8:  { dir: './ain-oc/', book: 3, label: 'Orange County', roll: 'the Orange County roll' }
+};
+
 function searchAIN(ain) {
-  var book = ain.slice(0, 4), suffix = ain.slice(4);
+  var cfg = PARCEL_IDS[ain.length];
+  if (!cfg) { searchMsg('Expected a 10-digit LA AIN or an 8-digit Orange County APN.'); return; }
+  var book = ain.slice(0, cfg.book), suffix = ain.slice(cfg.book);
+  var key = cfg.dir + book;
   function use(shard) {
     var e = shard && shard[suffix];
-    if (!e) { searchMsg('AIN ' + esc(ain) + ' is not in the 2016 roll.'); return; }
-    searchMsg('AIN ' + esc(ain));
+    if (!e) { searchMsg(esc(fmtApn(ain)) + ' is not in ' + cfg.roll + '.'); return; }
+    searchMsg(cfg.label + ' ' + esc(fmtApn(ain)));
     goTo([AIN_LON0 + e[0] / 1e5, AIN_LAT0 + e[1] / 1e5], ain, null);
   }
-  if (ainCache[book]) { use(ainCache[book]); return; }
-  searchMsg('Looking up map book ' + esc(book) + '…');
-  fetch('./ain/' + book + '.json')
+  if (ainCache[key]) { use(ainCache[key]); return; }
+  searchMsg('Looking up ' + cfg.label + ' book ' + esc(book) + '…');
+  fetch(cfg.dir + book + '.json')
     .then(function (r) { if (!r.ok) throw new Error('no book'); return r.json(); })
-    .then(function (j) { ainCache[book] = j; use(j); })
-    .catch(function () { searchMsg('No map book ' + esc(book) + ' in LA County.'); });
+    .then(function (j) { ainCache[key] = j; use(j); })
+    .catch(function () { searchMsg('No book ' + esc(book) + ' in ' + cfg.label + '.'); });
 }
 
 function searchAddress(q) {
@@ -1305,9 +1371,10 @@ function doParcelSearch() {
   var q = (document.getElementById('pq').value || '').trim();
   if (!q) return;
   var digits = q.replace(/\D/g, '');
-  // 10 digits and nothing but digits/spaces/dashes is an AIN; anything else is
-  // an address. A street number alone is far shorter, so this does not collide.
-  if (digits.length === 10 && /^[\d\s-]+$/.test(q)) searchAIN(digits);
+  // Digits/spaces/dashes only, and either 10 (LA AIN) or 8 (Orange County APN,
+  // usually typed 276-112-21). Anything else is an address -- a street number
+  // alone is far shorter, so there is no collision.
+  if (/^[\d\s-]+$/.test(q) && PARCEL_IDS[digits.length]) searchAIN(digits);
   else searchAddress(q);
 }
 
