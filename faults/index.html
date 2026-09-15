@@ -242,6 +242,11 @@
         <span class="cnt">z6+</span>
       </label>
       <label class="row" style="margin-top:6px">
+        <input type="checkbox" id="t-water">
+        <span class="lbl">Groundwater wells</span>
+        <span class="cnt">z6+</span>
+      </label>
+      <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-ap">
         <span class="lbl">Alquist-Priolo zones</span>
         <span class="cnt">1,463</span>
@@ -298,6 +303,14 @@
       </select>
       <div id="pc-legend"></div>
       <div class="ctmeta" id="pc-meta"></div>
+    </div>
+
+    <div class="sec" id="wt-sec" hidden>
+      <h2>Groundwater wells</h2>
+      <div id="wt-legend"></div>
+      <div class="ctmeta">Well use from the DWR groundwater level monitoring
+        network.<br>47,642 wells statewide · nearly all reported under SGMA<br>
+        Use is unrecorded for 64% of them.</div>
     </div>
 
     <div class="sec" id="wl-sec" hidden>
@@ -411,6 +424,7 @@ var showAP = false;
 var showBlocks = false, blockOpacity = 0.6;
 var showParcels = false, parcelOpacity = 0.35, parcelColorBy = 'use';
 var showWells = false;
+var showWater = false;
 
 // LA County Assessor use codes are 4 characters and the FIRST digit is the major
 // class -- 0100 single-family, 0500 five-plus apartments, 1100 store, and so on.
@@ -476,6 +490,27 @@ function parcelPopupHtml(parc) {
           (parc.county === 'OC' ? 'Orange County assessor roll' : 'LA County assessor roll 2016') +
           '</div>';
   return html;
+}
+
+// DWR/SGMA groundwater wells, coloured by use. 'Unknown' is 64% of the dataset,
+// so it takes the recessive grey and the informative categories stay legible.
+// A blue-green ramp, deliberately unlike the oil-and-gas status palette, because
+// both point layers can be switched on at once.
+var WATER_USE = [
+  ['Irrigation',    '#1f78b4'],
+  ['Observation',   '#41b6c4'],
+  ['Residential',   '#253494'],
+  ['Public Supply', '#7fcdbb'],
+  ['Industrial',    '#8c6bb1'],
+  ['Stockwatering', '#a6bddb'],
+  ['Other',         '#bdbdbd'],
+  ['Unknown',       '#dcdcdc']
+];
+function waterColorExpr() {
+  var e = ['match', ['coalesce', ['get', 'use'], 'Unknown']];
+  WATER_USE.forEach(function (w) { e.push(w[0], w[1]); });
+  e.push('#dcdcdc');
+  return e;
 }
 
 // CalGEM/DOGGR well status codes. Plugged-and-abandoned is the largest class at
@@ -701,6 +736,24 @@ function addLayers() {
         'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 0, 13, 0.6],
         'circle-stroke-color': 'rgba(255,255,255,.85)',
         'circle-opacity': 0.9
+      }
+    });
+  }
+  if (!map.getSource('waterwells')) {
+    map.addSource('waterwells', { type: 'vector', url: 'mapbox://jdevoy.water-wells' });
+  }
+  if (!map.getLayer('water-dot')) {
+    map.addLayer({
+      id: 'water-dot', type: 'circle', source: 'waterwells', 'source-layer': 'waterwells',
+      minzoom: 6,
+      paint: {
+        'circle-color': waterColorExpr(),
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.4, 10, 2.6, 14, 5, 17, 9],
+        // Dark navy ring rather than the oil layer's white one: with both
+        // layers on, the outline is what tells them apart at a glance.
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 9, 0, 12, 1],
+        'circle-stroke-color': '#10314f',
+        'circle-opacity': 0.92
       }
     });
   }
@@ -936,6 +989,12 @@ function applyState() {
     map.setLayoutProperty('well-dot', 'visibility', showWells ? 'visible' : 'none');
     map.setPaintProperty('well-dot', 'circle-color', wellColorExpr());
   }
+  if (map.getLayer('water-dot')) {
+    map.setLayoutProperty('water-dot', 'visibility', showWater ? 'visible' : 'none');
+    map.setPaintProperty('water-dot', 'circle-color', waterColorExpr());
+  }
+  var wtSec = document.getElementById('wt-sec');
+  if (wtSec) wtSec.hidden = !showWater;
   var wlSec = document.getElementById('wl-sec');
   if (wlSec) wlSec.hidden = !showWells;
   var pcSec = document.getElementById('pc-sec');
@@ -982,11 +1041,12 @@ map.on('load', function () {
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
-      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill', 'pc-fill', 'pc2-fill', 'well-dot'].filter(function (id) { return map.getLayer(id); })
+      layers: ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill', 'ap-fill', 'pc-fill', 'pc2-fill', 'well-dot', 'water-dot'].filter(function (id) { return map.getLayer(id); })
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
+      if (h.layer.id === 'water-dot' && !water) water = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
@@ -995,9 +1055,28 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !parc && !well) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !parc && !well && !water) return;
 
     var html = '';
+    if (water && showWater) {
+      var wu = (WATER_USE.filter(function (w) { return w[0] === water.use; })[0]
+                || ['Unknown', '#dcdcdc']);
+      html += '<div class="pop-name">' + esc(water.name || water.swn || 'Groundwater well') + '</div>';
+      html += '<div class="pop-row pop-unit"><i style="background:' + wu[1] + '"></i>' +
+              esc(wu[0]) + ' well</div>';
+      var tb = [];
+      if (water.depth) tb.push(Number(water.depth).toLocaleString() + ' ft deep');
+      if (water.gse) tb.push('ground elev ' + Number(water.gse).toLocaleString() + ' ft');
+      if (tb.length) html += '<div class="pop-row">' + tb.join(' · ') + '</div>';
+      if (water.wtype) html += '<div class="pop-row">' + esc(water.wtype) + '</div>';
+      if (water.basin) html += '<div class="pop-row"><b>Basin:</b> ' + esc(water.basin) + '</div>';
+      if (water.county) html += '<div class="pop-row">' + esc(water.county) + ' County</div>';
+      if (water.swn) html += '<div class="pop-row">State well no. ' + esc(water.swn) + '</div>';
+      html += '<div class="pop-row" style="font-size:11px;opacity:.65">DWR groundwater ' +
+              'monitoring' + (water.prog ? ' · ' + esc(water.prog) : '') + '</div>';
+      if (well || parc || fault || unit || soil || bore || blk || ap)
+        html += '<div class="pop-sep"></div>';
+    }
     if (well && showWells) {
       var ws = (WELL_STATUS.filter(function (w) { return w[0] === well.status; })[0]
                 || ['?', 'Unknown', '#c6c6c6']);
@@ -1369,6 +1448,22 @@ document.getElementById('pc-by').addEventListener('change', function () {
   applyState();
 });
 parcelLegend();
+
+// ---- DWR groundwater wells ----
+(function () {
+  var host = document.getElementById('wt-legend');
+  if (host) {
+    host.innerHTML = WATER_USE.map(function (w) {
+      return '<div class="ctrow"><span class="sw">' +
+             '<i class="dot" style="background:' + w[1] + '"></i></span>' +
+             '<span>' + esc(w[0]) + '</span></div>';
+    }).join('');
+  }
+  document.getElementById('t-water').addEventListener('change', function () {
+    showWater = this.checked;
+    applyState();
+  });
+})();
 
 // ---- CalGEM oil & gas wells ----
 (function () {
