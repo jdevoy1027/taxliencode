@@ -177,7 +177,7 @@
   <header>
     <a class="back" href="../">← All maps</a>
     <h1>California Geology &amp; Faults</h1>
-    <p class="sub">68 geologic units · 3,205 faults · 893 soil units · 1,059 boreholes</p>
+    <p class="sub">68 geologic units · 3,205 faults · 893 soil units · 13,137 boreholes</p>
   </header>
 
   <div class="scroll">
@@ -259,7 +259,7 @@
       <label class="row" style="margin-top:6px">
         <input type="checkbox" id="t-bores" checked>
         <span class="lbl">Boreholes (CGS)</span>
-        <span class="cnt">1,059</span>
+        <span class="cnt">13,137</span>
       </label>
       <label class="row" style="margin-top:2px">
         <input type="checkbox" id="t-bore-labels" checked>
@@ -905,7 +905,8 @@ function addLayers() {
       }
     });
   }
-  // 1,059 boreholes inside ~35 x 24 km, so names only resolve once zoomed in.
+  // 13,137 boreholes across much of central and southern California, so names
+  // only resolve once zoomed in and collision culling does the rest.
   if (!map.getLayer('bore-label')) {
     map.addLayer({
       id: 'bore-label', type: 'symbol', source: 'bores',
