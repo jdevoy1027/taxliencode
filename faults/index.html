@@ -1381,10 +1381,11 @@ function renderContourLegend() {
   var fmt = function (v) {
     return (Math.round(v * 10) / 10).toLocaleString();
   };
+  var col = ctInfo.color || '#8a6a4a';
   host.innerHTML =
-    '<div class="ctrow"><span class="sw"><i style="height:2.6px"></i></span>' +
+    '<div class="ctrow"><span class="sw"><i style="height:2.6px;background:' + col + '"></i></span>' +
     '<span>Index — every <b>' + fmt(idx) + '</b>, labelled</span></div>' +
-    '<div class="ctrow"><span class="sw"><i style="height:1px"></i></span>' +
+    '<div class="ctrow"><span class="sw"><i style="height:1px;background:' + col + '"></i></span>' +
     '<span>Intermediate — every <b>' + fmt(ctInfo.interval) + '</b></span></div>' +
     '<div class="ctmeta">' +
       '<b>' + esc(ctInfo.field) + '</b><br>' +
@@ -1783,6 +1784,17 @@ function showToast(msg, btnLabel, onBtn) {
 
 // ================= Contour tool =================
 // Only layers that actually carry numeric point values can be contoured.
+// Contour colour follows what is being contoured, so two different surfaces are
+// never mistaken for each other on the same map. Earth tones for ground
+// elevation, blue for depth to water, and a diverging pair for the water-level
+// trend, which is the only signed quantity here.
+var CONTOUR_STYLE = {
+  dtw:  { line: '#1f6fb4', label: '#12507f', name: 'Depth to water' },
+  rate: { line: '#8c3f8f', label: '#6b2a6e', name: 'Water-level change' },
+  dflt: { line: '#8a6a4a', label: '#6b4f36', name: '' }
+};
+function contourStyle(field) { return CONTOUR_STYLE[field] || CONTOUR_STYLE.dflt; }
+
 var CONTOURABLE = [{
   id: 'bores', label: 'Boreholes (CGS)', url: './boreholes.geojson',
   fields: [
@@ -2026,6 +2038,11 @@ function runContour() {
       return;
     }
     if (map.getSource('contours')) map.getSource('contours').setData(res);
+    var cstyle = contourStyle(field);
+    if (map.getLayer('contour-line'))
+      map.setPaintProperty('contour-line', 'line-color', cstyle.line);
+    if (map.getLayer('contour-label'))
+      map.setPaintProperty('contour-label', 'text-color', cstyle.label);
     showContours = true;
     document.getElementById('t-contours').checked = true;
     var fl = L.fields.filter(function (f) { return f.k === field; })[0];
@@ -2035,7 +2052,8 @@ function runContour() {
       interval: interval, indexEvery: 5,
       zmin: res.stats.zmin, zmax: res.stats.zmax,
       clipped: !!clip, levels: res.stats.levels, lines: res.stats.lines,
-      smoothed: !!(res.stats.blur || res.stats.smooth)
+      smoothed: !!(res.stats.blur || res.stats.smooth),
+      color: cstyle.line
     };
     renderContourLegend();
     document.querySelector('#t-contours').parentNode.title =
