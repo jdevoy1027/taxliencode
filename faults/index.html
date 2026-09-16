@@ -191,6 +191,7 @@
         <div class="mh">Analysis</div>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
+        <button id="m-gwdepth">Depth to groundwater…</button>
         <div class="mh">Output</div>
         <button id="m-ctmap">Print contour map…</button>
       </div>
@@ -1392,7 +1393,20 @@ function renderContourLegend() {
       (ctInfo.levels ? '<br>' + ctInfo.levels + ' levels · ' + ctInfo.lines + ' lines' : '') +
       (ctInfo.clipped ? '<br>Clipped to a drawn area' : '') +
       '<br>' + esc(ctInfo.label) +
-    '</div>';
+    '</div>' +
+    // Summary of the points actually inside the drawn area. Separate from the
+    // contour range above, which spans every point used in the interpolation
+    // including ones outside the clip.
+    (ctInfo.area
+      ? '<div class="ctmeta" style="border-top:1px solid #e6e6e0;padding-top:6px">' +
+        '<b>' + ctInfo.area.n.toLocaleString() + ' well' +
+        (ctInfo.area.n === 1 ? '' : 's') +
+        (ctInfo.clipped ? ' in the drawn area' : '') + '</b><br>' +
+        'Median <b>' + fmt(ctInfo.area.med) + '</b> ' + esc(ctInfo.units || 'ft') + '<br>' +
+        'Middle half ' + fmt(ctInfo.area.p25) + ' – ' + fmt(ctInfo.area.p75) + '<br>' +
+        'Range ' + fmt(ctInfo.area.min) + ' – ' + fmt(ctInfo.area.max) +
+        '</div>'
+      : '');
 }
 
 // Describe the contours shipped with the page, so the legend is right before the
@@ -1774,8 +1788,16 @@ var CONTOURABLE = [{
     { k: 'e', label: 'Collar elevation (ft)', dflt: 10 },
     { k: 'd', label: 'Total depth (ft)', dflt: 20 }
   ]
+}, {
+  id: 'gw', label: 'Groundwater wells (DWR)', url: './gwdepth.geojson',
+  fields: [
+    { k: 'dtw', label: 'Depth to water (ft below ground)', dflt: 10 },
+    { k: 'rate', label: 'Water-level change (ft/yr)', dflt: 0.5 }
+  ]
 }];
-var BORE_CACHE = null;
+// Keyed by URL, not a single global. One shared cache silently served the first
+// layer's points for every subsequent layer once there was more than one.
+var LAYER_CACHE = {};
 
 var ctPrefs = { layer: 0, field: 'e', interval: 10, area: 'all' };
 var ctDrawn = null;          // polygon captured via "Draw a new polygon"
@@ -1812,6 +1834,7 @@ function areaOptions() {
     o.push('<option value="p' + i + '">Polygon ' + (i + 1) + ' — ' + (r.length - 1) +
            ' pts, ' + ringAreaSqMi(r).toFixed(2) + ' sq mi</option>');
   });
+  o.push('<option value="draw-rect">Draw a rectangle…</option>');
   o.push('<option value="draw">Draw a new polygon…</option>');
   return o.join('');
 }
@@ -1872,13 +1895,17 @@ function openContourDlg() {
   });
 
   areaSel.addEventListener('change', function () {
-    if (this.value !== 'draw') { ctPrefs.area = this.value; return; }
+    if (this.value !== 'draw' && this.value !== 'draw-rect') {
+      ctPrefs.area = this.value; return;
+    }
+    var wantRect = this.value === 'draw-rect';
     // remember the rest of the form, then hand control to the polygon tool
     ctPrefs.field = fieldSel.value;
     ctPrefs.interval = parseFloat(intBox.value) || ctPrefs.interval;
     closeDlg();
     var before = drawnPolygons().length;
-    var btn = document.querySelector('#p-tools .tool[title="Polygon"]');
+    var btn = document.querySelector('#p-tools .tool[title="' +
+              (wantRect ? 'Rectangle' : 'Polygon') + '"]');
     if (btn) btn.click();
     function awaitPoly(msg) {
       showToast(msg, 'Use this area', function () {
@@ -1905,6 +1932,47 @@ function openContourDlg() {
   document.getElementById('d-cancel').addEventListener('click', closeDlg);
   document.getElementById('d-go').addEventListener('click', runContour);
 }
+
+// Point-in-ring, ray casting. Used to report on the wells actually inside the
+// drawn area -- the contour surface is interpolated from every point, including
+// ones just outside, so "how many wells informed this" and "how many are in my
+// rectangle" are different questions and the summary answers the second.
+function pointInRing(x, y, ring) {
+  var inside = false;
+  for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if (((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function areaStats(pts, clip) {
+  var inside = clip
+    ? pts.filter(function (p) { return pointInRing(p.x, p.y, clip); })
+    : pts.slice();
+  if (!inside.length) return null;
+  var z = inside.map(function (p) { return p.z; }).sort(function (a, b) { return a - b; });
+  function q(f) { return z[Math.min(z.length - 1, Math.floor(z.length * f))]; }
+  return { n: z.length, min: z[0], max: z[z.length - 1],
+           med: q(0.5), p25: q(0.25), p75: q(0.75) };
+}
+
+// Depth to groundwater: the contour machinery, pre-aimed at the DWR wells and
+// straight into drawing a rectangle, because that is the whole question.
+document.getElementById('m-gwdepth').addEventListener('click', function () {
+  MENU.hidden = true;
+  var i = 0;
+  CONTOURABLE.forEach(function (l, k) { if (l.id === 'gw') i = k; });
+  ctPrefs.layer = i;
+  ctPrefs.field = 'dtw';
+  ctPrefs.interval = 10;
+  ctPrefs.area = 'draw-rect';
+  openContourDlg();
+  // jump straight to the rectangle tool rather than making them find it
+  var sel = document.getElementById('d-area');
+  if (sel) { sel.value = 'draw-rect'; sel.dispatchEvent(new Event('change')); }
+});
 
 document.getElementById('m-contour').addEventListener('click', function () {
   MENU.hidden = true;
@@ -1950,7 +2018,7 @@ function runContour() {
     }
     if (!res.features.length) {
       errBox.innerHTML = '<div class="err">' + (res.stats.outside
-        ? 'That area does not overlap any boreholes — draw it over the cluster in northern Orange County.'
+        ? 'That area contains no data points for this layer — move it, or enlarge it.'
         : 'No contours at ' + interval + ' — values span ' + Math.round(res.stats.zmin) +
           ' to ' + Math.round(res.stats.zmax) + ', so try a smaller interval.') + '</div>';
       btn.disabled = false; btn.textContent = 'Generate';
@@ -1973,14 +2041,23 @@ function runContour() {
       (clip ? ' · clipped to drawn area' : '');
     applyState();
     closeDlg();
-    showToast(res.stats.lines + ' contour lines · ' + res.stats.levels + ' levels' +
-              (clip ? ' · clipped' : ''), 'Dismiss', function () {});
+    var st = areaStats(pts, clip);
+    ctInfo.area = st;
+    ctInfo.units = (field === 'dtw') ? 'ft below ground'
+                 : (field === 'rate') ? 'ft/yr' : 'ft';
+    renderContourLegend();
+    showToast(
+      (st ? st.n.toLocaleString() + (clip ? ' in the drawn area' : ' points') +
+            ' · median ' + Math.round(st.med) + ' ' + ctInfo.units + ' · ' +
+            Math.round(st.min) + ' to ' + Math.round(st.max) + ' · '
+          : '') +
+      res.stats.lines + ' contour lines', 'Dismiss', function () {});
   };
 
-  if (BORE_CACHE) { go(BORE_CACHE); }
+  if (LAYER_CACHE[L.url]) { go(LAYER_CACHE[L.url]); }
   else {
     fetch(L.url).then(function (r) { return r.json(); })
-      .then(function (fc) { BORE_CACHE = fc; go(fc); })
+      .then(function (fc) { LAYER_CACHE[L.url] = fc; go(fc); })
       .catch(function (err) {
         errBox.innerHTML = '<div class="err">Could not load layer: ' + esc(err.message) + '</div>';
         btn.disabled = false; btn.textContent = 'Generate';
