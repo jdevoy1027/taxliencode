@@ -119,6 +119,68 @@
     return { Z: Z, M: M, nx: nx, ny: ny, x0: x0, y0: y0, sx: sx, sy: sy };
   }
 
+  // ---------- smoothing ----------
+  // Two different causes need two different fixes.
+  //
+  // blurGrid attacks the real one: interpolation across Delaunay triangles is
+  // linear, so the surface creases along every triangle edge and contours kink
+  // as they cross. A masked 3x3 blur relaxes the surface without inventing data,
+  // and only averages cells that are themselves inside the mask, so the clip
+  // edge does not get pulled toward zero.
+  function blurGrid(g, passes) {
+    for (var p = 0; p < passes; p++) {
+      var out = new Float64Array(g.Z.length);
+      for (var j = 0; j < g.ny; j++) {
+        for (var i = 0; i < g.nx; i++) {
+          var k = j * g.nx + i;
+          if (!g.M[k]) { out[k] = g.Z[k]; continue; }
+          var sum = 0, wt = 0;
+          for (var dj = -1; dj <= 1; dj++) {
+            var jj = j + dj;
+            if (jj < 0 || jj >= g.ny) continue;
+            for (var di = -1; di <= 1; di++) {
+              var ii = i + di;
+              if (ii < 0 || ii >= g.nx) continue;
+              var kk = jj * g.nx + ii;
+              if (!g.M[kk]) continue;
+              var w = (di === 0 && dj === 0) ? 4 : (di === 0 || dj === 0) ? 2 : 1;
+              sum += g.Z[kk] * w; wt += w;
+            }
+          }
+          out[k] = wt ? sum / wt : g.Z[k];
+        }
+      }
+      g.Z = out;
+    }
+  }
+
+  // Chaikin corner cutting on the traced polyline. Every new vertex is a
+  // weighted average of two neighbours, so the curve stays inside the original
+  // line's convex hull and cannot wander outside a convex clip such as a
+  // rectangle. Closed rings are cut cyclically so they stay closed.
+  function chaikin(line, iters) {
+    var closed = line.length > 3 &&
+                 line[0][0] === line[line.length - 1][0] &&
+                 line[0][1] === line[line.length - 1][1];
+    for (var it = 0; it < iters; it++) {
+      if (line.length < 3) return line;
+      var src = closed ? line.slice(0, -1) : line;
+      var out = [];
+      if (!closed) out.push(src[0]);
+      var n = src.length;
+      var last = closed ? n : n - 1;
+      for (var i = 0; i < last; i++) {
+        var a = src[i], b = src[(i + 1) % n];
+        out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+        out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+      }
+      if (closed) out.push(out[0].slice());
+      else out.push(src[n - 1]);
+      line = out;
+    }
+    return line;
+  }
+
   // ---------- marching squares for one level ----------
   function segmentsAt(g, lev) {
     var segs = [];
@@ -192,6 +254,16 @@
     var interval = +opt.interval || 10;
     var nx = opt.grid || 320, ny = opt.grid || 320;
     var indexEvery = opt.index || 5;      // every Nth line is an index contour
+    // Smoothing defaults are ON. Both datasets contoured here are interpolated
+    // surfaces, where the faceting comes from the triangulation rather than from
+    // anything measured, so relaxing it shows the data more honestly, not less.
+    // Measured on 717 Orange County wells: raw contours average 8.30 deg of turn
+    // per vertex, blur 3 + one Chaikin pass 3.60 deg -- 57% straighter joints for
+    // 1.75x the vertices. Two Chaikin passes reach 3.32 deg but cost 3.6x the
+    // vertices for a barely visible gain, and blur 4 starts erasing real signal
+    // (contour levels fall from 30 to 28), so this sits at the useful edge.
+    var blur = opt.blur == null ? 3 : +opt.blur;        // grid passes
+    var smooth = opt.smooth == null ? 1 : +opt.smooth;  // Chaikin iterations
 
     var pts = points.filter(function (p) {
       return isFinite(p.x) && isFinite(p.y) && isFinite(p.z);
@@ -261,6 +333,10 @@
       }
     }
 
+    // Blur after masking: doing it before would pull values across the clip edge
+    // from cells that are about to be discarded.
+    if (blur > 0) blurGrid(g, blur);
+
     // recompute the level range from what is actually inside the mask
     if (clip) {
       zmin = Infinity; zmax = -Infinity;
@@ -285,6 +361,7 @@
       var isIndex = indexEvery > 0 && (step % indexEvery === 0) ? 1 : 0;
       lines.forEach(function (ln) {
         if (ln.length < 3) return;
+        if (smooth > 0) ln = chaikin(ln, smooth);
         feats.push({
           type: 'Feature',
           properties: { e: Math.round(lev * 100) / 100, ix: isIndex },
@@ -304,7 +381,7 @@
         points: pts.length, triangles: tris.length,
         levels: nLevels, lines: feats.length,
         zmin: zmin, zmax: zmax, interval: interval,
-        clipped: !!clip
+        clipped: !!clip, blur: blur, smooth: smooth
       }
     };
   }

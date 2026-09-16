@@ -1392,6 +1392,7 @@ function renderContourLegend() {
       (ctInfo.zmin != null ? ' · range <b>' + fmt(ctInfo.zmin) + '–' + fmt(ctInfo.zmax) + '</b>' : '') +
       (ctInfo.levels ? '<br>' + ctInfo.levels + ' levels · ' + ctInfo.lines + ' lines' : '') +
       (ctInfo.clipped ? '<br>Clipped to a drawn area' : '') +
+      (ctInfo.smoothed ? '<br>Surface smoothed before tracing' : '') +
       '<br>' + esc(ctInfo.label) +
     '</div>' +
     // Summary of the points actually inside the drawn area. Separate from the
@@ -2033,7 +2034,8 @@ function runContour() {
       label: L.label, field: (fl ? fl.label : field),
       interval: interval, indexEvery: 5,
       zmin: res.stats.zmin, zmax: res.stats.zmax,
-      clipped: !!clip, levels: res.stats.levels, lines: res.stats.lines
+      clipped: !!clip, levels: res.stats.levels, lines: res.stats.lines,
+      smoothed: !!(res.stats.blur || res.stats.smooth)
     };
     renderContourLegend();
     document.querySelector('#t-contours').parentNode.title =
