@@ -1133,23 +1133,41 @@ function addLayers() {
                'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.15, 18, 0.6] }
     });
   }
-  // Search highlight. One per source because LA and Orange are separate
-  // tilesets. The filter starts matching nothing; searchAIN points it at the
-  // parcel it found. Magenta is the one strong hue not used by any use class.
+  // Search highlight: a white outline over a dark casing, one pair per source
+  // because LA and Orange are separate tilesets. The filter starts matching
+  // nothing; a search points it at the parcel it found.
+  //
+  // The casing is what makes white usable. Lines have no halo in Mapbox, and a
+  // bare white outline vanishes against pale roofs, concrete and dry ground --
+  // all common on the aerial basemap this now defaults to. A wider dark line
+  // underneath gives the white something to read against everywhere.
   ['pc', 'pc2'].forEach(function (k) {
-    var id = k + '-hl';
-    if (map.getLayer(id)) return;
-    map.addLayer({
-      id: id, type: 'line',
-      source: k === 'pc' ? 'parcels' : 'parcels_oc', 'source-layer': 'parcels',
-      minzoom: 14,
-      filter: ['==', ['get', 'ain'], '\u0000'],
-      paint: {
-        'line-color': '#ff00c8',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 17, 4.5],
-        'line-opacity': 0.95
-      }
-    });
+    var src = k === 'pc' ? 'parcels' : 'parcels_oc';
+    var none = ['==', ['get', 'ain'], '\u0000'];
+    if (!map.getLayer(k + '-hlc')) {
+      map.addLayer({
+        id: k + '-hlc', type: 'line', source: src, 'source-layer': 'parcels',
+        minzoom: 14, filter: none,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#14202b',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 5, 17, 9],
+          'line-opacity': 0.85
+        }
+      });
+    }
+    if (!map.getLayer(k + '-hl')) {
+      map.addLayer({
+        id: k + '-hl', type: 'line', source: src, 'source-layer': 'parcels',
+        minzoom: 14, filter: none,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#ffffff',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2.2, 17, 4.5],
+          'line-opacity': 1
+        }
+      });
+    }
   });
   if (!map.getSource('wells')) {
     map.addSource('wells', { type: 'vector', url: 'mapbox://jdevoy.doggr-wells' });
@@ -1496,7 +1514,8 @@ function applyState() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showBlocks ? 'visible' : 'none');
   });
   if (map.getLayer('cb-fill')) map.setPaintProperty('cb-fill', 'fill-opacity', blockOpacity);
-  ['pc-fill', 'pc-line', 'pc2-fill', 'pc2-line', 'pc-hl', 'pc2-hl'].forEach(function (id) {
+  ['pc-fill', 'pc-line', 'pc2-fill', 'pc2-line',
+   'pc-hlc', 'pc-hl', 'pc2-hlc', 'pc2-hl'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showParcels ? 'visible' : 'none');
   });
   if (map.getLayer('pc-fill')) {
@@ -2254,7 +2273,7 @@ function searchMsg(t) {
 // Outline the parcel a search landed on. Passing null clears both counties,
 // which every new search does first so a stale highlight never lingers.
 function highlightParcel(ain) {
-  ['pc-hl', 'pc2-hl'].forEach(function (id) {
+  ['pc-hlc', 'pc-hl', 'pc2-hlc', 'pc2-hl'].forEach(function (id) {
     if (map.getLayer(id)) {
       map.setFilter(id, ['==', ['get', 'ain'], ain == null ? ' ' : String(ain)]);
     }
