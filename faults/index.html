@@ -46,6 +46,32 @@
   .mapboxgl-canvas-container.mapboxgl-interactive:active,
   .mapboxgl-canvas-container.mapboxgl-interactive:active .mapboxgl-canvas { cursor: grabbing; }
 
+  /* Esri-style table of contents: [checkbox] [twisty] [name].
+     The twisty controls only whether symbology is shown; the checkbox controls
+     only whether the layer draws. Keeping them independent is the whole point
+     of the pattern -- you can read a legend for a layer that is switched off. */
+  .toc { border-top: 1px solid #eeeeea; }
+  .toc:first-of-type { border-top: 0; }
+  .tr { display: flex; align-items: center; gap: 7px; padding: 5px 0; }
+  .tr input[type=checkbox] { margin: 0; flex: none; cursor: pointer; accent-color: #2d6a5a; }
+  .tr .lbl { flex: 1; cursor: pointer; user-select: none; }
+  .tw {
+    flex: none; width: 15px; height: 15px; padding: 0; border: 0; background: none;
+    color: #9a9a94; font-size: 9px; line-height: 15px; text-align: center;
+    cursor: pointer; transition: transform .13s ease, color .13s ease;
+  }
+  .tw:hover { color: #2d6a5a; }
+  .tw[aria-expanded="true"] { transform: rotate(90deg); color: #2d6a5a; }
+  .sym { padding: 1px 0 8px 29px; }
+  .sym[hidden] { display: none; }
+  .sym select { width: 100%; font-size: 12.5px; padding: 4px; margin-bottom: 6px;
+                border: 1px solid #cfd4dc; border-radius: 4px; }
+  .symh { font-size: 11px; font-weight: 600; letter-spacing: .03em;
+          text-transform: uppercase; color: #8a8a84; margin: 5px 0 3px; }
+  .sub { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
+  .sub input { margin: 0; flex: none; cursor: pointer; accent-color: #2d6a5a; }
+  .sub .lbl { flex: 1; cursor: pointer; font-size: 12.5px; color: #55554f; }
+
   .row { display: flex; align-items: center; gap: 9px; padding: 4px 0; cursor: pointer; user-select: none; }
   .row input { margin: 0; cursor: pointer; accent-color: #2d6a5a; flex: none; }
   .swatch { width: 22px; height: 3.5px; border-radius: 2px; flex: none; }
@@ -218,153 +244,196 @@
     </div>
     <div class="sec">
       <h2>Layers</h2>
-      <label class="row">
-        <input type="checkbox" id="t-geo" checked>
-        <span class="lbl">Geology (by unit)</span>
-      </label>
-      <div class="slider">
-        <input type="range" id="geo-op" min="0" max="100" value="50">
-        <span id="geo-op-v">50%</span>
+
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-wells">
+          <button class="tw" type="button" data-sym="sym-wells" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-wells">Oil &amp; gas wells</label>
+          <span class="cnt">z6+</span>
+        </div>
+        <div class="sym" id="sym-wells" hidden>
+          <div id="wl-legend"></div>
+          <div class="ctmeta">Well status from the CalGEM (formerly DOGGR) database.<br>
+            216,581 wells statewide · complete at zoom 12+<br>
+            Below zoom 12 the densest fields are thinned to fit tile limits.</div>
+        </div>
       </div>
-      <label class="row" style="margin-top:2px">
-        <input type="checkbox" id="t-labels" checked>
-        <span class="lbl">Unit labels (PTYPE)</span>
-      </label>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-soils">
-        <span class="lbl">Soils (SSURGO)</span>
-        <span class="cnt" id="soil-note">vector</span>
-      </label>
-      <div class="slider">
-        <input type="range" id="soil-op" min="0" max="100" value="75" disabled>
-        <span id="soil-op-v">75%</span>
+
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-water">
+          <button class="tw" type="button" data-sym="sym-water" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-water">Groundwater wells</label>
+          <span class="cnt">z6+</span>
+        </div>
+        <div class="sym" id="sym-water" hidden>
+          <select id="wt-by">
+            <option value="use">Colour by well use</option>
+            <option value="dtw">Colour by depth to water</option>
+            <option value="trend">Colour by change over ~10 years</option>
+          </select>
+          <div id="wt-legend"></div>
+          <div class="ctmeta" id="wt-meta"></div>
+        </div>
       </div>
-      <label class="row" style="margin-top:2px">
-        <input type="checkbox" id="t-soil-labels" checked disabled>
-        <span class="lbl">Soil names</span>
-        <span class="cnt">z9+</span>
-      </label>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-blocks">
-        <span class="lbl">Census blocks</span>
-        <span class="cnt">z6+</span>
-      </label>
-      <div class="slider">
-        <input type="range" id="cb-op" min="0" max="100" value="60" disabled>
-        <span id="cb-op-v">60%</span>
+
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-bores" checked>
+          <button class="tw" type="button" data-sym="sym-bores" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-bores">Boreholes (CGS)</label>
+          <span class="cnt">13,137</span>
+        </div>
+        <div class="sym" id="sym-bores" hidden>
+          <div class="ctrow"><span class="sw"><i class="dot" style="background:#10233f"></i></span>
+            <span>Geotechnical borehole</span></div>
+          <div class="sub">
+            <input type="checkbox" id="t-bore-labels" checked>
+            <label class="lbl" for="t-bore-labels">Well names</label>
+            <span class="cnt">z12+</span>
+          </div>
+          <div class="ctmeta">California Geological Survey Borehole Database.<br>
+            12,478 of them carry logged lithology.</div>
+        </div>
       </div>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-parcels">
-        <span class="lbl">Parcels (LA + Orange)</span>
-        <span class="cnt">z14+</span>
-      </label>
-      <div class="slider">
-        <input type="range" id="pc-op" min="0" max="100" value="35" disabled>
-        <span id="pc-op-v">35%</span>
+
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-faults" checked>
+          <button class="tw" type="button" data-sym="sym-faults" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-faults">Quaternary faults</label>
+          <span class="cnt">3,205</span>
+        </div>
+        <div class="sym" id="sym-faults" hidden>
+          <div class="symh">Age of last movement — click to filter</div>
+          <div id="fault-legend"></div>
+        </div>
       </div>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-wells">
-        <span class="lbl">Oil &amp; gas wells</span>
-        <span class="cnt">z6+</span>
-      </label>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-water">
-        <span class="lbl">Groundwater wells</span>
-        <span class="cnt">z6+</span>
-      </label>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-ap">
-        <span class="lbl">Alquist-Priolo zones</span>
-        <span class="cnt">1,463</span>
-      </label>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-contours">
-        <span class="lbl">Contours</span>
-        <span class="cnt" id="ct-cap">10 ft</span>
-      </label>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-bores" checked>
-        <span class="lbl">Boreholes (CGS)</span>
-        <span class="cnt">13,137</span>
-      </label>
-      <label class="row" style="margin-top:2px">
-        <input type="checkbox" id="t-bore-labels" checked>
-        <span class="lbl">Well names</span>
-        <span class="cnt">z12+</span>
-      </label>
-      <label class="row" style="margin-top:6px">
-        <input type="checkbox" id="t-faults" checked>
-        <span class="lbl">Quaternary faults</span>
-      </label>
-    </div>
 
-    <div class="sec" id="cb-sec" hidden>
-      <h2>Median net worth 2025</h2>
-      <div id="cb-legend"></div>
-      <div class="ctmeta">2025 median household net worth · US Census blocks<br>
-        Vector tileset · 235,799 blocks · 72 attributes</div>
-    </div>
-
-    <div class="sec" id="pc-sec" hidden>
-      <h2>Parcels</h2>
-      <select id="pc-by" style="width:100%;font-size:12.5px;padding:4px;margin-bottom:6px;
-        border:1px solid #cfd4dc;border-radius:4px">
-        <option value="use">Colour by land use</option>
-        <option value="value">Colour by land value</option>
-      </select>
-      <div id="pc-legend"></div>
-      <div class="ctmeta" id="pc-meta"></div>
-    </div>
-
-    <div class="sec" id="wt-sec" hidden>
-      <h2>Groundwater wells</h2>
-      <select id="wt-by" style="width:100%;font-size:12.5px;padding:4px;margin-bottom:6px;
-        border:1px solid #cfd4dc;border-radius:4px">
-        <option value="use">Colour by well use</option>
-        <option value="dtw">Colour by depth to water</option>
-        <option value="trend">Colour by change over ~10 years</option>
-      </select>
-      <div id="wt-legend"></div>
-      <div class="ctmeta" id="wt-meta"></div>
-    </div>
-
-    <div class="sec" id="wl-sec" hidden>
-      <h2>Oil &amp; gas wells</h2>
-      <div id="wl-legend"></div>
-      <div class="ctmeta">Well status from the CalGEM (formerly DOGGR) database.<br>
-        216,581 wells statewide · complete at zoom 12+<br>
-        Below zoom 12 the densest fields are thinned to fit tile limits.</div>
-    </div>
-
-    <div class="sec" id="ap-sec" hidden>
-      <h2>Alquist-Priolo</h2>
-      <div class="ctrow">
-        <span class="sw"><i style="height:13px;background:#756bb1;opacity:.55;
-          border:1px dashed #54278f"></i></span>
-        <span>Earthquake fault zone</span>
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-ap">
+          <button class="tw" type="button" data-sym="sym-ap" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-ap">Alquist-Priolo zones</label>
+          <span class="cnt">1,463</span>
+        </div>
+        <div class="sym" id="sym-ap" hidden>
+          <div class="ctrow">
+            <span class="sw"><i style="height:13px;background:#756bb1;opacity:.55;
+              border:1px dashed #54278f"></i></span>
+            <span>Earthquake fault zone</span>
+          </div>
+          <div class="ctmeta">State-regulated zones around active fault traces.<br>
+            1,463 zones · CGS · released 1974–2025</div>
+        </div>
       </div>
-      <div class="ctmeta">State-regulated zones around active fault traces.<br>
-        1,463 zones · CGS · released 1974–2025</div>
-    </div>
 
-    <div class="sec" id="ct-sec" hidden>
-      <h2>Contours</h2>
-      <div id="ct-legend"></div>
-    </div>
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-parcels">
+          <button class="tw" type="button" data-sym="sym-parcels" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-parcels">Parcels (LA + Orange)</label>
+          <span class="cnt">z14+</span>
+        </div>
+        <div class="sym" id="sym-parcels" hidden>
+          <select id="pc-by">
+            <option value="use">Colour by land use</option>
+            <option value="value">Colour by land value</option>
+          </select>
+          <div class="slider">
+            <input type="range" id="pc-op" min="0" max="100" value="35" disabled>
+            <span id="pc-op-v">35%</span>
+          </div>
+          <div id="pc-legend"></div>
+          <div class="ctmeta" id="pc-meta"></div>
+        </div>
+      </div>
 
-    <div class="sec">
-      <h2>Fault age — last movement</h2>
-      <div id="fault-legend"></div>
-    </div>
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-blocks">
+          <button class="tw" type="button" data-sym="sym-blocks" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-blocks">Census blocks</label>
+          <span class="cnt">z6+</span>
+        </div>
+        <div class="sym" id="sym-blocks" hidden>
+          <div class="symh">Median net worth 2025</div>
+          <div class="slider">
+            <input type="range" id="cb-op" min="0" max="100" value="60" disabled>
+            <span id="cb-op-v">60%</span>
+          </div>
+          <div id="cb-legend"></div>
+          <div class="ctmeta">2025 median household net worth · US Census blocks<br>
+            Vector tileset · 235,799 blocks · 72 attributes</div>
+        </div>
+      </div>
 
-    <div class="sec" id="soil-sec" hidden>
-      <h2>Soil order</h2>
-      <div id="soil-legend"></div>
-    </div>
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-soils">
+          <button class="tw" type="button" data-sym="sym-soils" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-soils">Soils (SSURGO)</label>
+          <span class="cnt" id="soil-note">vector</span>
+        </div>
+        <div class="sym" id="sym-soils" hidden>
+          <div class="slider">
+            <input type="range" id="soil-op" min="0" max="100" value="75" disabled>
+            <span id="soil-op-v">75%</span>
+          </div>
+          <div class="sub">
+            <input type="checkbox" id="t-soil-labels" checked disabled>
+            <label class="lbl" for="t-soil-labels">Soil names</label>
+            <span class="cnt">z9+</span>
+          </div>
+          <div class="symh">Soil order</div>
+          <div id="soil-legend"></div>
+        </div>
+      </div>
 
-    <div class="sec">
-      <h2>Geologic unit (PTYPE)</h2>
-      <div id="geo-legend"></div>
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-geo" checked>
+          <button class="tw" type="button" data-sym="sym-geo" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-geo">Geology (by unit)</label>
+          <span class="cnt">68</span>
+        </div>
+        <div class="sym" id="sym-geo" hidden>
+          <div class="slider">
+            <input type="range" id="geo-op" min="0" max="100" value="50">
+            <span id="geo-op-v">50%</span>
+          </div>
+          <div class="sub">
+            <input type="checkbox" id="t-labels" checked>
+            <label class="lbl" for="t-labels">Unit labels (PTYPE)</label>
+          </div>
+          <div class="symh">Geologic unit (PTYPE)</div>
+          <div id="geo-legend"></div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-contours">
+          <button class="tw" type="button" data-sym="sym-contours" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-contours">Contours</label>
+          <span class="cnt" id="ct-cap">10 ft</span>
+        </div>
+        <div class="sym" id="sym-contours" hidden>
+          <div id="ct-legend"></div>
+        </div>
+      </div>
+
     </div>
 
     <div class="sec">
@@ -1118,21 +1187,9 @@ function applyState() {
     map.setLayoutProperty('water-dot', 'visibility', showWater ? 'visible' : 'none');
     map.setPaintProperty('water-dot', 'circle-color', waterColorExpr());
   }
-  var wtSec = document.getElementById('wt-sec');
-  if (wtSec) wtSec.hidden = !showWater;
-  var wlSec = document.getElementById('wl-sec');
-  if (wlSec) wlSec.hidden = !showWells;
-  var pcSec = document.getElementById('pc-sec');
-  if (pcSec) pcSec.hidden = !showParcels;
-  var cbSec = document.getElementById('cb-sec');
-  if (cbSec) cbSec.hidden = !showBlocks;
-  var ctSec = document.getElementById('ct-sec');
-  if (ctSec) ctSec.hidden = !showContours;
   ['ap-fill', 'ap-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showAP ? 'visible' : 'none');
   });
-  var apSec = document.getElementById('ap-sec');
-  if (apSec) apSec.hidden = !showAP;
   ['contour-line', 'contour-label', 'contour-label-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showContours ? 'visible' : 'none');
   });
@@ -1416,7 +1473,6 @@ document.getElementById('t-soils').addEventListener('change', function () {
   showSoils = this.checked;
   soilOp.disabled = !showSoils;
   document.getElementById('t-soil-labels').disabled = !showSoils;
-  document.getElementById('soil-sec').hidden = !showSoils;
   applyState();
 });
 soilOp.addEventListener('input', function () {
@@ -1864,6 +1920,22 @@ function doParcelSearch() {
 document.getElementById('pgo').addEventListener('click', doParcelSearch);
 document.getElementById('pq').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') { e.preventDefault(); doParcelSearch(); }
+});
+
+// ================= Layer symbology twisties =================
+// Esri's pattern: the arrowhead points at the layer name while its symbology is
+// hidden and turns to point down when shown. It is independent of the checkbox
+// on purpose -- reading a legend for a layer you have switched off is useful,
+// and tying the two together is the usual mistake.
+document.querySelectorAll('.tw').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var panel = document.getElementById(btn.getAttribute('data-sym'));
+    if (!panel) return;
+    var open = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    btn.setAttribute('aria-label', open ? 'Show symbology' : 'Hide symbology');
+    panel.hidden = open;
+  });
 });
 
 // ================= Tools menu =================
