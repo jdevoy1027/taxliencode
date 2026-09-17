@@ -356,6 +356,25 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-pipe">
+          <button class="tw" type="button" data-sym="sym-pipe" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-pipe">Pipelines (NPMS)</label>
+          <span class="cnt">27,864</span>
+        </div>
+        <div class="sym" id="sym-pipe" hidden>
+          <div id="pipe-legend"></div>
+          <div class="ctmeta"><b>2001 data — 25 years old.</b> Alignments are
+            approximate and the network has changed since.<br>
+            National Pipeline Mapping System, clipped to California ·
+            27,864 segments · 93 operators<br>
+            Never use this to locate a pipeline on the ground. Call 811 before
+            you dig.</div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-parcels">
           <button class="tw" type="button" data-sym="sym-parcels" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -526,6 +545,25 @@ var showBores = true, showBoreLabels = true, showSat = false;
 var showContours = false;
 var showAP = false;
 var showLiq = false;
+var showPipe = false;
+
+// NPMS commodity classes. 'Blank' is half the California extract -- the 2001
+// release simply did not carry a commodity for those segments -- so it gets a
+// neutral grey and its own legend entry rather than being folded in with gas.
+var PIPE_CMD = [
+  ['NATURAL GAS',     '#e08214', 'Natural gas'],
+  ['CRUDE OIL',       '#5e3c11', 'Crude oil'],
+  ['CRUDE',           '#5e3c11', 'Crude oil'],
+  ['REFINED PRODUCT', '#8073ac', 'Refined product'],
+  ['PETROLEUM PRODUCT','#8073ac','Refined product'],
+  ['PROPANE',         '#2b8cbe', 'Propane']
+];
+function pipeColorExpr() {
+  var e = ['match', ['coalesce', ['get', 'cmd'], '?']];
+  PIPE_CMD.forEach(function (c) { e.push(c[0], c[1]); });
+  e.push('#9a9a94');
+  return e;
+}
 var showBlocks = false, blockOpacity = 0.6;
 var showParcels = false, parcelOpacity = 0.35, parcelColorBy = 'use';
 var showWells = false;
@@ -919,6 +957,20 @@ function addLayers() {
       }
     });
   }
+  if (!map.getSource('pipelines')) {
+    map.addSource('pipelines', { type: 'vector', url: 'mapbox://jdevoy.ca-pipelines' });
+  }
+  if (!map.getLayer('pipe-line')) {
+    map.addLayer({
+      id: 'pipe-line', type: 'line', source: 'pipelines', 'source-layer': 'pipelines',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': pipeColorExpr(),
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 11, 1.4, 16, 2.6],
+        'line-opacity': 0.9
+      }
+    });
+  }
   if (!map.getSource('liqzones')) {
     map.addSource('liqzones', { type: 'vector', url: 'mapbox://jdevoy.liq-zones' });
   }
@@ -1235,6 +1287,9 @@ function applyState() {
     map.setLayoutProperty('water-dot', 'visibility', showWater ? 'visible' : 'none');
     map.setPaintProperty('water-dot', 'circle-color', waterColorExpr());
   }
+  if (map.getLayer('pipe-line')) {
+    map.setLayoutProperty('pipe-line', 'visibility', showPipe ? 'visible' : 'none');
+  }
   ['liq-fill', 'liq-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showLiq ? 'visible' : 'none');
   });
@@ -1276,20 +1331,21 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'liq-fill' && !liq) liq = h.properties;
+      if (h.layer.id === 'pipe-line' && !pipe) pipe = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !parc && !well && !water) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water) return;
 
     var html = '';
     if (water && showWater) {
@@ -1388,6 +1444,21 @@ map.on('load', function () {
       html += '<div class="pop-row">Order: ' + esc(soil.o || 'Other') +
               (soil.c && soil.n ? ' · dominant component ' + esc(soil.c) : '') + '</div>';
     }
+    if (pipe && showPipe) {
+      if (html) html += '<div class="pop-sep"></div>';
+      var pc = (PIPE_CMD.filter(function (c) { return c[0] === pipe.cmd; })[0]
+                || ['', '#9a9a94', 'Commodity not recorded']);
+      html += '<div class="pop-name">' + esc(pipe.op || 'Pipeline') + '</div>';
+      html += '<div class="pop-row pop-unit"><i style="background:' + pc[1] + '"></i>' +
+              esc(pc[2]) + '</div>';
+      if (pipe.sys) html += '<div class="pop-row">' + esc(pipe.sys) + '</div>';
+      var pb = [];
+      if (pipe.dia) pb.push(pipe.dia + ' in diameter');
+      if (pipe.ix === 'Y') pb.push('interstate');
+      if (pb.length) html += '<div class="pop-row">' + pb.join(' · ') + '</div>';
+      html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
+              'NPMS, 2001 release — alignment is approximate and 25 years old</div>';
+    }
     if (liq && showLiq) {
       if (html) html += '<div class="pop-sep"></div>';
       html += '<div class="pop-row"><b>Liquefaction hazard zone</b></div>';
@@ -1476,7 +1547,8 @@ map.on('load', function () {
 // Filtered to layers that exist AND are visible -- highlighting something hidden
 // behind a switched-off toggle would be a lie.
 var CLICK_LAYERS = ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
-                    'ap-fill', 'liq-fill', 'pc-fill', 'pc2-fill', 'well-dot', 'water-dot'];
+                    'ap-fill', 'liq-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
+                    'well-dot', 'water-dot'];
 function clickableLayers() {
   return CLICK_LAYERS.filter(function (id) {
     if (!map.getLayer(id)) return false;
@@ -1554,6 +1626,25 @@ document.getElementById('t-faults').addEventListener('change', function () {
 document.getElementById('t-soil-labels').addEventListener('change', function () {
   showSoilLabels = this.checked; applyState();
 });
+(function () {
+  var host = document.getElementById('pipe-legend');
+  if (host) {
+    var seen = {}, rows = [];
+    PIPE_CMD.forEach(function (c) {
+      if (seen[c[2]]) return;
+      seen[c[2]] = 1;
+      rows.push('<div class="ctrow"><span class="sw"><i style="height:2.6px;background:' +
+                c[1] + '"></i></span><span>' + esc(c[2]) + '</span></div>');
+    });
+    rows.push('<div class="ctrow"><span class="sw"><i style="height:2.6px;background:#9a9a94">' +
+              '</i></span><span>Commodity not recorded</span></div>');
+    host.innerHTML = rows.join('');
+  }
+  document.getElementById('t-pipe').addEventListener('change', function () {
+    showPipe = this.checked; applyState();
+  });
+})();
+
 document.getElementById('t-liq').addEventListener('change', function () {
   showLiq = this.checked; applyState();
 });
