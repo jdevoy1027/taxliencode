@@ -62,6 +62,21 @@
   }
   .tw:hover { color: #2d6a5a; }
   .tw[aria-expanded="true"] { transform: rotate(90deg); color: #2d6a5a; }
+  /* Active layer. Raised a little off the panel and marked with an accent rail,
+     the way a selected layer reads in ArcGIS. Exactly one at a time. */
+  .toc.act { background: #fff; border-radius: 6px; box-shadow: 0 2px 7px rgba(20,40,30,.14);
+             transform: translateY(-1px); border-top-color: transparent;
+             position: relative; z-index: 1; }
+  .toc.act + .toc { border-top-color: transparent; }
+  .toc.act .tr { padding-left: 7px; border-left: 3px solid #2d6a5a; border-radius: 6px 0 0 6px; }
+  .toc.act .lbl { font-weight: 640; color: #1d4a3e; }
+  .tr .lbl[data-layer] { cursor: pointer; }
+  .tr .lbl[data-layer]:hover { color: #2d6a5a; }
+  .actbar { font-size: 11.5px; color: #55554f; background: #eef5f2; border: 1px solid #cfe3da;
+            border-radius: 6px; padding: 5px 8px; margin: 0 0 7px; line-height: 1.4; }
+  .actbar b { color: #1d4a3e; }
+  .actbar button { font: inherit; font-size: 11.5px; margin-left: 5px; padding: 1px 7px;
+                   border: 1px solid #b9d5c9; background: #fff; border-radius: 5px; cursor: pointer; }
   .sym { padding: 1px 0 8px 29px; }
   .sym[hidden] { display: none; }
   .sym select { width: 100%; font-size: 12.5px; padding: 4px; margin-bottom: 6px;
@@ -244,13 +259,14 @@
     </div>
     <div class="sec">
       <h2>Layers</h2>
+      <div class="actbar" id="actbar" hidden></div>
 
       <div class="toc">
         <div class="tr">
           <input type="checkbox" id="t-wells">
           <button class="tw" type="button" data-sym="sym-wells" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-wells">Oil &amp; gas wells</label>
+          <span class="lbl" data-layer="wells" tabindex="0" role="button">Oil &amp; gas wells</label>
           <span class="cnt">z6+</span>
         </div>
         <div class="sym" id="sym-wells" hidden>
@@ -266,7 +282,7 @@
           <input type="checkbox" id="t-water">
           <button class="tw" type="button" data-sym="sym-water" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-water">Groundwater wells</label>
+          <span class="lbl" data-layer="water" tabindex="0" role="button">Groundwater wells</label>
           <span class="cnt">z6+</span>
         </div>
         <div class="sym" id="sym-water" hidden>
@@ -285,7 +301,7 @@
           <input type="checkbox" id="t-bores" checked>
           <button class="tw" type="button" data-sym="sym-bores" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-bores">Boreholes (CGS)</label>
+          <span class="lbl" data-layer="bores" tabindex="0" role="button">Boreholes (CGS)</label>
           <span class="cnt">13,137</span>
         </div>
         <div class="sym" id="sym-bores" hidden>
@@ -306,7 +322,7 @@
           <input type="checkbox" id="t-faults" checked>
           <button class="tw" type="button" data-sym="sym-faults" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-faults">Quaternary faults</label>
+          <span class="lbl" data-layer="faults" tabindex="0" role="button">Quaternary faults</label>
           <span class="cnt">3,205</span>
         </div>
         <div class="sym" id="sym-faults" hidden>
@@ -320,7 +336,7 @@
           <input type="checkbox" id="t-ap">
           <button class="tw" type="button" data-sym="sym-ap" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-ap">Alquist-Priolo zones</label>
+          <span class="lbl" data-layer="ap" tabindex="0" role="button">Alquist-Priolo zones</label>
           <span class="cnt">1,463</span>
         </div>
         <div class="sym" id="sym-ap" hidden>
@@ -339,7 +355,7 @@
           <input type="checkbox" id="t-liq">
           <button class="tw" type="button" data-sym="sym-liq" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-liq">Liquefaction zones</label>
+          <span class="lbl" data-layer="liq" tabindex="0" role="button">Liquefaction zones</label>
           <span class="cnt">2,031</span>
         </div>
         <div class="sym" id="sym-liq" hidden>
@@ -359,7 +375,7 @@
           <input type="checkbox" id="t-pipe">
           <button class="tw" type="button" data-sym="sym-pipe" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-pipe">Pipelines (NPMS)</label>
+          <span class="lbl" data-layer="pipe" tabindex="0" role="button">Pipelines (NPMS)</label>
           <span class="cnt">27,864</span>
         </div>
         <div class="sym" id="sym-pipe" hidden>
@@ -378,7 +394,7 @@
           <input type="checkbox" id="t-parcels">
           <button class="tw" type="button" data-sym="sym-parcels" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-parcels">Parcels (LA + Orange)</label>
+          <span class="lbl" data-layer="parcels" tabindex="0" role="button">Parcels (LA + Orange)</label>
           <span class="cnt">z14+</span>
         </div>
         <div class="sym" id="sym-parcels" hidden>
@@ -400,7 +416,7 @@
           <input type="checkbox" id="t-blocks">
           <button class="tw" type="button" data-sym="sym-blocks" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-blocks">Census blocks</label>
+          <span class="lbl" data-layer="blocks" tabindex="0" role="button">Census blocks</label>
           <span class="cnt">z6+</span>
         </div>
         <div class="sym" id="sym-blocks" hidden>
@@ -420,7 +436,7 @@
           <input type="checkbox" id="t-soils">
           <button class="tw" type="button" data-sym="sym-soils" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-soils">Soils (SSURGO)</label>
+          <span class="lbl" data-layer="soils" tabindex="0" role="button">Soils (SSURGO)</label>
           <span class="cnt" id="soil-note">vector</span>
         </div>
         <div class="sym" id="sym-soils" hidden>
@@ -443,7 +459,7 @@
           <input type="checkbox" id="t-geo" checked>
           <button class="tw" type="button" data-sym="sym-geo" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-geo">Geology (by unit)</label>
+          <span class="lbl" data-layer="geo" tabindex="0" role="button">Geology (by unit)</label>
           <span class="cnt">68</span>
         </div>
         <div class="sym" id="sym-geo" hidden>
@@ -465,7 +481,7 @@
           <input type="checkbox" id="t-contours">
           <button class="tw" type="button" data-sym="sym-contours" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <label class="lbl" for="t-contours">Contours</label>
+          <span class="lbl" data-layer="contours" tabindex="0" role="button">Contours</label>
           <span class="cnt" id="ct-cap">10 ft</span>
         </div>
         <div class="sym" id="sym-contours" hidden>
@@ -1540,17 +1556,40 @@ map.on('load', function () {
     requestAnimationFrame(runHover);
   });
   map.on('mouseout', function () { hoverPt = null; clearHover(); });
+  clearHoverExternal = clearHover;
 });
 
 // Single source of truth for "what does a click report". Hover highlights the
 // same set, so the outline you see is always the feature you would get.
 // Filtered to layers that exist AND are visible -- highlighting something hidden
 // behind a switched-off toggle would be a lie.
+var clearHoverExternal = null;
 var CLICK_LAYERS = ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot'];
+
+// Which rendered layers each entry in the table of contents owns. Parcels own
+// two, because LA and Orange are separate tilesets that read as one layer.
+var LAYER_HITS = {
+  wells:    ['well-dot'],
+  water:    ['water-dot'],
+  bores:    ['bore-dot'],
+  faults:   ['faults-hit'],
+  ap:       ['ap-fill'],
+  liq:      ['liq-fill'],
+  pipe:     ['pipe-line'],
+  parcels:  ['pc-fill', 'pc2-fill'],
+  blocks:   ['cb-fill'],
+  soils:    ['soil-fill'],
+  geo:      ['geo-fill'],
+  contours: []
+};
+var LAYER_NAMES = {};   // filled from the panel markup at startup
+var activeLayer = null; // exactly one, or null for "report everything"
+
 function clickableLayers() {
-  return CLICK_LAYERS.filter(function (id) {
+  var pool = activeLayer && LAYER_HITS[activeLayer] ? LAYER_HITS[activeLayer] : CLICK_LAYERS;
+  return pool.filter(function (id) {
     if (!map.getLayer(id)) return false;
     return map.getLayoutProperty(id, 'visibility') !== 'none';
   });
@@ -2087,6 +2126,51 @@ document.getElementById('pq').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') { e.preventDefault(); doParcelSearch(); }
 });
 
+// ================= Active layer =================
+// One layer at a time can be made active. While it is, a map click reports only
+// that layer, which is the point -- with twelve layers on, a click otherwise
+// returns a stack of everything under the cursor. Clicking the active layer's
+// name again clears it and clicks go back to reporting everything.
+document.querySelectorAll('.lbl[data-layer]').forEach(function (el) {
+  LAYER_NAMES[el.getAttribute('data-layer')] = el.textContent.trim();
+  function pick() { setActiveLayer(el.getAttribute('data-layer')); }
+  el.addEventListener('click', pick);
+  el.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+  });
+});
+
+function setActiveLayer(key) {
+  activeLayer = (activeLayer === key) ? null : key;   // click again to clear
+  document.querySelectorAll('.toc').forEach(function (t) {
+    var el = t.querySelector('.lbl[data-layer]');
+    t.classList.toggle('act', !!el && el.getAttribute('data-layer') === activeLayer);
+  });
+  renderActBar();
+  // a stale highlight from another layer would contradict the new selection
+  if (typeof clearHoverExternal === 'function') clearHoverExternal();
+}
+
+function renderActBar() {
+  var bar = document.getElementById('actbar');
+  if (!bar) return;
+  if (!activeLayer) { bar.hidden = true; bar.innerHTML = ''; return; }
+  var hits = LAYER_HITS[activeLayer] || [];
+  // A layer that is active but switched off would swallow every click with no
+  // explanation, so say which of the two it is.
+  var live = hits.some(function (id) {
+    return map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none';
+  });
+  var msg = !hits.length ? ' — nothing to report on click.'
+          : !live ? ' — switched off, so clicks report nothing. Tick it to use it.'
+          : ' — clicks report only this layer.';
+  bar.hidden = false;
+  bar.innerHTML = 'Active: <b>' + esc(LAYER_NAMES[activeLayer] || activeLayer) + '</b>' + msg +
+                  '<button type="button" id="act-clear">Clear</button>';
+  var c = document.getElementById('act-clear');
+  if (c) c.addEventListener('click', function () { setActiveLayer(activeLayer); });
+}
+
 // ================= Layer symbology twisties =================
 // Esri's pattern: the arrowhead points at the layer name while its symbology is
 // hidden and turns to point down when shown. It is independent of the checkbox
@@ -2119,6 +2203,8 @@ document.querySelectorAll('.tr input[type=checkbox]').forEach(function (cb) {
     var btn = cb.parentNode.querySelector('.tw');
     if (btn && !btn.dataset.touched) setSymOpen(btn, true);
   });
+  // keep the active-layer notice truthful when visibility changes
+  cb.addEventListener('change', function () { renderActBar(); });
 });
 
 // ================= Tools menu =================
