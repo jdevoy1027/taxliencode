@@ -866,6 +866,33 @@ function addLayers() {
       }
     });
   }
+  // Intermediate contours get labels too, but held back to zoom 13 and drawn
+  // smaller and lighter than the index labels. Labelling every line at every
+  // zoom would bury the map; this way the index contours still carry the
+  // structure and the intermediates answer "what is this one" once you are in
+  // close. Collision culling drops whichever will not fit.
+  if (!map.getLayer('contour-label-min')) {
+    map.addLayer({
+      id: 'contour-label-min', type: 'symbol', source: 'contours',
+      minzoom: 13,
+      filter: ['!=', ['get', 'ix'], 1],
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['concat', ['to-string', ['get', 'e']], ' ft'],
+        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 13, 8, 16, 10],
+        'symbol-spacing': 340,
+        'text-allow-overlap': false,
+        'text-padding': 4
+      },
+      paint: {
+        'text-color': '#6b4f36',
+        'text-halo-color': 'rgba(255,255,255,.95)',
+        'text-halo-width': 1.4,
+        'text-opacity': 0.9
+      }
+    });
+  }
   if (!map.getLayer('faults-hit')) {
     map.addLayer({
       id: 'faults-hit', type: 'line', source: 'faults',
@@ -1059,7 +1086,7 @@ function applyState() {
   });
   var apSec = document.getElementById('ap-sec');
   if (apSec) apSec.hidden = !showAP;
-  ['contour-line', 'contour-label'].forEach(function (id) {
+  ['contour-line', 'contour-label', 'contour-label-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showContours ? 'visible' : 'none');
   });
   if (map.getLayer('sat')) {
@@ -1386,7 +1413,7 @@ function renderContourLegend() {
     '<div class="ctrow"><span class="sw"><i style="height:2.6px;background:' + col + '"></i></span>' +
     '<span>Index — every <b>' + fmt(idx) + '</b>, labelled</span></div>' +
     '<div class="ctrow"><span class="sw"><i style="height:1px;background:' + col + '"></i></span>' +
-    '<span>Intermediate — every <b>' + fmt(ctInfo.interval) + '</b></span></div>' +
+    '<span>Intermediate — every <b>' + fmt(ctInfo.interval) + '</b>, labelled at z13+</span></div>' +
     '<div class="ctmeta">' +
       '<b>' + esc(ctInfo.field) + '</b><br>' +
       'Interval <b>' + fmt(ctInfo.interval) + '</b>' +
@@ -2041,8 +2068,9 @@ function runContour() {
     var cstyle = contourStyle(field);
     if (map.getLayer('contour-line'))
       map.setPaintProperty('contour-line', 'line-color', cstyle.line);
-    if (map.getLayer('contour-label'))
-      map.setPaintProperty('contour-label', 'text-color', cstyle.label);
+    ['contour-label', 'contour-label-min'].forEach(function (id) {
+      if (map.getLayer(id)) map.setPaintProperty(id, 'text-color', cstyle.label);
+    });
     showContours = true;
     document.getElementById('t-contours').checked = true;
     var fl = L.fields.filter(function (f) { return f.k === field; })[0];
