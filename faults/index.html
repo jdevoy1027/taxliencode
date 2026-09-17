@@ -1028,19 +1028,6 @@ function addLayers() {
     for (var i = 0; i < ls.length; i++) {
       if (ls[i].type === 'symbol') { firstSymbol = ls[i].id; break; }
     }
-    // Street labels: bold white on a thin black halo, which is the usual
-    // treatment for type over aerial imagery -- the default base map here. The
-    // style ships DIN Pro Regular in grey with a white halo, legible on a pale
-    // vector map and invisible over photography.
-    ['road-label-simple', 'road-label'].forEach(function (id) {
-      if (!map.getLayer(id)) return;
-      map.setLayoutProperty(id, 'text-font', ['DIN Pro Bold', 'Arial Unicode MS Bold']);
-      map.setPaintProperty(id, 'text-color', '#ffffff');
-      map.setPaintProperty(id, 'text-halo-color', '#000000');
-      map.setPaintProperty(id, 'text-halo-width', 0.7);
-      map.setPaintProperty(id, 'text-halo-blur', 0);
-    });
-
     map.addLayer({
       id: 'sat', type: 'raster', source: 'satellite',
       layout: { visibility: 'none' }, paint: { 'raster-opacity': 1 }
@@ -1563,31 +1550,37 @@ function applyState() {
   }
 }
 
-// Every text label black on a white halo, applied after the layers exist so it
-// reaches both the basemap's labels and ours in one pass. Two deliberate
-// exceptions:
-//   road-label-simple -- bold white on a thin black halo, set separately
-//   contour labels    -- coloured to match their contour lines, which is how you
-//                        tell a groundwater surface from a topographic one
-var LABEL_KEEP = { 'road-label-simple': 1, 'road-label': 1,
-                   'contour-label': 1, 'contour-label-min': 1 };
-function blackenLabels() {
+// One treatment for every text label on the map: bold white on a thin black
+// halo. Applied by walking the live style after the layers exist, so it reaches
+// the basemap's labels and ours together and does not drift when Mapbox revises
+// the style or a layer is added here.
+//
+// Bold needs the font swapped, not a weight -- text-font is a layout property
+// and the style ships DIN Pro Regular. Both faces were checked against the fonts
+// API before being relied on: a font Mapbox cannot serve makes the label vanish
+// rather than fall back.
+//
+// Contour labels are the one exception. They are coloured to match their contour
+// lines, and that colour is what separates a groundwater surface from a
+// topographic one when both are drawn on the same map.
+var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1 };
+function styleLabels() {
   (map.getStyle().layers || []).forEach(function (l) {
     if (l.type !== 'symbol' || LABEL_KEEP[l.id]) return;
-    var lay = (l.layout || {});
-    if (!('text-field' in lay)) return;
+    if (!('text-field' in (l.layout || {}))) return;
     try {
-      map.setPaintProperty(l.id, 'text-color', '#000000');
-      map.setPaintProperty(l.id, 'text-halo-color', '#ffffff');
-      map.setPaintProperty(l.id, 'text-halo-width', 1.4);
-      map.setPaintProperty(l.id, 'text-halo-blur', 0.2);
-    } catch (err) { /* a layer without a text paint slot is simply skipped */ }
+      map.setLayoutProperty(l.id, 'text-font', ['DIN Pro Bold', 'Arial Unicode MS Bold']);
+      map.setPaintProperty(l.id, 'text-color', '#ffffff');
+      map.setPaintProperty(l.id, 'text-halo-color', '#000000');
+      map.setPaintProperty(l.id, 'text-halo-width', 0.7);
+      map.setPaintProperty(l.id, 'text-halo-blur', 0);
+    } catch (err) { /* a symbol layer with no text paint slot is skipped */ }
   });
 }
 
 map.on('load', function () {
   addLayers();
-  blackenLabels();
+  styleLabels();
   var done = {};
   map.on('sourcedata', function (e) {
     if ((e.sourceId === 'geology' || e.sourceId === 'faults') && map.isSourceLoaded(e.sourceId)) {
