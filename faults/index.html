@@ -95,6 +95,29 @@
   .actbar b { color: #1d4a3e; }
   .actbar button { font: inherit; font-size: 11.5px; margin-left: 5px; padding: 1px 7px;
                    border: 1px solid #b9d5c9; background: #fff; border-radius: 5px; cursor: pointer; }
+  /* Legend swatches you can recolour. The dashed hover ring is the only cue
+     that a double-click does anything -- without it the feature is invisible. */
+  .sw-edit { cursor: pointer; }
+  .ctrow:hover .sw-edit { outline: 1.5px dashed rgba(45,106,90,.75); outline-offset: 1.5px; }
+  .swpop {
+    position: fixed; z-index: 40; background: #fff; border: 1px solid #c7c7c0;
+    border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.22); padding: 8px; width: 168px;
+  }
+  .swpop-h { display:flex; align-items:center; justify-content:space-between;
+             font-size:11px; font-weight:700; letter-spacing:.05em;
+             text-transform:uppercase; color:#85857e; margin-bottom:6px; }
+  .swpop-x { border:0; background:none; font-size:15px; line-height:1; cursor:pointer; color:#85857e; }
+  .swpop-g { display:grid; grid-template-columns:repeat(10,1fr); gap:3px; }
+  .swpop-g span { padding-top:100%; border:1px solid rgba(0,0,0,.25);
+                  border-radius:2px; cursor:pointer; }
+  .swpop-g span:hover { outline:2px solid #2d6a5a; outline-offset:1px; }
+  .swpop-c { display:flex; align-items:center; justify-content:space-between;
+             font-size:11.5px; color:#55554f; margin-top:7px; }
+  .swpop-c input { width:34px; height:22px; padding:0; border:1px solid #c7c7c0;
+                   border-radius:4px; background:#fff; cursor:pointer; }
+  .swpop-r { width:100%; margin-top:7px; font:inherit; font-size:11px; padding:4px;
+             border:1px solid #d8d8d2; background:#fafaf8; border-radius:5px; cursor:pointer;
+             color:#6b6b66; }
   .sym { padding: 1px 0 8px 29px; }
   .sym[hidden] { display: none; }
   .sym select { width: 100%; font-size: 12.5px; padding: 4px; margin-bottom: 6px;
@@ -799,6 +822,129 @@ function wellColorExpr() {
   e.push('#c6c6c6');
   return e;
 }
+
+// ================= Legend colour editing =================
+// Double-click a legend swatch to recolour that class. Same 20-colour grid the
+// annotation palette uses, plus a native picker for anything else.
+//
+// Each palette says how to read and write one entry and what to redraw. The
+// arrays are the same objects the paint expressions are rebuilt from, so a write
+// followed by applyState() is all it takes -- there is no second copy of the
+// colours to keep in step.
+var LEGEND_PAL = {
+  parcel: { arr: function () { return PARCEL_CLASS; }, at: 2,
+            redraw: function () { applyState(); parcelLegend(); } },
+  pval:   { arr: function () { return PARCEL_VALUE; }, at: 1,
+            redraw: function () { applyState(); parcelLegend(); } },
+  well:   { arr: function () { return WELL_STATUS; }, at: 2,
+            redraw: function () { applyState(); wellsLegend(); } },
+  wuse:   { arr: function () { return WATER_USE; }, at: 1,
+            redraw: function () { applyState(); waterLegend(); } },
+  wdepth: { arr: function () { return WATER_DEPTH; }, at: 1,
+            redraw: function () { applyState(); waterLegend(); } },
+  wtrend: { arr: function () { return WATER_TREND; }, at: 1,
+            redraw: function () { applyState(); waterLegend(); } },
+  pipe:   { arr: function () { return PIPE_CMD; }, at: 1,
+            redraw: function () { applyState(); pipeLegend(); } }
+};
+
+var SWATCH_COLORS = [
+  '#000000','#7f7f7f','#880015','#ed1c24','#ff7f27','#fff200','#22b14c','#00a2e8','#3f48cc','#a349a4',
+  '#ffffff','#c3c3c3','#b97a57','#ffaec9','#ffc90e','#efe4b0','#b5e61d','#99d9ea','#7092be','#c8bfe7'
+];
+
+// Survives a reload. Keyed by palette and index, so adding a class later does
+// not silently shift saved colours onto the wrong rows.
+var COLOR_KEY = 'tlc.legendColors.v1';
+function saveLegendColors() {
+  var out = {};
+  Object.keys(LEGEND_PAL).forEach(function (k) {
+    var d = LEGEND_PAL[k];
+    d.arr().forEach(function (row, i) { out[k + ':' + i] = row[d.at]; });
+  });
+  try { localStorage.setItem(COLOR_KEY, JSON.stringify(out)); } catch (e) {}
+}
+function loadLegendColors() {
+  var raw;
+  try { raw = localStorage.getItem(COLOR_KEY); } catch (e) { return; }
+  if (!raw) return;
+  var saved;
+  try { saved = JSON.parse(raw); } catch (e) { return; }
+  Object.keys(LEGEND_PAL).forEach(function (k) {
+    var d = LEGEND_PAL[k];
+    d.arr().forEach(function (row, i) {
+      var c = saved[k + ':' + i];
+      if (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) row[d.at] = c;
+    });
+  });
+}
+
+var swPop = null;
+function closeSwatchPop() {
+  if (swPop && swPop.parentNode) swPop.parentNode.removeChild(swPop);
+  swPop = null;
+}
+function openSwatchPop(el) {
+  closeSwatchPop();
+  var pal = el.getAttribute('data-pal'), idx = +el.getAttribute('data-idx');
+  var def = LEGEND_PAL[pal];
+  if (!def) return;
+  var cur = def.arr()[idx][def.at];
+
+  var pop = document.createElement('div');
+  pop.className = 'swpop';
+  pop.innerHTML =
+    '<div class="swpop-h">Colour<button type="button" class="swpop-x">&times;</button></div>' +
+    '<div class="swpop-g">' +
+      SWATCH_COLORS.map(function (c) {
+        return '<span data-c="' + c + '" title="' + c + '" style="background:' + c + '"></span>';
+      }).join('') +
+    '</div>' +
+    '<label class="swpop-c">Custom <input type="color" value="' + cur + '"></label>' +
+    '<button type="button" class="swpop-r">Reset all colours</button>';
+  document.body.appendChild(pop);
+  swPop = pop;
+
+  var r = el.getBoundingClientRect();
+  pop.style.left = Math.min(window.innerWidth - pop.offsetWidth - 8, r.left) + 'px';
+  pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 8, r.bottom + 6) + 'px';
+
+  function commit(c) {
+    def.arr()[idx][def.at] = c;
+    saveLegendColors();
+    def.redraw();
+    closeSwatchPop();
+  }
+  pop.querySelectorAll('.swpop-g span').forEach(function (sp) {
+    sp.addEventListener('click', function () { commit(sp.getAttribute('data-c')); });
+  });
+  pop.querySelector('.swpop-c input').addEventListener('change', function () {
+    commit(this.value);
+  });
+  pop.querySelector('.swpop-x').addEventListener('click', closeSwatchPop);
+  pop.querySelector('.swpop-r').addEventListener('click', function () {
+    try { localStorage.removeItem(COLOR_KEY); } catch (e) {}
+    closeSwatchPop();
+    location.reload();
+  });
+  pop.addEventListener('click', function (e) { e.stopPropagation(); });
+}
+document.addEventListener('dblclick', function (e) {
+  var el = e.target.closest && e.target.closest('.sw-edit');
+  if (!el) return;
+  e.preventDefault();
+  openSwatchPop(el);
+});
+document.addEventListener('click', function (e) {
+  if (swPop && !swPop.contains(e.target)) closeSwatchPop();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeSwatchPop();
+});
+
+// Restore any saved swatch colours now: after the palette arrays exist, before
+// the first legend renders or the first paint expression is built from them.
+loadLegendColors();
 
 // Orange County's single-digit USE_PROP_T, mapped onto the shared class colours
 // through OC_USE. The labels are the county's own, no longer inferred.
@@ -1774,20 +1920,23 @@ document.getElementById('t-faults').addEventListener('change', function () {
 document.getElementById('t-soil-labels').addEventListener('change', function () {
   showSoilLabels = this.checked; applyState();
 });
-(function () {
+function pipeLegend() {
   var host = document.getElementById('pipe-legend');
-  if (host) {
-    var seen = {}, rows = [];
-    PIPE_CMD.forEach(function (c) {
-      if (seen[c[2]]) return;
-      seen[c[2]] = 1;
-      rows.push('<div class="ctrow"><span class="sw"><i style="height:2.6px;background:' +
-                c[1] + '"></i></span><span>' + esc(c[2]) + '</span></div>');
-    });
-    rows.push('<div class="ctrow"><span class="sw"><i style="height:2.6px;background:#9a9a94">' +
-              '</i></span><span>Commodity not recorded</span></div>');
-    host.innerHTML = rows.join('');
-  }
+  if (!host) return;
+  var seen = {}, rows = [];
+  PIPE_CMD.forEach(function (c, i) {
+    if (seen[c[2]]) return;
+    seen[c[2]] = 1;
+    rows.push('<div class="ctrow"><span class="sw"><i class="sw-edit" data-pal="pipe" data-idx="' +
+              i + '" style="height:2.6px;background:' + c[1] + '"></i></span><span>' +
+              esc(c[2]) + '</span></div>');
+  });
+  rows.push('<div class="ctrow"><span class="sw"><i style="height:2.6px;background:#9a9a94">' +
+            '</i></span><span>Commodity not recorded</span></div>');
+  host.innerHTML = rows.join('');
+}
+(function () {
+  pipeLegend();
   document.getElementById('t-pipe').addEventListener('change', function () {
     showPipe = this.checked; applyState();
   });
@@ -1966,19 +2115,20 @@ function parcelLegend() {
       var label = next ? ('$' + (s[0] / 1000) + 'k – $' + (next[0] / 1000) + 'k')
                        : ('$' + (s[0] / 1000) + 'k +');
       if (i === 0) label = 'under $' + (PARCEL_VALUE[1][0] / 1000) + 'k';
-      return { c: s[1], t: label };
+      return { c: s[1], t: label, pal: 'pval', i: i };
     });
   } else {
     // Orange County has nothing in the Recreational, Rural or Agricultural
     // classes, but LA does, so every class stays listed.
-    rows = PARCEL_CLASS.map(function (c) { return { c: c[2], t: c[1] }; });
+    rows = PARCEL_CLASS.map(function (c, i) { return { c: c[2], t: c[1], pal: 'parcel', i: i }; });
   }
   host.innerHTML = rows.map(function (r) {
     // Rectangle, not a dot. Parcels are areas, and the swatch should read as the
     // thing it stands for -- this matches the census-block legend, the map's
     // other polygon layer. Dots stay reserved for the point layers.
     return '<div class="ctrow"><span class="sw">' +
-           '<i style="height:12px;background:' + r.c +
+           '<i class="sw-edit" data-pal="' + r.pal + '" data-idx="' + r.i +
+           '" style="height:12px;background:' + r.c +
            ';border:1px solid rgba(0,0,0,.18)"></i></span>' +
            '<span>' + esc(r.t) + '</span></div>';
   }).join('');
@@ -2023,18 +2173,20 @@ function waterLegend() {
   if (host) {
     var rows;
     if (waterColorBy === 'trend') {
-      rows = WATER_TREND.map(function (t) { return [t[1], t[2]]; })
+      rows = WATER_TREND.map(function (t, i) { return [t[1], t[2], 'wtrend', i]; })
                .concat([[WATER_NOTREND, 'No decade-long record']]);
     } else if (waterColorBy === 'dtw') {
       rows = [[WATER_ARTESIAN, 'Artesian (above ground)']]
-               .concat(WATER_DEPTH.map(function (d) { return [d[1], d[2]]; }))
+               .concat(WATER_DEPTH.map(function (d, i) { return [d[1], d[2], 'wdepth', i]; }))
                .concat([[WATER_NODATA, 'No reading']]);
     } else {
-      rows = WATER_USE.map(function (w) { return [w[1], w[0]]; });
+      rows = WATER_USE.map(function (w, i) { return [w[1], w[0], 'wuse', i]; });
     }
     host.innerHTML = rows.map(function (r) {
+      var ed = r[2] ? ' class="dot sw-edit" data-pal="' + r[2] + '" data-idx="' + r[3] + '"'
+                    : ' class="dot"';
       return '<div class="ctrow"><span class="sw">' +
-             '<i class="dot" style="background:' + r[0] + '"></i></span>' +
+             '<i' + ed + ' style="background:' + r[0] + '"></i></span>' +
              '<span>' + esc(r[1]) + '</span></div>';
     }).join('');
   }
@@ -2070,15 +2222,18 @@ function waterLegend() {
 })();
 
 // ---- CalGEM oil & gas wells ----
-(function () {
+function wellsLegend() {
   var host = document.getElementById('wl-legend');
-  if (host) {
-    host.innerHTML = WELL_STATUS.map(function (w) {
-      return '<div class="ctrow"><span class="sw">' +
-             '<i class="dot" style="background:' + w[2] + '"></i></span>' +
-             '<span>' + esc(w[1]) + '</span></div>';
-    }).join('');
-  }
+  if (!host) return;
+  host.innerHTML = WELL_STATUS.map(function (w, i) {
+    return '<div class="ctrow"><span class="sw">' +
+           '<i class="dot sw-edit" data-pal="well" data-idx="' + i +
+           '" style="background:' + w[2] + '"></i></span>' +
+           '<span>' + esc(w[1]) + '</span></div>';
+  }).join('');
+}
+(function () {
+  wellsLegend();
   document.getElementById('t-wells').addEventListener('change', function () {
     showWells = this.checked;
     applyState();
