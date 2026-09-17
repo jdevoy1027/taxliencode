@@ -336,6 +336,26 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-liq">
+          <button class="tw" type="button" data-sym="sym-liq" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <label class="lbl" for="t-liq">Liquefaction zones</label>
+          <span class="cnt">2,031</span>
+        </div>
+        <div class="sym" id="sym-liq" hidden>
+          <div class="ctrow">
+            <span class="sw"><i style="height:13px;background:#1f9e8c;opacity:.5;
+              border:1px dashed #11685c"></i></span>
+            <span>Liquefaction hazard zone</span>
+          </div>
+          <div class="ctmeta">Areas required to be investigated for liquefaction
+            before development.<br>2,031 zones · CGS Seismic Hazard Zones ·
+            released 1997–2006<br>Click a zone for its quadrangle map and report.</div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-parcels">
           <button class="tw" type="button" data-sym="sym-parcels" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -505,6 +525,7 @@ var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested
 var showBores = true, showBoreLabels = true, showSat = false;
 var showContours = false;
 var showAP = false;
+var showLiq = false;
 var showBlocks = false, blockOpacity = 0.6;
 var showParcels = false, parcelOpacity = 0.35, parcelColorBy = 'use';
 var showWells = false;
@@ -886,6 +907,21 @@ function addLayers() {
       }
     });
   }
+  if (!map.getSource('liqzones')) {
+    map.addSource('liqzones', { type: 'vector', url: 'mapbox://jdevoy.liq-zones' });
+  }
+  if (!map.getLayer('liq-fill')) {
+    map.addLayer({
+      id: 'liq-fill', type: 'fill', source: 'liqzones', 'source-layer': 'liq',
+      paint: { 'fill-color': '#1f9e8c', 'fill-opacity': 0.26 }
+    });
+  }
+  if (!map.getLayer('liq-line')) {
+    map.addLayer({
+      id: 'liq-line', type: 'line', source: 'liqzones', 'source-layer': 'liq',
+      paint: { 'line-color': '#11685c', 'line-width': 0.9, 'line-dasharray': [3, 1.6] }
+    });
+  }
   if (!map.getSource('apzones')) {
     map.addSource('apzones', { type: 'geojson', data: './ap_zones.geojson' });
   }
@@ -1187,6 +1223,9 @@ function applyState() {
     map.setLayoutProperty('water-dot', 'visibility', showWater ? 'visible' : 'none');
     map.setPaintProperty('water-dot', 'circle-color', waterColorExpr());
   }
+  ['liq-fill', 'liq-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showLiq ? 'visible' : 'none');
+  });
   ['ap-fill', 'ap-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showAP ? 'visible' : 'none');
   });
@@ -1225,19 +1264,20 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
+      if (h.layer.id === 'liq-fill' && !liq) liq = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !parc && !well && !water) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !parc && !well && !water) return;
 
     var html = '';
     if (water && showWater) {
@@ -1336,6 +1376,19 @@ map.on('load', function () {
       html += '<div class="pop-row">Order: ' + esc(soil.o || 'Other') +
               (soil.c && soil.n ? ' · dominant component ' + esc(soil.c) : '') + '</div>';
     }
+    if (liq && showLiq) {
+      if (html) html += '<div class="pop-sep"></div>';
+      html += '<div class="pop-row"><b>Liquefaction hazard zone</b></div>';
+      if (liq.q) html += '<div class="pop-row">' + esc(liq.q) + ' quadrangle</div>';
+      var lb = [];
+      if (liq.rl) lb.push('released ' + esc(liq.rl));
+      if (liq.rv === 'Y') lb.push('revised');
+      if (lb.length) html += '<div class="pop-row">' + lb.join(' · ') + '</div>';
+      var ll = [];
+      if (liq.pdf) ll.push('<a href="' + esc(liq.pdf) + '" target="_blank" rel="noopener">Map PDF</a>');
+      if (liq.rpt) ll.push('<a href="' + esc(liq.rpt) + '" target="_blank" rel="noopener">Report</a>');
+      if (ll.length) html += '<div class="pop-row">' + ll.join(' · ') + '</div>';
+    }
     if (ap && showAP) {
       if (fault || unit || soil || bore) html += '<div class="pop-sep"></div>';
       html += '<div class="pop-row"><b>Alquist-Priolo zone</b></div>';
@@ -1411,7 +1464,7 @@ map.on('load', function () {
 // Filtered to layers that exist AND are visible -- highlighting something hidden
 // behind a switched-off toggle would be a lie.
 var CLICK_LAYERS = ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
-                    'ap-fill', 'pc-fill', 'pc2-fill', 'well-dot', 'water-dot'];
+                    'ap-fill', 'liq-fill', 'pc-fill', 'pc2-fill', 'well-dot', 'water-dot'];
 function clickableLayers() {
   return CLICK_LAYERS.filter(function (id) {
     if (!map.getLayer(id)) return false;
@@ -1488,6 +1541,9 @@ document.getElementById('t-faults').addEventListener('change', function () {
 });
 document.getElementById('t-soil-labels').addEventListener('change', function () {
   showSoilLabels = this.checked; applyState();
+});
+document.getElementById('t-liq').addEventListener('change', function () {
+  showLiq = this.checked; applyState();
 });
 document.getElementById('t-ap').addEventListener('change', function () {
   showAP = this.checked; applyState();
