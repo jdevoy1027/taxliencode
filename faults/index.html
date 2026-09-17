@@ -1417,8 +1417,31 @@ function applyState() {
   }
 }
 
+// Every text label black on a white halo, applied after the layers exist so it
+// reaches both the basemap's labels and ours in one pass. Two deliberate
+// exceptions:
+//   road-label-simple -- bold white on a thin black halo, set separately
+//   contour labels    -- coloured to match their contour lines, which is how you
+//                        tell a groundwater surface from a topographic one
+var LABEL_KEEP = { 'road-label-simple': 1, 'road-label': 1,
+                   'contour-label': 1, 'contour-label-min': 1 };
+function blackenLabels() {
+  (map.getStyle().layers || []).forEach(function (l) {
+    if (l.type !== 'symbol' || LABEL_KEEP[l.id]) return;
+    var lay = (l.layout || {});
+    if (!('text-field' in lay)) return;
+    try {
+      map.setPaintProperty(l.id, 'text-color', '#000000');
+      map.setPaintProperty(l.id, 'text-halo-color', '#ffffff');
+      map.setPaintProperty(l.id, 'text-halo-width', 1.4);
+      map.setPaintProperty(l.id, 'text-halo-blur', 0.2);
+    } catch (err) { /* a layer without a text paint slot is simply skipped */ }
+  });
+}
+
 map.on('load', function () {
   addLayers();
+  blackenLabels();
   var done = {};
   map.on('sourcedata', function (e) {
     if ((e.sourceId === 'geology' || e.sourceId === 'faults') && map.isSourceLoaded(e.sourceId)) {
