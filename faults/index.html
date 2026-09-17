@@ -564,11 +564,13 @@ var map = new mapboxgl.Map({
   style: 'mapbox://styles/mapbox/light-v11',
   center: [-119.6, 36.6],
   zoom: 5.1,
-  // One level past the parcel tileset's maxzoom of 16. Vector tiles overzoom
-  // cleanly -- z16 geometry is re-scaled rather than re-fetched -- so this buys
-  // 2x magnification on parcels at no tile cost. It also un-caps the search,
-  // which asks to fly to z17 and was silently being clamped to 16.
-  maxZoom: 17,
+  // Three levels past the parcel tilesets' maxzoom of 16, and five past geology
+  // at 12. Vector tiles overzoom cleanly -- the z16 geometry is re-scaled rather
+  // than re-fetched -- so the extra reach costs no tiles and loses no accuracy,
+  // only added detail: a parcel boundary at z19 is the same line it was at z16,
+  // drawn larger. The aerial base map genuinely does resolve further, because
+  // exportImage renders to whatever bbox is asked for.
+  maxZoom: 19,
   // North-up, flat, locked. Rotation and pitch reach the camera through five
   // separate input paths and disabling one leaves the others working, so all of
   // them are shut off here and the remaining two are turned off on the handlers
