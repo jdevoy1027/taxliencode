@@ -267,6 +267,16 @@
     </div>
 
     <div class="sec">
+      <h2>Base map</h2>
+      <div class="seg">
+        <button id="b-light" aria-pressed="true">Light</button>
+        <button id="b-sat" aria-pressed="false">Satellite</button>
+        <button id="b-naip" aria-pressed="false">Aerial</button>
+      </div>
+      <div class="ctmeta" id="base-note"></div>
+    </div>
+
+    <div class="sec">
       <h2>Find a parcel</h2>
       <div style="display:flex;gap:4px">
         <input id="pq" type="text" placeholder="AIN / APN or address" autocomplete="off"
@@ -509,14 +519,6 @@
 
     </div>
 
-    <div class="sec">
-      <h2>Base map</h2>
-      <div class="seg">
-        <button id="b-light" aria-pressed="true">Light</button>
-        <button id="b-sat" aria-pressed="false">Satellite</button>
-      </div>
-    </div>
-
     <p class="note">
       Drawing tools open in a floating palette — pick a tool to enter draw mode,
       then Done or Esc to navigate again. Annotations save and load as GeoJSON.
@@ -589,7 +591,8 @@ var visibleAge = {};
 AGES.forEach(function (a) { visibleAge[a.code] = true; });
 var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
-var showBores = true, showBoreLabels = true, showSat = false;
+var showBores = true, showBoreLabels = true;
+var baseMap = 'light';   // 'light' | 'sat' | 'naip'
 var showContours = false;
 var showAP = false;
 var showLiq = false;
@@ -873,6 +876,23 @@ function addLayers() {
     }
     map.addLayer({
       id: 'sat', type: 'raster', source: 'satellite',
+      layout: { visibility: 'none' }, paint: { 'raster-opacity': 1 }
+    }, firstSymbol);
+
+    // USGS/USDA aerial photography. The service is an ImageServer with no tile
+    // cache -- /tile/{z}/{y}/{x} returns 404 -- so it is driven through
+    // exportImage with Mapbox's {bbox-epsg-3857} placeholder, which asks for one
+    // rendered 256px image per tile instead.
+    map.addSource('naip', {
+      type: 'raster',
+      tiles: ['https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/' +
+              'ImageServer/exportImage?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857' +
+              '&size=256,256&format=jpgpng&transparent=false&f=image'],
+      tileSize: 256,
+      attribution: 'Imagery: USGS / USDA NAIP'
+    });
+    map.addLayer({
+      id: 'naip', type: 'raster', source: 'naip',
       layout: { visibility: 'none' }, paint: { 'raster-opacity': 1 }
     }, firstSymbol);
   }
@@ -1347,8 +1367,11 @@ function applyState() {
   ['contour-line', 'contour-label', 'contour-label-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showContours ? 'visible' : 'none');
   });
+  if (map.getLayer('naip')) {
+    map.setLayoutProperty('naip', 'visibility', baseMap === 'naip' ? 'visible' : 'none');
+  }
   if (map.getLayer('sat')) {
-    map.setLayoutProperty('sat', 'visibility', showSat ? 'visible' : 'none');
+    map.setLayoutProperty('sat', 'visibility', baseMap === 'sat' ? 'visible' : 'none');
   }
   if (map.getLayer('bore-dot')) {
     map.setLayoutProperty('bore-dot', 'visibility', showBores ? 'visible' : 'none');
@@ -2678,15 +2701,29 @@ document.getElementById('m-xsect').addEventListener('click', function () {
 });
 
 // ---- Base map switch (raster toggle; no setStyle, so nothing is ever destroyed) ----
-var bLight = document.getElementById('b-light'), bSat = document.getElementById('b-sat');
-function setBase(satellite) {
-  showSat = satellite;
-  bLight.setAttribute('aria-pressed', String(!satellite));
-  bSat.setAttribute('aria-pressed', String(satellite));
+var BASE_NOTE = {
+  light: '',
+  sat:   'Mapbox Satellite — a blend of satellite and aerial sources, worldwide, ' +
+         'with mixed capture dates.',
+  naip:  'USDA NAIP / USGS high-resolution orthoimagery, about 0.3 m, flown from ' +
+         'aircraft. Served live from The National Map, so it is slower to draw ' +
+         'than the other two and covers the United States only.'
+};
+var BASE_BTN = { light: 'b-light', sat: 'b-sat', naip: 'b-naip' };
+function setBase(mode) {
+  baseMap = (mode === true) ? 'sat' : (mode === false) ? 'light' : mode;
+  Object.keys(BASE_BTN).forEach(function (k) {
+    var b = document.getElementById(BASE_BTN[k]);
+    if (b) b.setAttribute('aria-pressed', String(k === baseMap));
+  });
+  var note = document.getElementById('base-note');
+  if (note) note.innerHTML = esc(BASE_NOTE[baseMap] || '');
   applyState();
 }
-bLight.addEventListener('click', function () { setBase(false); });
-bSat.addEventListener('click', function () { setBase(true); });
+Object.keys(BASE_BTN).forEach(function (k) {
+  var b = document.getElementById(BASE_BTN[k]);
+  if (b) b.addEventListener('click', function () { setBase(k); });
+});
 </script>
 </body>
 </html>
