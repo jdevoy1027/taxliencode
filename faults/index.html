@@ -36,6 +36,16 @@
     margin: 0 0 9px; font-size: 10.5px; font-weight: 640;
     letter-spacing: .07em; text-transform: uppercase; color: #85857e;
   }
+  /* Mapbox's own CSS puts a 'grab' hand on the map canvas and the hover handler
+     put a 'pointer' hand over clickable features. Both are arrows now. The
+     grabbing hand is kept for an in-progress drag -- that one is feedback for
+     something already happening, not an invitation. The drawing overlay keeps
+     its crosshair; it is a separate element. */
+  .mapboxgl-canvas-container.mapboxgl-interactive,
+  .mapboxgl-canvas-container.mapboxgl-interactive .mapboxgl-canvas { cursor: default; }
+  .mapboxgl-canvas-container.mapboxgl-interactive:active,
+  .mapboxgl-canvas-container.mapboxgl-interactive:active .mapboxgl-canvas { cursor: grabbing; }
+
   .row { display: flex; align-items: center; gap: 9px; padding: 4px 0; cursor: pointer; user-select: none; }
   .row input { margin: 0; cursor: pointer; accent-color: #2d6a5a; flex: none; }
   .swatch { width: 22px; height: 3.5px; border-radius: 2px; flex: none; }
@@ -1265,11 +1275,10 @@ map.on('load', function () {
       .setLngLat(e.lngLat).setHTML(html).addTo(map);
   });
 
-  map.on('mousemove', function (e) {
-    var ids = ['bore-dot', 'faults-hit'].filter(function (id) { return map.getLayer(id); });
-    var f = ids.length ? map.queryRenderedFeatures(e.point, { layers: ids }) : [];
-    map.getCanvas().style.cursor = f.length ? 'pointer' : '';
-  });
+  // The mousemove handler that used to swap in a pointer cursor is gone. With
+  // the cursor fixed to an arrow in CSS there was nothing left for it to do but
+  // run queryRenderedFeatures on every mouse move and throw the answer away --
+  // a hit test per frame across the borehole and fault layers, for nothing.
 });
 
 function esc(s) {
