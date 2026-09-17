@@ -1453,42 +1453,6 @@ function ensureSoils() {
     });
   }
 
-  // Hover highlight. One GeoJSON source fed the hovered feature's geometry, and
-  // three layers so points, lines and polygons each get a sensible treatment.
-  // Amber, chosen to sit apart from the magenta the parcel search uses -- one
-  // means "you are pointing at this", the other "this is what you searched for",
-  // and they can be on screen together.
-  if (!map.getSource('hover')) {
-    map.addSource('hover', { type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] } });
-  }
-  if (!map.getLayer('hover-fill')) {
-    map.addLayer({
-      id: 'hover-fill', type: 'fill', source: 'hover',
-      filter: ['==', ['geometry-type'], 'Polygon'],
-      paint: { 'fill-color': '#ffa400', 'fill-opacity': 0.18 }
-    });
-  }
-  if (!map.getLayer('hover-line')) {
-    map.addLayer({
-      id: 'hover-line', type: 'line', source: 'hover',
-      filter: ['!=', ['geometry-type'], 'Point'],
-      layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': '#ff8800', 'line-width': 2.4, 'line-opacity': 0.95 }
-    });
-  }
-  if (!map.getLayer('hover-point')) {
-    map.addLayer({
-      id: 'hover-point', type: 'circle', source: 'hover',
-      filter: ['==', ['geometry-type'], 'Point'],
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 5, 12, 8, 17, 14],
-        'circle-color': 'rgba(0,0,0,0)',
-        'circle-stroke-color': '#ff8800',
-        'circle-stroke-width': 2.4
-      }
-    });
-  }
 }
 
 function applyState() {
@@ -1788,49 +1752,13 @@ map.on('load', function () {
       .setLngLat(e.lngLat).setHTML(html).addTo(map);
   });
 
-  // Hover highlight. Throttled to one hit test per animation frame: mousemove
-  // fires far faster than the map redraws, and querying ten layers on every
-  // event is exactly the waste the old cursor handler was guilty of.
-  var hoverQueued = false, hoverPt = null, hoverKey = null;
-  function clearHover() {
-    if (hoverKey === null) return;
-    hoverKey = null;
-    var src = map.getSource('hover');
-    if (src) src.setData({ type: 'FeatureCollection', features: [] });
-  }
-  function runHover() {
-    hoverQueued = false;
-    if (!hoverPt) return;
-    var layers = clickableLayers();
-    if (!layers.length) { clearHover(); return; }
-    var hits = map.queryRenderedFeatures(hoverPt, { layers: layers });
-    if (!hits.length) { clearHover(); return; }
-    var f = hits[0];
-    // Only repaint when the feature under the pointer actually changes, so
-    // moving within one parcel does not rebuild the source every frame.
-    var key = f.layer.id + '|' + (f.id != null ? f.id :
-              (f.properties.ain || f.properties.id || f.properties.api ||
-               f.properties.site || f.properties.GEOID || JSON.stringify(f.properties).slice(0, 80)));
-    if (key === hoverKey) return;
-    hoverKey = key;
-    var src = map.getSource('hover');
-    if (src) src.setData({ type: 'Feature', properties: {}, geometry: f.geometry });
-  }
-  map.on('mousemove', function (e) {
-    hoverPt = e.point;
-    if (hoverQueued) return;
-    hoverQueued = true;
-    requestAnimationFrame(runHover);
-  });
-  map.on('mouseout', function () { hoverPt = null; clearHover(); });
-  clearHoverExternal = clearHover;
+  // No hover handler. The amber highlight it fed is gone, and with nothing left
+  // to draw there is no reason to run a hit test across a dozen layers on every
+  // mouse move.
 });
 
-// Single source of truth for "what does a click report". Hover highlights the
-// same set, so the outline you see is always the feature you would get.
-// Filtered to layers that exist AND are visible -- highlighting something hidden
-// behind a switched-off toggle would be a lie.
-var clearHoverExternal = null;
+// What a click reports. Filtered to layers that exist AND are currently visible,
+// so a switched-off layer never answers.
 var CLICK_LAYERS = ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot'];
@@ -2428,8 +2356,6 @@ function setActiveLayer(key) {
     t.classList.toggle('act', !!el && el.getAttribute('data-layer') === activeLayer);
   });
   renderActBar();
-  // a stale highlight from another layer would contradict the new selection
-  if (typeof clearHoverExternal === 'function') clearHoverExternal();
 }
 
 function renderActBar() {
