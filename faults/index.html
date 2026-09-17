@@ -2092,14 +2092,32 @@ document.getElementById('pq').addEventListener('keydown', function (e) {
 // hidden and turns to point down when shown. It is independent of the checkbox
 // on purpose -- reading a legend for a layer you have switched off is useful,
 // and tying the two together is the usual mistake.
+function setSymOpen(btn, open) {
+  var panel = btn && document.getElementById(btn.getAttribute('data-sym'));
+  if (!panel) return;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.setAttribute('aria-label', open ? 'Hide symbology' : 'Show symbology');
+  panel.hidden = !open;
+}
+
 document.querySelectorAll('.tw').forEach(function (btn) {
   btn.addEventListener('click', function () {
-    var panel = document.getElementById(btn.getAttribute('data-sym'));
-    if (!panel) return;
-    var open = btn.getAttribute('aria-expanded') === 'true';
-    btn.setAttribute('aria-expanded', open ? 'false' : 'true');
-    btn.setAttribute('aria-label', open ? 'Show symbology' : 'Hide symbology');
-    panel.hidden = open;
+    setSymOpen(btn, btn.getAttribute('aria-expanded') !== 'true');
+    btn.dataset.touched = '1';   // respect a deliberate collapse from here on
+  });
+});
+
+// Switching a layer ON opens its symbology the first time, so the legend is
+// there when you need it instead of behind an arrow you have to know about.
+// Esri leaves this to the user, but Esri users already know the pattern.
+// A manual collapse sets `touched` and is never overridden afterwards, and
+// turning a layer off never closes the panel -- reading the legend for a layer
+// you just switched off is a legitimate thing to want.
+document.querySelectorAll('.tr input[type=checkbox]').forEach(function (cb) {
+  cb.addEventListener('change', function () {
+    if (!cb.checked) return;
+    var btn = cb.parentNode.querySelector('.tw');
+    if (btn && !btn.dataset.touched) setSymOpen(btn, true);
   });
 });
 
