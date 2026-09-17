@@ -269,9 +269,9 @@
     <div class="sec">
       <h2>Base map</h2>
       <div class="seg">
-        <button id="b-light" aria-pressed="true">Light</button>
+        <button id="b-light" aria-pressed="false">Light</button>
         <button id="b-sat" aria-pressed="false">Satellite</button>
-        <button id="b-naip" aria-pressed="false">Aerial</button>
+        <button id="b-naip" aria-pressed="true">Aerial</button>
       </div>
       <div class="ctmeta" id="base-note"></div>
     </div>
@@ -564,13 +564,13 @@ var map = new mapboxgl.Map({
   style: 'mapbox://styles/mapbox/light-v11',
   center: [-119.6, 36.6],
   zoom: 5.1,
-  // Three levels past the parcel tilesets' maxzoom of 16, and five past geology
-  // at 12. Vector tiles overzoom cleanly -- the z16 geometry is re-scaled rather
-  // than re-fetched -- so the extra reach costs no tiles and loses no accuracy,
-  // only added detail: a parcel boundary at z19 is the same line it was at z16,
-  // drawn larger. The aerial base map genuinely does resolve further, because
-  // exportImage renders to whatever bbox is asked for.
-  maxZoom: 19,
+  // Vector tiles overzoom cleanly, so the extra reach costs no tiles and loses
+  // no accuracy -- but it adds no accuracy either: a parcel boundary at z20 is
+  // the same z16 line drawn larger. The aerial base map resolves genuinely
+  // further because exportImage renders to whatever bbox it is given, though
+  // NAIP's own 0.3 m pixels run out around z19, so z20 is the point where
+  // the imagery starts being enlarged rather than revealed.
+  maxZoom: 20,
   // North-up, flat, locked. Rotation and pitch reach the camera through five
   // separate input paths and disabling one leaves the others working, so all of
   // them are shut off here and the remaining two are turned off on the handlers
@@ -594,7 +594,7 @@ AGES.forEach(function (a) { visibleAge[a.code] = true; });
 var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
 var showBores = true, showBoreLabels = true;
-var baseMap = 'light';   // 'light' | 'sat' | 'naip'
+var baseMap = 'naip';    // 'light' | 'sat' | 'naip' -- aerial by default
 var showContours = false;
 var showAP = false;
 var showLiq = false;
@@ -895,6 +895,12 @@ function addLayers() {
     });
     map.addLayer({
       id: 'naip', type: 'raster', source: 'naip',
+      // From z12 only. Every NAIP tile is rendered on demand, and the cost grows
+      // with the area requested: a z12 tile comes back in under a second, a z5
+      // one took 23.7 s in testing. Below z12 the satellite layer carries the
+      // base, which is also the right call visually -- 0.3 m imagery downsampled
+      // to a statewide view shows nothing that Mapbox Satellite does not.
+      minzoom: 12,
       layout: { visibility: 'none' }, paint: { 'raster-opacity': 1 }
     }, firstSymbol);
   }
@@ -1373,7 +1379,11 @@ function applyState() {
     map.setLayoutProperty('naip', 'visibility', baseMap === 'naip' ? 'visible' : 'none');
   }
   if (map.getLayer('sat')) {
-    map.setLayoutProperty('sat', 'visibility', baseMap === 'sat' ? 'visible' : 'none');
+    // 'naip' shows the satellite too: it is the base beneath z12, and underneath
+    // the aerial above it, so there is never a blank frame while a NAIP tile
+    // renders.
+    map.setLayoutProperty('sat', 'visibility',
+      (baseMap === 'sat' || baseMap === 'naip') ? 'visible' : 'none');
   }
   if (map.getLayer('bore-dot')) {
     map.setLayoutProperty('bore-dot', 'visibility', showBores ? 'visible' : 'none');
@@ -2707,9 +2717,10 @@ var BASE_NOTE = {
   light: '',
   sat:   'Mapbox Satellite — a blend of satellite and aerial sources, worldwide, ' +
          'with mixed capture dates.',
-  naip:  'USDA NAIP / USGS high-resolution orthoimagery, about 0.3 m, flown from ' +
-         'aircraft. Served live from The National Map, so it is slower to draw ' +
-         'than the other two and covers the United States only.'
+  naip:  'USDA NAIP / USGS orthoimagery, about 0.3 m, flown from aircraft. ' +
+         'Drawn from zoom 12 up, with satellite beneath it: NAIP is rendered on ' +
+         'demand and a statewide request takes tens of seconds, where a ' +
+         'neighbourhood one takes under a second. United States only.'
 };
 var BASE_BTN = { light: 'b-light', sat: 'b-sat', naip: 'b-naip' };
 function setBase(mode) {
@@ -2726,6 +2737,7 @@ Object.keys(BASE_BTN).forEach(function (k) {
   var b = document.getElementById(BASE_BTN[k]);
   if (b) b.addEventListener('click', function () { setBase(k); });
 });
+setBase(baseMap);   // paint the note and the pressed state for the default
 </script>
 </body>
 </html>
