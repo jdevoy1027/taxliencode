@@ -109,9 +109,9 @@
   .ctrow{display:flex;align-items:center;gap:9px;padding:3px 0;font-size:12.5px}
   .ctrow .sw{width:26px;flex:none;display:flex;align-items:center}
   .ctrow .sw i{display:block;width:100%;background:#8a6a4a;border-radius:1px}
-  /* Shared legend swatch. Introduced for the point layers so the key matched the
-     circles on the map; now used by the parcel legend too, so the two read as
-     one system rather than two. */
+  /* Round swatch for POINT layers only -- oil and gas wells, groundwater wells,
+     boreholes -- so the key matches the circles drawn on the map. Area layers
+     (parcels, census blocks, soils, geology) use a rectangle instead. */
   .ctrow .sw i.dot{width:13px;height:13px;margin:0 auto;border-radius:50%;
     border:1px solid rgba(255,255,255,.9);box-shadow:0 0 0 1px rgba(0,0,0,.18)}
   .ctmeta{font-size:11.5px;color:#85857e;line-height:1.5;margin-top:7px}
@@ -1667,8 +1667,12 @@ function parcelLegend() {
     rows = PARCEL_USE.map(function (u) { return { c: u[2], t: u[1] }; });
   }
   host.innerHTML = rows.map(function (r) {
+    // Rectangle, not a dot. Parcels are areas, and the swatch should read as the
+    // thing it stands for -- this matches the census-block legend, the map's
+    // other polygon layer. Dots stay reserved for the point layers.
     return '<div class="ctrow"><span class="sw">' +
-           '<i class="dot" style="background:' + r.c + '"></i></span>' +
+           '<i style="height:12px;background:' + r.c +
+           ';border:1px solid rgba(0,0,0,.18)"></i></span>' +
            '<span>' + esc(r.t) + '</span></div>';
   }).join('');
 
