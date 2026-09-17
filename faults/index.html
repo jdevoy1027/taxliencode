@@ -876,6 +876,18 @@ function addLayers() {
     for (var i = 0; i < ls.length; i++) {
       if (ls[i].type === 'symbol') { firstSymbol = ls[i].id; break; }
     }
+    // Street labels: black on a white halo. The light-v11 default is grey at
+    // 49% lightness with a 1px halo, which is legible on a pale vector basemap
+    // and disappears over aerial imagery -- now the default base map. The halo
+    // is widened to 1.7 for the same reason.
+    ['road-label-simple', 'road-label'].forEach(function (id) {
+      if (!map.getLayer(id)) return;
+      map.setPaintProperty(id, 'text-color', '#000000');
+      map.setPaintProperty(id, 'text-halo-color', '#ffffff');
+      map.setPaintProperty(id, 'text-halo-width', 1.7);
+      map.setPaintProperty(id, 'text-halo-blur', 0.2);
+    });
+
     map.addLayer({
       id: 'sat', type: 'raster', source: 'satellite',
       layout: { visibility: 'none' }, paint: { 'raster-opacity': 1 }
