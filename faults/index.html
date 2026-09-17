@@ -642,7 +642,13 @@ var PARCEL_CLASS = [
   ['misc',  'Misc / vacant',       '#b279a2'],
   ['rural', 'Rural',               '#ff9da6'],
   ['ag',    'Agricultural',        '#9d755d'],
-  ['pub',   'Public / government', '#bab0ac']
+  // Purple. Chosen by measurement, not eye: OKLab dE 20.7 from the Misc/vacant
+  // mauve and 15.4 from Residential blue, the two it could be confused with.
+  // Under deuteranopia it falls to about 5 against the mauve -- unavoidable,
+  // since purple reduces toward blue and this palette already holds two blues,
+  // so colour alone does not carry this class for a red-green colour-blind
+  // reader. The legend labels and the popup name it.
+  ['pub',   'Public / government', '#6a3d9a']
 ];
 var CLASS_BY_KEY = {};
 PARCEL_CLASS.forEach(function (c) { CLASS_BY_KEY[c[0]] = c; });
