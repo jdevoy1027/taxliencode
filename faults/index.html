@@ -536,17 +536,39 @@ var showWater = false;
 // Colouring on that leading character gives nine honest categories rather than
 // the several hundred full codes. Residential is 89.5% of the county, so the map
 // is deliberately mostly one colour.
-var PARCEL_USE = [
-  ['0', 'Residential',   '#4c78a8'],
-  ['1', 'Commercial',    '#e45756'],
-  ['2', 'Industrial',    '#72b7b2'],
-  ['3', 'Recreational',  '#54a24b'],
-  ['4', 'Institutional', '#eeca3b'],
-  ['5', 'Misc / vacant', '#b279a2'],
-  ['6', 'Rural',         '#ff9da6'],
-  ['7', 'Agricultural',  '#9d755d'],
-  ['8', 'Government',    '#bab0ac']
+// Land-use classes shared by both counties, and the code table each county uses
+// to reach them. The two assessors number things completely differently -- LA
+// puts the class in the FIRST of four characters, Orange uses a single digit --
+// so '1' means commercial in LA and residential in Orange. Looking a parcel up
+// in the wrong table silently mislabels every one of them.
+var PARCEL_CLASS = [
+  ['res',   'Residential',         '#4c78a8'],
+  ['multi', 'Multifamily',         '#7fa8d0'],
+  ['com',   'Commercial',          '#e45756'],
+  ['ind',   'Industrial',          '#72b7b2'],
+  ['rec',   'Recreational',        '#54a24b'],
+  ['inst',  'Institutional',       '#eeca3b'],
+  ['misc',  'Misc / vacant',       '#b279a2'],
+  ['rural', 'Rural',               '#ff9da6'],
+  ['ag',    'Agricultural',        '#9d755d'],
+  ['pub',   'Public / government', '#bab0ac']
 ];
+var CLASS_BY_KEY = {};
+PARCEL_CLASS.forEach(function (c) { CLASS_BY_KEY[c[0]] = c; });
+
+// LA County: leading digit of the 4-character Assessor use code.
+var LA_USE = { '0': 'res', '1': 'com', '2': 'ind', '3': 'rec',
+               '4': 'inst', '5': 'misc', '6': 'rural', '7': 'ag', '8': 'pub' };
+// Orange County: single-digit USE_PROP_T. Supplied by the county, replacing the
+// labels previously inferred from owner names and median values.
+var OC_USE = { '1': 'res', '2': 'multi', '3': 'com', '4': 'ind', '8': 'pub' };
+
+function parcelClass(parc) {
+  var code = String(parc.use_code == null ? '' : parc.use_code);
+  var key = parc.county === 'OC' ? OC_USE[code] : LA_USE[code.charAt(0)];
+  return CLASS_BY_KEY[key] || [null, 'Unclassified', '#cccccc'];
+}
+
 // Class breaks from the actual land-value distribution (p25/p50/p75/p90 of the
 // 2016 assessed values), not round numbers, so each colour holds a real quartile.
 var PARCEL_VALUE = [
@@ -568,9 +590,7 @@ function fmtApn(a) {
 // Shared by the click handler and the search box so a parcel reads identically
 // however you arrived at it.
 function parcelPopupHtml(parc) {
-  var pcls = (PARCEL_USE.filter(function (u) {
-    return u[0] === String(parc.use_code || '').charAt(0);
-  })[0] || [null, 'Unclassified', '#cccccc']);
+  var pcls = parcelClass(parc);
   var addr = [parc.situs_no, parc.situs_street].filter(Boolean).join(' ');
   var html = '<div class="pop-name">' + esc(addr || 'Parcel ' + (parc.ain || '')) + '</div>';
   if (parc.situs_city) {
@@ -578,10 +598,13 @@ function parcelPopupHtml(parc) {
             (parc.situs_zip ? ' ' + esc(parc.situs_zip) : '') + '</div>';
   }
   if (parc.owner) html += '<div class="pop-row"><b>Owner:</b> ' + esc(parc.owner) + '</div>';
+  else html += '<div class="pop-row" style="opacity:.6">Owner not recorded</div>';
   if (parc.ain) html += '<div class="pop-row"><b>' + (parc.county === 'OC' ? 'APN' : 'AIN') +
                         ':</b> ' + esc(fmtApn(parc.ain)) + '</div>';
-  html += '<div class="pop-row pop-unit"><i style="background:' + pcls[2] + '"></i>' +
-          esc(pcls[1]) + (parc.use_code ? ' · code ' + esc(parc.use_code) : '') + '</div>';
+  html += '<div class="pop-row"><b>Land use:</b></div>' +
+          '<div class="pop-row pop-unit"><i style="background:' + pcls[2] + '"></i>' +
+          esc(pcls[1]) + (parc.use_code ? ' · code ' + esc(parc.use_code) : '') +
+          (parc.county === 'OC' ? ' (Orange)' : '') + '</div>';
   var pb = [];
   if (parc.zoning) pb.push('zoned ' + esc(parc.zoning));
   if (parc.yr_built) pb.push('built ' + esc(parc.yr_built));
@@ -680,27 +703,16 @@ function wellColorExpr() {
   return e;
 }
 
-// Orange County uses a single-digit USE_PROP_T on a different scheme from LA's
-// 4-character codes, so it gets its own expression mapped onto the SAME class
-// colours -- that way one legend describes both counties.
-//
-// 1 residential, 3 commercial and 8 government/exempt are unambiguous in the
-// data (school districts, the State, redevelopment agencies all carry 8; 5 is
-// near-zero-value land held by Chevron and Irvine Land Co). Codes 2, 4 and 6
-// are inferred from owner names and median values rather than documented, and
-// together cover 5.6% of Orange County parcels.
+// Orange County's single-digit USE_PROP_T, mapped onto the shared class colours
+// through OC_USE. The labels are the county's own, no longer inferred.
 function parcelColorExprOC() {
   if (parcelColorBy === 'value') return parcelColorExpr();
-  return ['match', ['coalesce', ['get', 'use_code'], '?'],
-    '1', '#4c78a8',   // residential
-    '2', '#4c78a8',   // residential income (inferred)
-    '3', '#e45756',   // commercial
-    '4', '#72b7b2',   // industrial (inferred)
-    '5', '#b279a2',   // vacant / open space
-    '6', '#b279a2',   // minor interests (inferred)
-    '8', '#bab0ac',   // government / exempt
-    '#cccccc'];
+  var e = ['match', ['coalesce', ['get', 'use_code'], '?']];
+  Object.keys(OC_USE).forEach(function (d) { e.push(d, CLASS_BY_KEY[OC_USE[d]][2]); });
+  e.push('#cccccc');
+  return e;
 }
+
 
 function parcelColorExpr() {
   if (parcelColorBy === 'value') {
@@ -714,7 +726,7 @@ function parcelColorExpr() {
   // slice(0,1) rather than a match on the whole code: the leading character is
   // the class, and there are far too many full codes to enumerate.
   var e = ['match', ['slice', ['coalesce', ['get', 'use_code'], '?'], 0, 1]];
-  PARCEL_USE.forEach(function (u) { e.push(u[0], u[2]); });
+  Object.keys(LA_USE).forEach(function (d) { e.push(d, CLASS_BY_KEY[LA_USE[d]][2]); });
   e.push('#cccccc');
   return e;
 }
@@ -1720,7 +1732,7 @@ function parcelLegend() {
   } else {
     // Orange County has nothing in the Recreational, Rural or Agricultural
     // classes, but LA does, so every class stays listed.
-    rows = PARCEL_USE.map(function (u) { return { c: u[2], t: u[1] }; });
+    rows = PARCEL_CLASS.map(function (c) { return { c: c[2], t: c[1] }; });
   }
   host.innerHTML = rows.map(function (r) {
     // Rectangle, not a dot. Parcels are areas, and the swatch should read as the
@@ -1739,11 +1751,13 @@ function parcelLegend() {
         'percentiles of the LA County roll.<br>' +
         '<b>LA County</b> 2,397,061 parcels (2016 roll) · ' +
         '<b>Orange County</b> 674,851 parcels'
-      : '<b>LA County</b> 2,397,061 parcels (2016 roll), coloured on the leading ' +
-        'digit of the Assessor use code.<br>' +
-        '<b>Orange County</b> 674,851 parcels, mapped onto the same classes from ' +
-        'its own single-digit codes — residential, commercial and government are ' +
-        'certain; industrial and vacant are inferred.<br>Parcels draw at zoom 14+.';
+      : '<b>LA County</b> 2,397,061 parcels (2016 roll), classed on the leading ' +
+        'digit of the four-character Assessor use code.<br>' +
+        '<b>Orange County</b> 674,851 parcels, classed on its single-digit ' +
+        'USE_PROP_T: residential, multifamily, commercial, industrial, public.<br>' +
+        'The two assessors number classes differently, so each county is read ' +
+        'against its own table. Multifamily is Orange-only — LA\'s leading digit ' +
+        'cannot separate apartments from houses.<br>Parcels draw at zoom 14+.';
   }
 }
 document.getElementById('t-parcels').addEventListener('change', function () {
