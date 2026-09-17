@@ -566,9 +566,23 @@ var map = new mapboxgl.Map({
   // cleanly -- z16 geometry is re-scaled rather than re-fetched -- so this buys
   // 2x magnification on parcels at no tile cost. It also un-caps the search,
   // which asks to fly to z17 and was silently being clamped to 16.
-  maxZoom: 17
+  maxZoom: 17,
+  // North-up, flat, locked. Rotation and pitch reach the camera through five
+  // separate input paths and disabling one leaves the others working, so all of
+  // them are shut off here and the remaining two are turned off on the handlers
+  // below. maxPitch backs it up at the camera itself.
+  dragRotate: false,        // right-click or ctrl-drag
+  pitchWithRotate: false,   // drag to tilt
+  touchPitch: false,        // two-finger vertical drag
+  maxPitch: 0,
+  bearing: 0,
+  pitch: 0
 });
-map.addControl(new mapboxgl.NavigationControl({ visualizePitch: false }), 'top-right');
+map.touchZoomRotate.disableRotation();   // two-finger twist
+map.keyboard.disableRotation();          // shift + arrow keys
+// No compass: with rotation locked it has nothing to reset and nothing to show.
+map.addControl(new mapboxgl.NavigationControl({ showCompass: false, visualizePitch: false }),
+               'top-right');
 map.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
 
 var visibleAge = {};
