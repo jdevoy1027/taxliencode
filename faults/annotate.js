@@ -30,7 +30,9 @@ window.initAnnotate = function (map) {
   const css = `
   #pbox{position:absolute;left:12px;top:96px;z-index:5;width:118px;background:#ece9d8;border:1px solid #8a8a8a;border-radius:5px;
     box-shadow:0 2px 8px rgba(0,0,0,.35);font:12px Tahoma,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;color:#222;user-select:none}
-  #pbox .hd{background:linear-gradient(#2d6cdf,#1d4fae);color:#fff;font-weight:700;padding:5px 8px;border-radius:4px 4px 0 0;cursor:move;font-size:12px}
+  #pbox .hd{background:linear-gradient(#2d6cdf,#1d4fae);color:#fff;font-weight:700;padding:5px 8px;border-radius:4px 4px 0 0;cursor:move;font-size:12px;display:flex;align-items:center;justify-content:space-between}
+  #pbox .hx{border:0;background:rgba(255,255,255,.18);color:#fff;font:700 14px/1 inherit;width:18px;height:18px;border-radius:3px;cursor:pointer;padding:0;margin-left:8px}
+  #pbox .hx:hover{background:rgba(255,255,255,.35)}
   #pbox .sec{padding:6px;border-bottom:1px solid #c9c5b4}
   #pbox .lbl{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.03em;margin:0 0 4px}
   #pbox .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
@@ -64,7 +66,7 @@ window.initAnnotate = function (map) {
     ['circle', 'Ellipse'], ['polygon', 'Polygon'], ['text', 'Text'], ['erase', 'Eraser (click a shape)'],
     ['bucket', 'Fill bucket (recolor a shape)'], ['pick', 'Eyedropper (pick a color)']];
   box.innerHTML =
-    '<div class="hd">✎ Annotate</div>' +
+    '<div class="hd">✎ Tool Bar<button class="hx" id="p-close" title="Close the tool bar">&times;</button></div>' +
     '<div class="sec"><div class="lbl">Tools</div><div class="grid" id="p-tools"></div></div>' +
     '<div class="sec"><div class="lbl">Size</div><div class="sizes" id="p-sizes"></div>' +
     '<button class="tg" id="p-fill">Fill: Off</button></div>' +
@@ -109,6 +111,16 @@ window.initAnnotate = function (map) {
   box.querySelector('#p-load').onclick = () => loadInput.click();
   loadInput.onchange = () => { if (loadInput.files[0]) loadFile(loadInput.files[0]); loadInput.value = ''; };
   box.querySelector('#p-done').onclick = () => setTool(null);
+  // Closing leaves draw mode first. The drawing overlay sits above the map and
+  // swallows clicks, so hiding the box without clearing the tool would leave the
+  // map unusable with nothing on screen to explain why.
+  box.querySelector('#p-close').onclick = () => { setTool(null); hide(); };
+  function hide() { box.style.display = 'none'; }
+  function show() { box.style.display = ''; }
+  // Let the host page reopen it from a menu.
+  map.showToolBar = show;
+  map.hideToolBar = hide;
+  map.toolBarVisible = () => box.style.display !== 'none';
 
   (function drag() {
     const hd = box.querySelector('.hd'); let ox, oy, on = false;

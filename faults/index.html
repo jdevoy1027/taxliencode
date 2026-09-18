@@ -280,6 +280,8 @@
         <button class="mbtn" id="m-data">Data input</button>
       </div>
       <div class="menu" id="menu" hidden>
+        <div class="mh">Drawing</div>
+        <button id="m-toolbar">Tool Bar</button>
         <div class="mh">Analysis</div>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
@@ -543,8 +545,9 @@
     </div>
 
     <p class="note">
-      Drawing tools open in a floating palette — pick a tool to enter draw mode,
-      then Done or Esc to navigate again. Annotations save and load as GeoJSON.
+      The Tool Bar holds the drawing tools — pick one to enter draw mode, then Done
+      or Esc to navigate again. Close it with the × in its title bar and reopen it
+      from Tools. Drawings save and load as GeoJSON.
       Click the map to identify the geologic unit and any fault at that point.
       Geology and faults from the California Geological Survey; soils from USDA SSURGO,
       served as vector tilesets at full source resolution.
@@ -2655,6 +2658,18 @@ function areaStats(pts, clip) {
 
 // Depth to groundwater: the contour machinery, pre-aimed at the DWR wells and
 // straight into drawing a rectangle, because that is the whole question.
+// The Tool Bar can be closed from its own title bar, so the menu is how it comes
+// back. Also brings it to the fore if it is already open but scrolled out of
+// view behind the panel.
+document.getElementById('m-toolbar').addEventListener('click', function () {
+  MENU.hidden = true;
+  if (typeof map.showToolBar === 'function') {
+    map.showToolBar();
+  } else {
+    showToast('The tool bar is still loading — try again in a moment.', 'Dismiss', function () {});
+  }
+});
+
 document.getElementById('m-gwdepth').addEventListener('click', function () {
   MENU.hidden = true;
   var i = 0;
