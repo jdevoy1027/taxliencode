@@ -68,7 +68,7 @@
      Hidden on screen. In print the map fills the page and this band holds the
      legend, scale, north arrow and title block. --footh is the band height and
      is the single number that keeps the two from overlapping. */
-  #printfoot, #printsrc, #pmask-t, #pmask-l { display: none; }
+  #printfoot, #printsrc { display: none; }
   @media print {
     /* Normal document flow, not position:fixed.
        Fixed positioning in paged media is unreliable: Chrome sized the map
@@ -84,35 +84,29 @@
        stack. */
     html, body { background: #fff !important; margin: 0;
                  width: auto; height: auto; overflow: visible; }
-    body { padding: var(--pm); box-sizing: border-box; position: relative; }
-
-    /* White strips over the outer half inch along the top and down the left.
-       Offset by -var(--pm) because an absolutely positioned child resolves
-       against the padding box, so the negative offset walks it back out to the
-       paper edge.
-
-       Idempotent by design: if the body padding is being honoured, that strip of
-       paper is already blank and these change nothing. If the print dialog has
-       overridden the margin and the map has bled to the edge, they cover it.
-       Either way the result is half an inch of white, never an inch. */
-    #pmask-t, #pmask-l { display: block; position: absolute; background: #fff;
-                         z-index: 9; pointer-events: none; }
-    #pmask-t { top: calc(-1 * var(--pm)); left: calc(-1 * var(--pm));
-               width: calc(100% + 2 * var(--pm)); height: var(--pm); }
-    #pmask-l { top: calc(-1 * var(--pm)); left: calc(-1 * var(--pm));
-               width: var(--pm); height: calc(var(--maph) + 2 * var(--pm)); }
+    /* The margin is a margin on each printed block, not @page and not body
+       padding. Every earlier attempt put it somewhere the print dialog could
+       overrule; a margin on the element itself is ordinary content layout and
+       the dialog has no say in it. The map is simply moved half an inch down and
+       half an inch right, and narrowed by an inch so the right edge lands in the
+       same place. */
+    body { padding: 0; }
     .panel, .panel-open, #pbox, #backdrop, #toast, .swpop,
     .mapboxgl-ctrl, .mapboxgl-ctrl-group, .mapboxgl-popup { display: none !important; }
 
     #map {
       position: static !important; inset: auto !important;
-      display: block; width: 100% !important; height: var(--maph) !important;
+      display: block;
+      margin: var(--pm) var(--pm) 0 var(--pm);
+      width: calc(100% - 2 * var(--pm)) !important;
+      height: var(--maph) !important;
       border: 1.25pt solid #000; box-sizing: border-box;
       break-inside: avoid; break-after: avoid;
     }
     #printsrc {
       display: flex; justify-content: space-between; align-items: flex-start;
-      width: 100%; box-sizing: border-box; height: var(--srch);
+      margin: 0 var(--pm);
+      width: calc(100% - 2 * var(--pm)); box-sizing: border-box; height: var(--srch);
       padding: 2px 1px 0; gap: 12px;
       font-size: 6.6pt; line-height: 1.2; color: #222;
       break-inside: avoid; break-before: avoid;
@@ -121,7 +115,8 @@
     #pf-srcdate { flex: none; white-space: nowrap; }
 
     #printfoot {
-      display: flex; width: 100%; box-sizing: border-box; height: var(--footh);
+      display: flex; margin: 0 var(--pm) var(--pm);
+      width: calc(100% - 2 * var(--pm)); box-sizing: border-box; height: var(--footh);
       border: 1.25pt solid #000; background: #fff; padding: 7px 9px 6px;
       gap: 10px; font-size: 8.4pt; line-height: 1.25; color: #111;
       break-inside: avoid; break-before: avoid;
@@ -381,8 +376,6 @@
 
 <button class="panel-open" id="panel-open" type="button" hidden
         title="Reopen the layers panel">&#9776; Layers</button>
-<div id="pmask-t" aria-hidden="true"></div>
-<div id="pmask-l" aria-hidden="true"></div>
 <div id="printsrc" aria-hidden="true">
   <span id="pf-src"></span><span id="pf-srcdate"></span>
 </div>
