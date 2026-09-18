@@ -68,13 +68,13 @@
      Hidden on screen. In print the map fills the page and this band holds the
      legend, scale, north arrow and title block. --footh is the band height and
      is the single number that keeps the two from overlapping. */
-  #printfoot { display: none; }
+  #printfoot, #printsrc { display: none; }
   @media print {
     /* --pm is the paper margin, applied by hand. @page margin is useless here:
        position:fixed in paged media resolves against the page box, not the
        margin box, so left:0 is the sheet edge and the @page margin is ignored.
        Every fixed element is inset by --pm instead. */
-    :root { --pm: 0.5in; --footh: 1.85in; --footgap: 0.12in; }
+    :root { --pm: 0.5in; --footh: 1.85in; --footgap: 0.12in; --srch: 0.30in; }
     html, body { background: #fff !important; }
     .panel, .panel-open, #pbox, #backdrop, #toast, .swpop,
     .mapboxgl-ctrl, .mapboxgl-ctrl-group, .mapboxgl-popup { display: none !important; }
@@ -82,9 +82,20 @@
        printable box rather than pushing the map past the margin. */
     #map { position: fixed !important;
            left: var(--pm); top: var(--pm); right: var(--pm);
-           bottom: calc(var(--footh) + var(--footgap) + var(--pm));
+           bottom: calc(var(--footh) + var(--footgap) + var(--srch) + var(--pm));
            width: auto !important; height: auto !important;
            border: 1.25pt solid #000; box-sizing: border-box; }
+    /* Source and date, directly under the map's neat line and above the band --
+       the arrangement the sample sheet uses. */
+    #printsrc {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      position: fixed; left: var(--pm); right: var(--pm);
+      bottom: calc(var(--footh) + var(--footgap) + var(--pm));
+      height: var(--srch); box-sizing: border-box; padding: 2px 1px 0;
+      font-size: 6.6pt; line-height: 1.2; color: #222; gap: 12px;
+    }
+    #pf-src { flex: 1; }
+    #pf-srcdate { flex: none; white-space: nowrap; }
     #printfoot {
       display: flex; position: fixed;
       left: var(--pm); right: var(--pm); bottom: var(--pm);
@@ -92,8 +103,21 @@
       border: 1.25pt solid #000; background: #fff; padding: 7px 9px 6px;
       gap: 10px; font-size: 8.4pt; line-height: 1.25; color: #111;
     }
-    .pf-legend { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start;
-                 gap: 3px 14px; overflow: hidden; }
+    /* North arrow and scales at the left, as on the sample sheet. */
+    .pf-left { flex: none; width: 1.15in; display: flex; flex-direction: column;
+               align-items: center; gap: 3px; padding-top: 1px; }
+    .pf-north { flex: none; }
+    .pf-scales { width: 100%; }
+    .pf-sb { margin-top: 3px; }
+    .pf-sb .bar { display: flex; height: 5px; border: .75pt solid #000; }
+    .pf-sb .bar i { flex: 1; }
+    .pf-sb .bar i:nth-child(odd) { background: #000; }
+    .pf-sb .tk { display: flex; justify-content: space-between;
+                 font-size: 5.8pt; line-height: 1.1; margin-top: 1px; }
+    .pf-sb .un { font-size: 5.8pt; text-align: center; margin-top: 0; }
+    /* Legend flows in columns so long lists stay inside the band. */
+    .pf-legend { flex: 1; display: flex; flex-flow: column wrap; align-content: flex-start;
+                 height: 100%; gap: 0 13px; overflow: hidden; }
     .pf-grp { break-inside: avoid; margin-right: 6px; }
     .pf-grp h4 { margin: 0 0 1px; font-size: 7.6pt; font-weight: 700;
                  text-transform: uppercase; letter-spacing: .04em; }
@@ -104,13 +128,8 @@
     .pf-row i.ln { height: 2.5px; border: 0; }
     .pf-chips { display: flex; flex-wrap: wrap; gap: 2px; max-width: 3.4in; }
     .pf-chips span { font-size: 6.4pt; padding: 0 2px; border: .4px solid rgba(0,0,0,.4); }
-    .pf-right { width: 2.6in; flex: none; display: flex; flex-direction: column;
-                align-items: flex-end; justify-content: space-between; }
-    .pf-north { display: flex; align-items: flex-start; }
-    .pf-scale { text-align: right; }
-    .pf-scale .bar { height: 6px; border: 1px solid #111; display: block;
-                     margin-left: auto; background:
-                     repeating-linear-gradient(90deg,#111 0,#111 50%,#fff 50%,#fff 100%); }
+    .pf-right { width: 2.5in; flex: none; display: flex; flex-direction: column;
+                align-items: flex-end; justify-content: flex-end; }
     /* Title block: two separate ruled boxes, title above date. */
     .pf-title { width: 100%; box-sizing: border-box; border: 1.25pt solid #000; }
     .pf-title > div { padding: 3px 7px; box-sizing: border-box; }
@@ -338,16 +357,19 @@
 
 <button class="panel-open" id="panel-open" type="button" hidden
         title="Reopen the layers panel">&#9776; Layers</button>
+<div id="printsrc" aria-hidden="true">
+  <span id="pf-src"></span><span id="pf-srcdate"></span>
+</div>
 <div id="printfoot" aria-hidden="true">
+  <div class="pf-left">
+    <svg class="pf-north" viewBox="0 0 26 46" width="20" height="36" aria-hidden="true">
+      <polygon points="13,3 20,30 13,24 6,30" fill="#111"></polygon>
+      <text x="13" y="44" font-size="13" font-weight="700" text-anchor="middle" fill="#111">N</text>
+    </svg>
+    <div class="pf-scales" id="pf-scale"></div>
+  </div>
   <div class="pf-legend" id="pf-legend"></div>
   <div class="pf-right">
-    <div class="pf-north">
-      <svg viewBox="0 0 24 40" width="22" height="36" aria-hidden="true">
-        <polygon points="12,2 19,26 12,20 5,26" fill="#111"></polygon>
-        <text x="12" y="38" font-size="11" font-weight="700" text-anchor="middle" fill="#111">N</text>
-      </svg>
-    </div>
-    <div class="pf-scale" id="pf-scale"></div>
     <div class="pf-title" id="pf-title"></div>
   </div>
 </div>
@@ -2847,19 +2869,59 @@ function metresPerPixel() {
   return 78271.5170 * Math.cos(map.getCenter().lat * Math.PI / 180) /
          Math.pow(2, map.getZoom());
 }
+// Two segmented bars, miles over kilometres, each with 0 / half / full ticks --
+// the convention on the sample sheet. Both are drawn to the same pixel length so
+// they read as one scale expressed twice.
+function niceRound(v) {
+  var p = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+  var n = v / p;
+  return (n >= 5 ? 5 : n >= 2.5 ? 2.5 : n >= 2 ? 2 : 1) * p;
+}
+function fmtNum(v) {
+  return (Math.round(v * 100) / 100).toLocaleString();
+}
+function oneScaleBar(dist, unitLabel, px, segs) {
+  var cells = '';
+  for (var i = 0; i < segs; i++) cells += '<i></i>';
+  return '<div class="pf-sb">' +
+    '<div class="bar" style="width:' + px + 'px">' + cells + '</div>' +
+    '<div class="tk" style="width:' + px + 'px"><span>0</span><span>' +
+      fmtNum(dist / 2) + '</span><span>' + fmtNum(dist) + '</span></div>' +
+    '<div class="un" style="width:' + px + 'px">' + unitLabel + '</div></div>';
+}
 function buildScaleBar() {
   var mpp = metresPerPixel();
-  var ftPerPx = mpp * 3.280839895;
-  var NICE = [50, 100, 200, 500, 1000, 2000, 5280, 10560, 26400, 52800, 105600, 264000];
-  var target = 170, pick = NICE[0];
-  for (var i = 0; i < NICE.length; i++) {
-    if (NICE[i] / ftPerPx <= target) pick = NICE[i]; else break;
+  var TARGET = 118;                       // px, fits the 1.15in left column
+  var miles = niceRound(mpp * TARGET / 1609.344);
+  // Below a quarter mile the round number becomes '0.05 miles', which is no use
+  // on a plan, so the bar switches to feet over metres. The second bar is always
+  // the same physical length as the first, so its figure is whatever that
+  // distance happens to be rather than a round one -- how a dual-unit bar works.
+  if (miles >= 0.2) {
+    var px = Math.round(miles * 1609.344 / mpp);
+    return oneScaleBar(miles, 'Miles', px, 4) +
+           oneScaleBar(Math.round(px * mpp / 1000 * 100) / 100, 'Kilometers', px, 4);
   }
-  var px = Math.round(pick / ftPerPx);
-  var label = pick >= 5280 ? (pick / 5280) + (pick === 5280 ? ' mile' : ' miles')
-                           : pick.toLocaleString() + ' ft';
-  return '<span class="bar" style="width:' + px + 'px"></span>' +
-         '<div>0 — ' + label + '</div>';
+  var feet = niceRound(mpp * TARGET * 3.280839895);
+  var pxf = Math.round(feet / 3.280839895 / mpp);
+  return oneScaleBar(feet, 'Feet', pxf, 4) +
+         oneScaleBar(Math.round(pxf * mpp), 'Meters', pxf, 4);
+}
+
+// Credit line under the map, naming only the sources actually on the sheet.
+function buildSourceLine() {
+  var src = [];
+  if (showGeo || showFaults || showBores || showAP || showLiq)
+    src.push('California Geological Survey (geology, faults, boreholes, hazard zones)');
+  if (showWells) src.push('CalGEM (oil and gas wells)');
+  if (showWater) src.push('CA DWR (groundwater levels)');
+  if (showParcels) src.push('LA County and Orange County Assessors (parcels)');
+  if (showBlocks) src.push('US Census / Esri (block demographics)');
+  if (showSoils) src.push('USDA NRCS SSURGO (soils)');
+  if (showPipe) src.push('NPMS, 2001 (pipelines)');
+  src.push(baseMap === 'naip' ? 'USDA NAIP / USGS (imagery)'
+         : baseMap === 'sat' ? 'Mapbox Satellite (imagery)' : 'Mapbox (base map)');
+  return 'SOURCE: ' + src.join('; ');
 }
 
 // Sheet sizes, short edge first. Portrait uses them as given, landscape swaps.
@@ -2912,6 +2974,7 @@ function printCurrentMap(title, landscape, sheet) {
   var pageH = landscape ? d0[0] : d0[1];
   var margin = 0.5;      // half-inch all round, clear of any printer's dead zone
   var gap = 0.12;        // breathing space between the map's neat line and the band
+  var srch = 0.30;       // source/date strip between the map and the band
   // The legend band grows with the sheet: 1.85in is right on Letter and absurdly
   // thin on a D-size plot. Clamped so it never eats a small sheet or floats on a
   // large one.
@@ -2925,11 +2988,14 @@ function printCurrentMap(title, landscape, sheet) {
   css.textContent =
     '@page{size:' + pageW + 'in ' + pageH + 'in;margin:0}' +
     '@media print{:root{--pm:' + margin + 'in;--footh:' + foot.toFixed(2) +
-    'in;--footgap:' + gap + 'in}}';
+    'in;--footgap:' + gap + 'in;--srch:' + srch + 'in}}';
 
   document.getElementById('pf-legend').innerHTML = buildPrintLegend();
   document.getElementById('pf-scale').innerHTML = buildScaleBar();
   var d = new Date();
+  document.getElementById('pf-src').textContent = buildSourceLine();
+  document.getElementById('pf-srcdate').textContent =
+    d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
   document.getElementById('pf-title').innerHTML =
     '<div class="pf-tb-title"><span class="pf-tb-k">Title</span>' +
       '<b>' + esc(title || 'California Geology & Faults') + '</b></div>' +
@@ -2945,7 +3011,7 @@ function printCurrentMap(title, landscape, sheet) {
   //
   // Map box, inches: the page less both margins, the legend band and the gap.
   var pw = pageW - margin * 2;
-  var ph = pageH - margin * 2 - foot - gap;
+  var ph = pageH - margin * 2 - foot - gap - srch;
   var mapEl = document.getElementById('map');
   var prev = { w: mapEl.style.width, h: mapEl.style.height,
                pos: mapEl.style.position, l: mapEl.style.left, t: mapEl.style.top };
