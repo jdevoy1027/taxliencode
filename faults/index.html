@@ -70,18 +70,24 @@
      is the single number that keeps the two from overlapping. */
   #printfoot { display: none; }
   @media print {
-    :root { --footh: 1.85in; --footgap: 0.12in; }
+    /* --pm is the paper margin, applied by hand. @page margin is useless here:
+       position:fixed in paged media resolves against the page box, not the
+       margin box, so left:0 is the sheet edge and the @page margin is ignored.
+       Every fixed element is inset by --pm instead. */
+    :root { --pm: 0.5in; --footh: 1.85in; --footgap: 0.12in; }
     html, body { background: #fff !important; }
     .panel, .panel-open, #pbox, #backdrop, #toast, .swpop,
     .mapboxgl-ctrl, .mapboxgl-ctrl-group, .mapboxgl-popup { display: none !important; }
     /* Neat line around the map field. box-sizing keeps the rule inside the
        printable box rather than pushing the map past the margin. */
-    #map { position: fixed !important; left: 0; top: 0; right: 0;
-           bottom: calc(var(--footh) + var(--footgap));
+    #map { position: fixed !important;
+           left: var(--pm); top: var(--pm); right: var(--pm);
+           bottom: calc(var(--footh) + var(--footgap) + var(--pm));
            width: auto !important; height: auto !important;
            border: 1.25pt solid #000; box-sizing: border-box; }
     #printfoot {
-      display: flex; position: fixed; left: 0; right: 0; bottom: 0;
+      display: flex; position: fixed;
+      left: var(--pm); right: var(--pm); bottom: var(--pm);
       height: var(--footh); box-sizing: border-box;
       border: 1.25pt solid #000; background: #fff; padding: 7px 9px 6px;
       gap: 10px; font-size: 8.4pt; line-height: 1.25; color: #111;
@@ -2914,9 +2920,12 @@ function printCurrentMap(title, landscape, sheet) {
   var css = document.getElementById('printpagecss');
   if (!css) { css = document.createElement('style'); css.id = 'printpagecss';
               document.head.appendChild(css); }
+  // @page margin 0 on purpose: the fixed elements above carry the margin as an
+  // inset, and a non-zero @page margin would stack on top of it.
   css.textContent =
-    '@page{size:' + pageW + 'in ' + pageH + 'in;margin:' + margin + 'in}' +
-    '@media print{:root{--footh:' + foot.toFixed(2) + 'in;--footgap:' + gap + 'in}}';
+    '@page{size:' + pageW + 'in ' + pageH + 'in;margin:0}' +
+    '@media print{:root{--pm:' + margin + 'in;--footh:' + foot.toFixed(2) +
+    'in;--footgap:' + gap + 'in}}';
 
   document.getElementById('pf-legend').innerHTML = buildPrintLegend();
   document.getElementById('pf-scale').innerHTML = buildScaleBar();
