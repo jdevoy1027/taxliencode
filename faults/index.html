@@ -582,11 +582,26 @@ var SOILS = [
   { code: 'Other',       color: '#9a9a92' }
 ];
 
+// ================= Session state =================
+// The map reopens where it was left: layers, opacities, colour modes, base map,
+// active layer, fault-age filters and the camera. Read before the map is
+// constructed so the saved centre and zoom can seed it directly -- restoring the
+// view afterwards would show the default position first and then jump.
+var STATE_KEY = 'tlc.mapState.v1';
+var SAVED = (function () {
+  try {
+    var raw = localStorage.getItem(STATE_KEY);
+    if (!raw) return null;
+    var o = JSON.parse(raw);
+    return (o && o.v === 1) ? o : null;   // ignore anything written by an older shape
+  } catch (e) { return null; }
+})();
+
 var map = new mapboxgl.Map({
   container: 'map',
   style: 'mapbox://styles/mapbox/light-v11',
-  center: [-119.6, 36.6],
-  zoom: 5.1,
+  center: (SAVED && SAVED.view && SAVED.view.c) || [-119.6, 36.6],
+  zoom:   (SAVED && SAVED.view && typeof SAVED.view.z === 'number') ? SAVED.view.z : 5.1,
   // Vector tiles overzoom cleanly, so the extra reach costs no tiles and loses
   // no accuracy -- but it adds no accuracy either: a parcel boundary at z20 is
   // the same z16 line drawn larger. The aerial base map resolves genuinely
@@ -613,11 +628,13 @@ map.addControl(new mapboxgl.NavigationControl({ showCompass: false, visualizePit
 map.addControl(new mapboxgl.ScaleControl({ unit: 'imperial' }), 'bottom-right');
 
 var visibleAge = {};
-AGES.forEach(function (a) { visibleAge[a.code] = true; });
+AGES.forEach(function (a) {
+  visibleAge[a.code] = !(SAVED && SAVED.ages && SAVED.ages[a.code] === false);
+});
 var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
 var showBores = true, showBoreLabels = true;
-var baseMap = 'naip';    // 'light' | 'sat' | 'naip' -- aerial by default
+var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
 var showContours = false;
 var showAP = false;
 var showLiq = false;
@@ -1802,7 +1819,7 @@ AGES.forEach(function (a) {
   var row = document.createElement('label');
   row.className = 'row';
   row.innerHTML =
-    '<input type="checkbox" checked>' +
+    '<input type="checkbox"' + (visibleAge[a.code] === false ? '' : ' checked') + '>' +
     '<span class="swatch" style="background:' + a.color + '"></span>' +
     '<span class="lbl">' + a.label + '</span>';
   row.querySelector('input').addEventListener('change', function () {
@@ -2847,6 +2864,97 @@ document.getElementById('m-xsect').addEventListener('click', function () {
   });
 });
 
+// ---- Restore and persist the session ----
+// Runs last, once every control exists. Sets the variables and the DOM together:
+// assigning .checked does not fire a change event, so the two would otherwise
+// disagree.
+var LAYER_FLAGS = [
+  ['geo', 't-geo', function (v) { showGeo = v; }, function () { return showGeo; }],
+  ['labels', 't-labels', function (v) { showLabels = v; }, function () { return showLabels; }],
+  ['soils', 't-soils', function (v) { showSoils = v; }, function () { return showSoils; }],
+  ['soilLabels', 't-soil-labels', function (v) { showSoilLabels = v; }, function () { return showSoilLabels; }],
+  ['blocks', 't-blocks', function (v) { showBlocks = v; }, function () { return showBlocks; }],
+  ['parcels', 't-parcels', function (v) { showParcels = v; }, function () { return showParcels; }],
+  ['wells', 't-wells', function (v) { showWells = v; }, function () { return showWells; }],
+  ['water', 't-water', function (v) { showWater = v; }, function () { return showWater; }],
+  ['ap', 't-ap', function (v) { showAP = v; }, function () { return showAP; }],
+  ['liq', 't-liq', function (v) { showLiq = v; }, function () { return showLiq; }],
+  ['pipe', 't-pipe', function (v) { showPipe = v; }, function () { return showPipe; }],
+  ['contours', 't-contours', function (v) { showContours = v; }, function () { return showContours; }],
+  ['bores', 't-bores', function (v) { showBores = v; }, function () { return showBores; }],
+  ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
+  ['faults', 't-faults', function (v) { showFaults = v; }, function () { return showFaults; }]
+];
+var OPACITY_CTL = [
+  ['geo', 'geo-op', 'geo-op-v', function (v) { geoOpacity = v; }, function () { return geoOpacity; }],
+  ['soil', 'soil-op', 'soil-op-v', function (v) { soilOpacity = v; }, function () { return soilOpacity; }],
+  ['block', 'cb-op', 'cb-op-v', function (v) { blockOpacity = v; }, function () { return blockOpacity; }],
+  ['parcel', 'pc-op', 'pc-op-v', function (v) { parcelOpacity = v; }, function () { return parcelOpacity; }]
+];
+
+function collectState() {
+  var st = { v: 1, layers: {}, op: {}, ages: {},
+             by: { parcel: parcelColorBy, water: waterColorBy },
+             base: baseMap, active: activeLayer };
+  LAYER_FLAGS.forEach(function (f) { st.layers[f[0]] = !!f[3](); });
+  OPACITY_CTL.forEach(function (o) { st.op[o[0]] = o[4](); });
+  AGES.forEach(function (a) { st.ages[a.code] = visibleAge[a.code] !== false; });
+  try {
+    var c = map.getCenter();
+    st.view = { c: [+c.lng.toFixed(6), +c.lat.toFixed(6)], z: +map.getZoom().toFixed(3) };
+  } catch (e) {}
+  return st;
+}
+var saveTimer = null;
+function saveState() {
+  clearTimeout(saveTimer);
+  // debounced: panning fires moveend repeatedly and every slider drag is a
+  // stream of input events
+  saveTimer = setTimeout(function () {
+    try { localStorage.setItem(STATE_KEY, JSON.stringify(collectState())); } catch (e) {}
+  }, 350);
+}
+
+function restoreState() {
+  if (!SAVED) { setBase(baseMap); applyState(); return; }
+  LAYER_FLAGS.forEach(function (f) {
+    var v = SAVED.layers && SAVED.layers[f[0]];
+    if (typeof v !== 'boolean') return;
+    f[2](v);
+    var el = document.getElementById(f[1]);
+    if (el) el.checked = v;
+  });
+  OPACITY_CTL.forEach(function (o) {
+    var v = SAVED.op && SAVED.op[o[0]];
+    if (typeof v !== 'number' || v < 0 || v > 1) return;
+    o[3](v);
+    var el = document.getElementById(o[1]), lab = document.getElementById(o[2]);
+    if (el) el.value = Math.round(v * 100);
+    if (lab) lab.textContent = Math.round(v * 100) + '%';
+  });
+  if (SAVED.by) {
+    if (SAVED.by.parcel) { parcelColorBy = SAVED.by.parcel;
+      var pb = document.getElementById('pc-by'); if (pb) pb.value = parcelColorBy; }
+    if (SAVED.by.water) { waterColorBy = SAVED.by.water;
+      var wb = document.getElementById('wt-by'); if (wb) wb.value = waterColorBy; }
+  }
+  // sliders are disabled until their layer is on
+  var pcOpEl = document.getElementById('pc-op'); if (pcOpEl) pcOpEl.disabled = !showParcels;
+  var cbOpEl = document.getElementById('cb-op'); if (cbOpEl) cbOpEl.disabled = !showBlocks;
+  var soOpEl = document.getElementById('soil-op'); if (soOpEl) soOpEl.disabled = !showSoils;
+  var slEl = document.getElementById('t-soil-labels'); if (slEl) slEl.disabled = !showSoils;
+
+  parcelLegend(); waterLegend();
+  setBase(baseMap);
+  if (SAVED.active && LAYER_HITS[SAVED.active]) setActiveLayer(SAVED.active);
+  applyState();
+}
+
+// Anything in the panel, plus the camera.
+document.querySelector('.panel').addEventListener('change', saveState);
+document.querySelector('.panel').addEventListener('input', saveState);
+map.on('moveend', saveState);
+
 // ---- Base map switch (raster toggle; no setStyle, so nothing is ever destroyed) ----
 var BASE_NOTE = {
   light: '',
@@ -2872,7 +2980,7 @@ Object.keys(BASE_BTN).forEach(function (k) {
   var b = document.getElementById(BASE_BTN[k]);
   if (b) b.addEventListener('click', function () { setBase(k); });
 });
-setBase(baseMap);   // paint the note and the pressed state for the default
+restoreState();     // layers, opacities, colour modes, base map, active layer
 </script>
 </body>
 </html>
