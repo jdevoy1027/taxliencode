@@ -2848,17 +2848,39 @@ function buildScaleBar() {
          '<div>0 — ' + label + '</div>';
 }
 
+// Sheet sizes, short edge first. Portrait uses them as given, landscape swaps.
+var SHEETS = {
+  letter:  { label: 'Letter — 8.5 × 11 in',        d: [8.5, 11] },
+  legal:   { label: 'Legal — 8.5 × 14 in',         d: [8.5, 14] },
+  tabloid: { label: 'Tabloid / B — 11 × 17 in',    d: [11, 17] },
+  ansic:   { label: 'ANSI C — 17 × 22 in',         d: [17, 22] },
+  ansid:   { label: 'ANSI D — 22 × 34 in',         d: [22, 34] },
+  a4:      { label: 'A4 — 210 × 297 mm',           d: [8.27, 11.69] },
+  a3:      { label: 'A3 — 297 × 420 mm',           d: [11.69, 16.54] }
+};
+var printPrefs = { sheet: 'letter', landscape: true };
+
 function openPrintMapDlg() {
   openDlg(
     '<h2>Print current map</h2><div class="bd">' +
     '<div class="fld"><label>Title</label>' +
     '<input type="text" id="d-pt" placeholder="Map title" style="width:100%;font:inherit;' +
     'font-size:13px;padding:6px;border:1px solid #cfd4dc;border-radius:5px"></div>' +
+    '<div class="fld" style="margin-top:8px"><label>Sheet size</label>' +
+    '<select id="d-ps" style="width:100%;font-size:12.5px;padding:5px;' +
+    'border:1px solid #cfd4dc;border-radius:5px">' +
+      Object.keys(SHEETS).map(function (k) {
+        return '<option value="' + k + '"' + (k === printPrefs.sheet ? ' selected' : '') +
+               '>' + esc(SHEETS[k].label) + '</option>';
+      }).join('') +
+    '</select></div>' +
     '<div class="fld" style="margin-top:8px"><label>Orientation</label>' +
-    '<label class="radio"><input type="radio" name="po" value="landscape" checked>' +
-    '<span>Landscape<span class="d">11 × 8.5 in — wider view, shorter legend band.</span></span></label>' +
-    '<label class="radio"><input type="radio" name="po" value="portrait">' +
-    '<span>Portrait<span class="d">8.5 × 11 in — taller map, narrower legend.</span></span></label></div>' +
+    '<label class="radio"><input type="radio" name="po" value="landscape"' +
+      (printPrefs.landscape ? ' checked' : '') + '>' +
+    '<span>Landscape<span class="d">Wider view, shorter legend band.</span></span></label>' +
+    '<label class="radio"><input type="radio" name="po" value="portrait"' +
+      (printPrefs.landscape ? '' : ' checked') + '>' +
+    '<span>Portrait<span class="d">Taller map, narrower legend.</span></span></label></div>' +
     '<div class="hint">The map prints exactly as it sits on screen. Pan and zoom ' +
     'before printing; the legend covers whichever layers are switched on.</div>' +
     '</div><div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
@@ -2867,17 +2889,30 @@ function openPrintMapDlg() {
   document.getElementById('d-go').addEventListener('click', function () {
     var title = (document.getElementById('d-pt').value || '').trim();
     var land = document.querySelector('input[name=po]:checked').value === 'landscape';
+    var sheet = document.getElementById('d-ps').value;
+    printPrefs = { sheet: sheet, landscape: land };
+    saveState();
     closeDlg();
-    printCurrentMap(title, land);
+    printCurrentMap(title, land, sheet);
   });
 }
 
-function printCurrentMap(title, landscape) {
+function printCurrentMap(title, landscape, sheet) {
+  var d0 = (SHEETS[sheet] || SHEETS.letter).d;
+  var pageW = landscape ? d0[1] : d0[0];
+  var pageH = landscape ? d0[0] : d0[1];
+  var margin = 0.35;
+  // The legend band grows with the sheet: 1.85in is right on Letter and absurdly
+  // thin on a D-size plot. Clamped so it never eats a small sheet or floats on a
+  // large one.
+  var foot = Math.min(3.2, Math.max(1.6, pageH * 0.19));
+
   var css = document.getElementById('printpagecss');
   if (!css) { css = document.createElement('style'); css.id = 'printpagecss';
               document.head.appendChild(css); }
-  css.textContent = '@page{size:' + (landscape ? '11in 8.5in' : '8.5in 11in') +
-                    ';margin:0.35in}';
+  css.textContent =
+    '@page{size:' + pageW + 'in ' + pageH + 'in;margin:' + margin + 'in}' +
+    '@media print{:root{--footh:' + foot.toFixed(2) + 'in}}';
 
   document.getElementById('pf-legend').innerHTML = buildPrintLegend();
   document.getElementById('pf-scale').innerHTML = buildScaleBar();
@@ -2893,9 +2928,9 @@ function printCurrentMap(title, landscape) {
   // element is resized on screen to the exact print box first, re-rendered at
   // that shape, and only then printed.
   //
-  // Page box, inches, at the 0.35in margin above, less the legend band:
-  var pw = (landscape ? 11 : 8.5) - 0.7;
-  var ph = (landscape ? 8.5 : 11) - 0.7 - 1.85;
+  // Page box, inches, less margins and the legend band:
+  var pw = pageW - margin * 2;
+  var ph = pageH - margin * 2 - foot;
   var mapEl = document.getElementById('map');
   var prev = { w: mapEl.style.width, h: mapEl.style.height,
                pos: mapEl.style.position, l: mapEl.style.left, t: mapEl.style.top };
@@ -3171,7 +3206,8 @@ var OPACITY_CTL = [
 function collectState() {
   var st = { v: 1, layers: {}, op: {}, ages: {},
              by: { parcel: parcelColorBy, water: waterColorBy },
-             base: baseMap, active: activeLayer, panel: panelOpen };
+             base: baseMap, active: activeLayer, panel: panelOpen,
+             print: printPrefs };
   LAYER_FLAGS.forEach(function (f) { st.layers[f[0]] = !!f[3](); });
   OPACITY_CTL.forEach(function (o) { st.op[o[0]] = o[4](); });
   AGES.forEach(function (a) { st.ages[a.code] = visibleAge[a.code] !== false; });
@@ -3226,6 +3262,9 @@ function restoreState() {
   parcelLegend(); waterLegend();
   setBase(baseMap);
   if (SAVED.active && LAYER_HITS[SAVED.active]) setActiveLayer(SAVED.active);
+  if (SAVED.print && SHEETS[SAVED.print.sheet]) {
+    printPrefs = { sheet: SAVED.print.sheet, landscape: !!SAVED.print.landscape };
+  }
   if (SAVED.panel === false) setPanelOpen(false);
   applyState();
 }
