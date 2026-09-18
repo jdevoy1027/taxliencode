@@ -70,16 +70,20 @@
      is the single number that keeps the two from overlapping. */
   #printfoot { display: none; }
   @media print {
-    :root { --footh: 1.85in; }
+    :root { --footh: 1.85in; --footgap: 0.12in; }
     html, body { background: #fff !important; }
     .panel, .panel-open, #pbox, #backdrop, #toast, .swpop,
     .mapboxgl-ctrl, .mapboxgl-ctrl-group, .mapboxgl-popup { display: none !important; }
+    /* Neat line around the map field. box-sizing keeps the rule inside the
+       printable box rather than pushing the map past the margin. */
     #map { position: fixed !important; left: 0; top: 0; right: 0;
-           bottom: var(--footh); width: auto !important; height: auto !important; }
+           bottom: calc(var(--footh) + var(--footgap));
+           width: auto !important; height: auto !important;
+           border: 1.25pt solid #000; box-sizing: border-box; }
     #printfoot {
       display: flex; position: fixed; left: 0; right: 0; bottom: 0;
       height: var(--footh); box-sizing: border-box;
-      border-top: 1.5px solid #111; background: #fff; padding: 7px 8px 5px;
+      border: 1.25pt solid #000; background: #fff; padding: 7px 9px 6px;
       gap: 10px; font-size: 8.4pt; line-height: 1.25; color: #111;
     }
     .pf-legend { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start;
@@ -101,10 +105,14 @@
     .pf-scale .bar { height: 6px; border: 1px solid #111; display: block;
                      margin-left: auto; background:
                      repeating-linear-gradient(90deg,#111 0,#111 50%,#fff 50%,#fff 100%); }
-    .pf-title { border: 1.2px solid #111; padding: 4px 7px; width: 100%;
-                box-sizing: border-box; }
-    .pf-title b { display: block; font-size: 10.5pt; line-height: 1.15; }
-    .pf-title span { font-size: 7.8pt; color: #333; }
+    /* Title block: two separate ruled boxes, title above date. */
+    .pf-title { width: 100%; box-sizing: border-box; border: 1.25pt solid #000; }
+    .pf-title > div { padding: 3px 7px; box-sizing: border-box; }
+    .pf-tb-title { border-bottom: 1.25pt solid #000; }
+    .pf-tb-k { display: block; font-size: 6.6pt; font-weight: 700;
+               letter-spacing: .07em; text-transform: uppercase; color: #444; }
+    .pf-tb-title b { display: block; font-size: 10.5pt; line-height: 1.2; }
+    .pf-tb-date b { display: block; font-size: 9pt; line-height: 1.2; font-weight: 600; }
   }
 
   .toc { border-top: 1px solid #eeeeea; }
@@ -2896,7 +2904,8 @@ function printCurrentMap(title, landscape, sheet) {
   var d0 = (SHEETS[sheet] || SHEETS.letter).d;
   var pageW = landscape ? d0[1] : d0[0];
   var pageH = landscape ? d0[0] : d0[1];
-  var margin = 0.35;
+  var margin = 0.5;      // half-inch all round, clear of any printer's dead zone
+  var gap = 0.12;        // breathing space between the map's neat line and the band
   // The legend band grows with the sheet: 1.85in is right on Letter and absurdly
   // thin on a D-size plot. Clamped so it never eats a small sheet or floats on a
   // large one.
@@ -2907,15 +2916,17 @@ function printCurrentMap(title, landscape, sheet) {
               document.head.appendChild(css); }
   css.textContent =
     '@page{size:' + pageW + 'in ' + pageH + 'in;margin:' + margin + 'in}' +
-    '@media print{:root{--footh:' + foot.toFixed(2) + 'in}}';
+    '@media print{:root{--footh:' + foot.toFixed(2) + 'in;--footgap:' + gap + 'in}}';
 
   document.getElementById('pf-legend').innerHTML = buildPrintLegend();
   document.getElementById('pf-scale').innerHTML = buildScaleBar();
   var d = new Date();
   document.getElementById('pf-title').innerHTML =
-    '<b>' + esc(title || 'California Geology & Faults') + '</b>' +
-    '<span>' + d.toLocaleDateString(undefined,
-      { year: 'numeric', month: 'long', day: 'numeric' }) + '</span>';
+    '<div class="pf-tb-title"><span class="pf-tb-k">Title</span>' +
+      '<b>' + esc(title || 'California Geology & Faults') + '</b></div>' +
+    '<div class="pf-tb-date"><span class="pf-tb-k">Date</span><b>' +
+      d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) +
+      '</b></div>';
 
   // A WebGL canvas keeps whatever pixel dimensions it was last sized to; the
   // print rasteriser just scales that bitmap into the page box. If the screen
@@ -2923,9 +2934,9 @@ function printCurrentMap(title, landscape, sheet) {
   // element is resized on screen to the exact print box first, re-rendered at
   // that shape, and only then printed.
   //
-  // Page box, inches, less margins and the legend band:
+  // Map box, inches: the page less both margins, the legend band and the gap.
   var pw = pageW - margin * 2;
-  var ph = pageH - margin * 2 - foot;
+  var ph = pageH - margin * 2 - foot - gap;
   var mapEl = document.getElementById('map');
   var prev = { w: mapEl.style.width, h: mapEl.style.height,
                pos: mapEl.style.position, l: mapEl.style.left, t: mapEl.style.top };
