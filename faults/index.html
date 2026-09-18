@@ -50,6 +50,20 @@
      The twisty controls only whether symbology is shown; the checkbox controls
      only whether the layer draws. Keeping them independent is the whole point
      of the pattern -- you can read a legend for a layer that is switched off. */
+  .panel header { position: relative; }
+  .panel-x {
+    position: absolute; top: -2px; right: 0; width: 22px; height: 22px; padding: 0;
+    border: 1px solid #dcdcd6; border-radius: 5px; background: #fff; cursor: pointer;
+    font: 600 15px/1 inherit; color: #85857e;
+  }
+  .panel-x:hover { background: #f3f3ef; color: #2d2d28; }
+  .panel-open {
+    position: absolute; z-index: 6; top: 12px; left: 12px;
+    font: 600 12.5px/1 inherit; padding: 8px 11px; border-radius: 7px;
+    border: 1px solid #cfd4dc; background: #fff; cursor: pointer; color: #1a1a18;
+    box-shadow: 0 2px 8px rgba(0,0,0,.14);
+  }
+  .panel-open[hidden] { display: none; }
   .toc { border-top: 1px solid #eeeeea; }
   .toc:first-of-type { border-top: 0; }
   .tr { display: flex; align-items: center; gap: 7px; padding: 5px 0; }
@@ -265,8 +279,12 @@
 <div class="toast" id="toast" hidden></div>
 <div class="backdrop" id="backdrop" hidden></div>
 
+<button class="panel-open" id="panel-open" type="button" hidden
+        title="Reopen the layers panel">&#9776; Layers</button>
 <div class="panel">
   <header>
+    <button class="panel-x" id="panel-close" type="button"
+            title="Close the panel — your settings are saved">&times;</button>
     <a class="back" href="../">← All maps</a>
     <h1>California Geology &amp; Faults</h1>
     <p class="sub">68 geologic units · 3,205 faults · 893 soil units · 13,137 boreholes</p>
@@ -375,7 +393,7 @@
           <input type="checkbox" id="t-faults" checked>
           <button class="tw" type="button" data-sym="sym-faults" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <span class="lbl" data-layer="faults" tabindex="0" role="button">Quaternary faults</span>
+          <span class="lbl" data-layer="faults" tabindex="0" role="button">CGS Faults</span>
           <span class="cnt">3,205</span>
         </div>
         <div class="sym" id="sym-faults" hidden>
@@ -591,6 +609,7 @@ var SOILS = [
 // constructed so the saved centre and zoom can seed it directly -- restoring the
 // view afterwards would show the default position first and then jump.
 var STATE_KEY = 'tlc.mapState.v1';
+var panelOpen = true;
 var SAVED = (function () {
   try {
     var raw = localStorage.getItem(STATE_KEY);
@@ -2910,7 +2929,7 @@ var OPACITY_CTL = [
 function collectState() {
   var st = { v: 1, layers: {}, op: {}, ages: {},
              by: { parcel: parcelColorBy, water: waterColorBy },
-             base: baseMap, active: activeLayer };
+             base: baseMap, active: activeLayer, panel: panelOpen };
   LAYER_FLAGS.forEach(function (f) { st.layers[f[0]] = !!f[3](); });
   OPACITY_CTL.forEach(function (o) { st.op[o[0]] = o[4](); });
   AGES.forEach(function (a) { st.ages[a.code] = visibleAge[a.code] !== false; });
@@ -2921,13 +2940,16 @@ function collectState() {
   return st;
 }
 var saveTimer = null;
-function saveState() {
+function flushState() {
   clearTimeout(saveTimer);
+  saveTimer = null;
+  try { localStorage.setItem(STATE_KEY, JSON.stringify(collectState())); } catch (e) {}
+}
+function saveState() {
   // debounced: panning fires moveend repeatedly and every slider drag is a
   // stream of input events
-  saveTimer = setTimeout(function () {
-    try { localStorage.setItem(STATE_KEY, JSON.stringify(collectState())); } catch (e) {}
-  }, 350);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushState, 350);
 }
 
 function restoreState() {
@@ -2962,6 +2984,7 @@ function restoreState() {
   parcelLegend(); waterLegend();
   setBase(baseMap);
   if (SAVED.active && LAYER_HITS[SAVED.active]) setActiveLayer(SAVED.active);
+  if (SAVED.panel === false) setPanelOpen(false);
   applyState();
 }
 
@@ -2969,6 +2992,35 @@ function restoreState() {
 document.querySelector('.panel').addEventListener('change', saveState);
 document.querySelector('.panel').addEventListener('input', saveState);
 map.on('moveend', saveState);
+
+// Write immediately when the page is going away. A debounce measured in
+// hundreds of milliseconds loses the last change if the tab is closed right
+// after it, which is exactly when someone finishes setting the map up -- and it
+// is why settings appeared not to persist. pagehide is the reliable signal;
+// visibilitychange also covers switching tabs and mobile backgrounding, where
+// the page may be discarded without pagehide ever firing.
+window.addEventListener('pagehide', flushState);
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'hidden') flushState();
+});
+
+// ---- Panel open / closed ----
+// Closing writes the state immediately, so "close it and come back" is a
+// reliable way to keep a configuration rather than a race with the debounce.
+var panelEl = document.querySelector('.panel');
+var panelOpenBtn = document.getElementById('panel-open');
+function setPanelOpen(open) {
+  panelOpen = !!open;
+  panelEl.hidden = !panelOpen;
+  if (panelOpenBtn) panelOpenBtn.hidden = panelOpen;
+  flushState();
+  // the canvas changed size, so Mapbox needs telling
+  setTimeout(function () { try { map.resize(); } catch (e) {} }, 0);
+}
+document.getElementById('panel-close').addEventListener('click', function () {
+  setPanelOpen(false);
+});
+if (panelOpenBtn) panelOpenBtn.addEventListener('click', function () { setPanelOpen(true); });
 
 // ---- Base map switch (raster toggle; no setStyle, so nothing is ever destroyed) ----
 var BASE_NOTE = {
