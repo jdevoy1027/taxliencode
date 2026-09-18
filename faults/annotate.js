@@ -66,7 +66,7 @@ window.initAnnotate = function (map) {
     ['circle', 'Ellipse'], ['polygon', 'Polygon'], ['text', 'Text'], ['erase', 'Eraser (click a shape)'],
     ['bucket', 'Fill bucket (recolor a shape)'], ['pick', 'Eyedropper (pick a color)']];
   box.innerHTML =
-    '<div class="hd">✎ Tool Bar<button class="hx" id="p-close" title="Close the tool bar">&times;</button></div>' +
+    '<div class="hd">✎ Graphic Tools<button class="hx" id="p-close" title="Close Graphic Tools">&times;</button></div>' +
     '<div class="sec"><div class="lbl">Tools</div><div class="grid" id="p-tools"></div></div>' +
     '<div class="sec"><div class="lbl">Size</div><div class="sizes" id="p-sizes"></div>' +
     '<button class="tg" id="p-fill">Fill: Off</button></div>' +

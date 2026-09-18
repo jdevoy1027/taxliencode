@@ -432,7 +432,7 @@
       </div>
       <div class="menu" id="menu" hidden>
         <div class="mh">Drawing</div>
-        <button id="m-toolbar">Tool Bar</button>
+        <button id="m-toolbar">Graphic Tools</button>
         <div class="mh">Analysis</div>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
@@ -697,7 +697,7 @@
     </div>
 
     <p class="note">
-      The Tool Bar holds the drawing tools — pick one to enter draw mode, then Done
+      Graphic Tools holds the drawing tools — pick one to enter draw mode, then Done
       or Esc to navigate again. Close it with the × in its title bar and reopen it
       from Tools. Drawings save and load as GeoJSON.
       Click the map to identify the geologic unit and any fault at that point.
@@ -1748,7 +1748,22 @@ map.on('load', function () {
     }
   });
 
-  if (window.initAnnotate) initAnnotate(map);
+  if (window.initAnnotate) {
+    initAnnotate(map);
+    // Persist whether Graphic Tools is open. The module owns the box, so the
+    // host wraps its show/hide to record the change, and also listens on the
+    // palette's own close button -- that one calls the module's internal hide()
+    // directly, not map.hideToolBar, so wrapping alone would miss it.
+    var _showTB = map.showToolBar, _hideTB = map.hideToolBar;
+    if (_showTB && _hideTB) {
+      map.showToolBar = function () { _showTB(); saveState(); };
+      map.hideToolBar = function () { _hideTB(); saveState(); };
+      var xbtn = document.getElementById('p-close');
+      if (xbtn) xbtn.addEventListener('click', saveState);
+      // Closed when the last session ended stays closed.
+      if (SAVED && SAVED.toolbar === false) _hideTB();
+    }
+  }
 
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
@@ -2814,7 +2829,7 @@ function areaStats(pts, clip) {
 
 // Depth to groundwater: the contour machinery, pre-aimed at the DWR wells and
 // straight into drawing a rectangle, because that is the whole question.
-// The Tool Bar can be closed from its own title bar, so the menu is how it comes
+// Graphic Tools can be closed from its own title bar, so the menu is how it comes
 // back. Also brings it to the fore if it is already open but scrolled out of
 // view behind the panel.
 document.getElementById('m-toolbar').addEventListener('click', function () {
@@ -2822,7 +2837,7 @@ document.getElementById('m-toolbar').addEventListener('click', function () {
   if (typeof map.showToolBar === 'function') {
     map.showToolBar();
   } else {
-    showToast('The tool bar is still loading — try again in a moment.', 'Dismiss', function () {});
+    showToast('Graphic Tools is still loading — try again in a moment.', 'Dismiss', function () {});
   }
 });
 
@@ -3352,7 +3367,9 @@ function collectState() {
   var st = { v: 1, layers: {}, op: {}, ages: {},
              by: { parcel: parcelColorBy, water: waterColorBy },
              base: baseMap, active: activeLayer, panel: panelOpen,
-             print: printPrefs };
+             print: printPrefs,
+             toolbar: (typeof map.toolBarVisible === 'function')
+                        ? map.toolBarVisible() : true };
   LAYER_FLAGS.forEach(function (f) { st.layers[f[0]] = !!f[3](); });
   OPACITY_CTL.forEach(function (o) { st.op[o[0]] = o[4](); });
   AGES.forEach(function (a) { st.ages[a.code] = visibleAge[a.code] !== false; });
