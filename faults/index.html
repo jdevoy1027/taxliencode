@@ -70,6 +70,20 @@
      is the single number that keeps the two from overlapping. */
   #printfoot, #printsrc { display: none; }
   @media print {
+    /* Defaults for the sheet metrics. Without these the rules below use
+       variables that only exist once the print dialog injects its stylesheet,
+       and an undefined var makes the whole declaration invalid at
+       computed-value time: margin falls back to 0 and width to auto, so every
+       margin silently vanishes. That is what happens on a plain Ctrl/Cmd-P,
+       which bypasses the tool entirely. --maph is derived from the page height
+       so the fallback adapts to whatever sheet the dialog is set to. */
+    :root {
+      --pm: 0.5in;
+      --srch: 0.30in;
+      --footh: 1.85in;
+      --maph: calc(100vh - 2 * 0.5in - 0.30in - 1.85in);
+    }
+
     /* Normal document flow, not position:fixed.
        Fixed positioning in paged media is unreliable: Chrome sized the map
        correctly from left+right but painted it at the page origin, so the sheet
@@ -97,16 +111,16 @@
     #map {
       position: static !important; inset: auto !important;
       display: block;
-      margin: var(--pm) var(--pm) 0 var(--pm);
-      width: calc(100% - 2 * var(--pm)) !important;
-      height: var(--maph) !important;
+      margin: var(--pm, 0.5in) var(--pm, 0.5in) 0 var(--pm, 0.5in);
+      width: calc(100% - 2 * var(--pm, 0.5in)) !important;
+      height: var(--maph, calc(100vh - 2 * 0.5in - 0.30in - 1.85in)) !important;
       border: 1.25pt solid #000; box-sizing: border-box;
       break-inside: avoid; break-after: avoid;
     }
     #printsrc {
       display: flex; justify-content: space-between; align-items: flex-start;
-      margin: 0 var(--pm);
-      width: calc(100% - 2 * var(--pm)); box-sizing: border-box; height: var(--srch);
+      margin: 0 var(--pm, 0.5in);
+      width: calc(100% - 2 * var(--pm, 0.5in)); box-sizing: border-box; height: var(--srch, 0.30in);
       padding: 2px 1px 0; gap: 12px;
       font-size: 6.6pt; line-height: 1.2; color: #222;
       break-inside: avoid; break-before: avoid;
@@ -115,8 +129,8 @@
     #pf-srcdate { flex: none; white-space: nowrap; }
 
     #printfoot {
-      display: flex; margin: 0 var(--pm) var(--pm);
-      width: calc(100% - 2 * var(--pm)); box-sizing: border-box; height: var(--footh);
+      display: flex; margin: 0 var(--pm, 0.5in) var(--pm, 0.5in);
+      width: calc(100% - 2 * var(--pm, 0.5in)); box-sizing: border-box; height: var(--footh, 1.85in);
       border: 1.25pt solid #000; background: #fff; padding: 7px 9px 6px;
       gap: 10px; font-size: 8.4pt; line-height: 1.25; color: #111;
       break-inside: avoid; break-before: avoid;
