@@ -76,8 +76,15 @@
        came out with margins on the right and bottom and none on the left or top.
        In flow, @page margin does the job on all four edges, which is what it is
        for. DOM order is already map -> source -> band, so no reordering needed. */
-    html, body { background: #fff !important; margin: 0; padding: 0;
+    /* The margin lives in body padding, NOT in @page.
+       Browsers let the print dialog's Margins setting override @page margin
+       outright -- with it set to None the sheet came out flush to the left and
+       top edges however the @page rule was written. Padding is content, so the
+       dialog cannot take it away. @page margin is held at 0 so the two never
+       stack. */
+    html, body { background: #fff !important; margin: 0;
                  width: auto; height: auto; overflow: visible; }
+    body { padding: var(--pm); box-sizing: border-box; }
     .panel, .panel-open, #pbox, #backdrop, #toast, .swpop,
     .mapboxgl-ctrl, .mapboxgl-ctrl-group, .mapboxgl-popup { display: none !important; }
 
@@ -2954,7 +2961,10 @@ function openPrintMapDlg() {
       (printPrefs.landscape ? '' : ' checked') + '>' +
     '<span>Portrait<span class="d">Taller map, narrower legend.</span></span></label></div>' +
     '<div class="hint">The map prints exactly as it sits on screen. Pan and zoom ' +
-    'before printing; the legend covers whichever layers are switched on.</div>' +
+    'before printing; the legend covers whichever layers are switched on.<br><br>' +
+    '<b>In the print dialog set Margins to “None” and turn Headers and footers ' +
+    'off.</b> The sheet carries its own half-inch margin; anything the dialog ' +
+    'adds sits on top of it.</div>' +
     '</div><div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
     '<button class="go" id="d-go">Print</button></div>');
   document.getElementById('d-cancel').addEventListener('click', closeDlg);
@@ -2992,9 +3002,9 @@ function printCurrentMap(title, landscape, sheet) {
   // that is exactly the case @page margin handles correctly on every edge.
   // --maph is the map's height, the page less margins, source strip and band.
   css.textContent =
-    '@page{size:' + pageW + 'in ' + pageH + 'in;margin:' + margin + 'in}' +
-    '@media print{:root{--maph:' + ph.toFixed(3) + 'in;--footh:' + foot.toFixed(2) +
-    'in;--srch:' + srch + 'in}}';
+    '@page{size:' + pageW + 'in ' + pageH + 'in;margin:0}' +
+    '@media print{:root{--pm:' + margin + 'in;--maph:' + ph.toFixed(3) +
+    'in;--footh:' + foot.toFixed(2) + 'in;--srch:' + srch + 'in}}';
 
   document.getElementById('pf-legend').innerHTML = buildPrintLegend();
   document.getElementById('pf-scale').innerHTML = buildScaleBar();
