@@ -64,6 +64,49 @@
     box-shadow: 0 2px 8px rgba(0,0,0,.14);
   }
   .panel-open[hidden] { display: none; }
+  /* ---- Print sheet ----
+     Hidden on screen. In print the map fills the page and this band holds the
+     legend, scale, north arrow and title block. --footh is the band height and
+     is the single number that keeps the two from overlapping. */
+  #printfoot { display: none; }
+  @media print {
+    :root { --footh: 1.85in; }
+    html, body { background: #fff !important; }
+    .panel, .panel-open, #pbox, #backdrop, #toast, .swpop,
+    .mapboxgl-ctrl, .mapboxgl-ctrl-group, .mapboxgl-popup { display: none !important; }
+    #map { position: fixed !important; left: 0; top: 0; right: 0;
+           bottom: var(--footh); width: auto !important; height: auto !important; }
+    #printfoot {
+      display: flex; position: fixed; left: 0; right: 0; bottom: 0;
+      height: var(--footh); box-sizing: border-box;
+      border-top: 1.5px solid #111; background: #fff; padding: 7px 8px 5px;
+      gap: 10px; font-size: 8.4pt; line-height: 1.25; color: #111;
+    }
+    .pf-legend { flex: 1; display: flex; flex-wrap: wrap; align-content: flex-start;
+                 gap: 3px 14px; overflow: hidden; }
+    .pf-grp { break-inside: avoid; margin-right: 6px; }
+    .pf-grp h4 { margin: 0 0 1px; font-size: 7.6pt; font-weight: 700;
+                 text-transform: uppercase; letter-spacing: .04em; }
+    .pf-row { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+    .pf-row i { display: inline-block; width: 13px; height: 9px; flex: none;
+                border: .5px solid rgba(0,0,0,.45); }
+    .pf-row i.dot { width: 9px; height: 9px; border-radius: 50%; }
+    .pf-row i.ln { height: 2.5px; border: 0; }
+    .pf-chips { display: flex; flex-wrap: wrap; gap: 2px; max-width: 3.4in; }
+    .pf-chips span { font-size: 6.4pt; padding: 0 2px; border: .4px solid rgba(0,0,0,.4); }
+    .pf-right { width: 2.6in; flex: none; display: flex; flex-direction: column;
+                align-items: flex-end; justify-content: space-between; }
+    .pf-north { display: flex; align-items: flex-start; }
+    .pf-scale { text-align: right; }
+    .pf-scale .bar { height: 6px; border: 1px solid #111; display: block;
+                     margin-left: auto; background:
+                     repeating-linear-gradient(90deg,#111 0,#111 50%,#fff 50%,#fff 100%); }
+    .pf-title { border: 1.2px solid #111; padding: 4px 7px; width: 100%;
+                box-sizing: border-box; }
+    .pf-title b { display: block; font-size: 10.5pt; line-height: 1.15; }
+    .pf-title span { font-size: 7.8pt; color: #333; }
+  }
+
   .toc { border-top: 1px solid #eeeeea; }
   .toc:first-of-type { border-top: 0; }
   .tr { display: flex; align-items: center; gap: 7px; padding: 5px 0; }
@@ -281,6 +324,19 @@
 
 <button class="panel-open" id="panel-open" type="button" hidden
         title="Reopen the layers panel">&#9776; Layers</button>
+<div id="printfoot" aria-hidden="true">
+  <div class="pf-legend" id="pf-legend"></div>
+  <div class="pf-right">
+    <div class="pf-north">
+      <svg viewBox="0 0 24 40" width="22" height="36" aria-hidden="true">
+        <polygon points="12,2 19,26 12,20 5,26" fill="#111"></polygon>
+        <text x="12" y="38" font-size="11" font-weight="700" text-anchor="middle" fill="#111">N</text>
+      </svg>
+    </div>
+    <div class="pf-scale" id="pf-scale"></div>
+    <div class="pf-title" id="pf-title"></div>
+  </div>
+</div>
 <div class="panel">
   <header>
     <button class="panel-x" id="panel-close" type="button"
@@ -305,6 +361,7 @@
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
         <div class="mh">Output</div>
+        <button id="m-printmap">Print current map…</button>
         <button id="m-ctmap">Print contour map…</button>
       </div>
     </div>
@@ -635,6 +692,9 @@ var map = new mapboxgl.Map({
   // separate input paths and disabling one leaves the others working, so all of
   // them are shut off here and the remaining two are turned off on the handlers
   // below. maxPitch backs it up at the camera itself.
+  // Without this the WebGL buffer is cleared after each frame and the canvas
+  // prints blank. Costs some memory; there is no other way to print a Mapbox map.
+  preserveDrawingBuffer: true,
   dragRotate: false,        // right-click or ctrl-drag
   pitchWithRotate: false,   // drag to tilt
   touchPitch: false,        // two-finger vertical drag
@@ -2688,6 +2748,188 @@ document.getElementById('m-toolbar').addEventListener('click', function () {
     showToast('The tool bar is still loading — try again in a moment.', 'Dismiss', function () {});
   }
 });
+
+// ================= Print current map =================
+// Prints what is on screen: the map fills the sheet above a band carrying a
+// legend of the visible layers, a scale bar, a north arrow and a title block.
+// The legend is generated from the same palette arrays the map is painted from,
+// so a recoloured class prints in its new colour.
+
+function pfRow(kind, color, label) {
+  var cls = kind === 'dot' ? ' dot' : kind === 'ln' ? ' ln' : '';
+  return '<div class="pf-row"><i class="' + cls.trim() + '" style="background:' +
+         color + '"></i><span>' + esc(label) + '</span></div>';
+}
+function pfGroup(title, rows) {
+  if (!rows.length) return '';
+  return '<div class="pf-grp"><h4>' + esc(title) + '</h4>' + rows.join('') + '</div>';
+}
+
+function buildPrintLegend() {
+  var out = [];
+  if (showWells) out.push(pfGroup('Oil & gas wells', WELL_STATUS.map(function (w) {
+    return pfRow('dot', w[2], w[1]); })));
+  if (showWater) {
+    var rows;
+    if (waterColorBy === 'trend') {
+      rows = WATER_TREND.map(function (t) { return pfRow('dot', t[1], t[2]); });
+      rows.push(pfRow('dot', WATER_NOTREND, 'No decade-long record'));
+    } else if (waterColorBy === 'dtw') {
+      rows = [pfRow('dot', WATER_ARTESIAN, 'Artesian')];
+      WATER_DEPTH.forEach(function (d) { rows.push(pfRow('dot', d[1], d[2])); });
+      rows.push(pfRow('dot', WATER_NODATA, 'No reading'));
+    } else {
+      rows = WATER_USE.map(function (w) { return pfRow('dot', w[1], w[0]); });
+    }
+    out.push(pfGroup('Groundwater wells' +
+      (waterColorBy === 'dtw' ? ' — depth to water' :
+       waterColorBy === 'trend' ? ' — change ft/yr' : ' — use'), rows));
+  }
+  if (showBores) out.push(pfGroup('Boreholes', [pfRow('dot', '#10233f', 'CGS borehole')]));
+  if (showFaults) out.push(pfGroup('CGS faults', AGES.filter(function (a) {
+      return visibleAge[a.code] !== false;
+    }).map(function (a) { return pfRow('ln', a.color, a.label); })));
+  if (showAP) out.push(pfGroup('Alquist-Priolo', [pfRow('box', '#756bb1', 'Earthquake fault zone')]));
+  if (showLiq) out.push(pfGroup('Liquefaction', [pfRow('box', '#1f9e8c', 'Hazard zone')]));
+  if (showPipe) {
+    var seen = {}, pr = [];
+    PIPE_CMD.forEach(function (c) {
+      if (seen[c[2]]) return; seen[c[2]] = 1; pr.push(pfRow('ln', c[1], c[2]));
+    });
+    pr.push(pfRow('ln', '#9a9a94', 'Commodity not recorded'));
+    out.push(pfGroup('Pipelines', pr));
+  }
+  if (showParcels) {
+    var prows = parcelColorBy === 'value'
+      ? PARCEL_VALUE.map(function (v, i) {
+          var nx = PARCEL_VALUE[i + 1];
+          return pfRow('box', v[1], i === 0 ? 'under $' + (PARCEL_VALUE[1][0] / 1000) + 'k'
+            : nx ? '$' + (v[0] / 1000) + 'k–$' + (nx[0] / 1000) + 'k'
+                 : '$' + (v[0] / 1000) + 'k +'); })
+      : PARCEL_CLASS.map(function (c) { return pfRow('box', c[2], c[1]); });
+    out.push(pfGroup('Parcels' + (parcelColorBy === 'value' ? ' — land value' : ' — land use'), prows));
+  }
+  if (showBlocks) out.push(pfGroup('Median net worth', CB_BREAKS.map(function (b, i) {
+      var hi = CB_BREAKS[i + 1];
+      return pfRow('box', CB_COLORS[i], hi ? usd(b) + '–' + usd(hi) : usd(b) + '+'); })));
+  if (showSoils) out.push(pfGroup('Soil order', SOILS.map(function (x) {
+      return pfRow('box', x.color, x.code); })));
+  if (showGeo) {
+    // 68 units would swamp the band, so geology prints as compact code chips.
+    var chips = Object.keys(GEO_COLORS).map(function (k) {
+      return '<span style="background:' + GEO_COLORS[k] + '">' + esc(k) + '</span>';
+    }).join('');
+    out.push('<div class="pf-grp"><h4>Geologic unit (PTYPE)</h4>' +
+             '<div class="pf-chips">' + chips + '</div></div>');
+  }
+  if (showContours && ctInfo) out.push(pfGroup('Contours',
+    [pfRow('ln', ctInfo.color || '#8a6a4a', ctInfo.field + ' · ' + ctInfo.interval + ' interval')]));
+  return out.join('') || '<div class="pf-grp"><h4>No layers shown</h4></div>';
+}
+
+// Ground resolution uses the 512px-tile constant: Mapbox GL's world is
+// 512 * 2^zoom px wide, so 78271.517 m/px at z0, not the 256px 156543.034.
+function metresPerPixel() {
+  return 78271.5170 * Math.cos(map.getCenter().lat * Math.PI / 180) /
+         Math.pow(2, map.getZoom());
+}
+function buildScaleBar() {
+  var mpp = metresPerPixel();
+  var ftPerPx = mpp * 3.280839895;
+  var NICE = [50, 100, 200, 500, 1000, 2000, 5280, 10560, 26400, 52800, 105600, 264000];
+  var target = 170, pick = NICE[0];
+  for (var i = 0; i < NICE.length; i++) {
+    if (NICE[i] / ftPerPx <= target) pick = NICE[i]; else break;
+  }
+  var px = Math.round(pick / ftPerPx);
+  var label = pick >= 5280 ? (pick / 5280) + (pick === 5280 ? ' mile' : ' miles')
+                           : pick.toLocaleString() + ' ft';
+  return '<span class="bar" style="width:' + px + 'px"></span>' +
+         '<div>0 — ' + label + '</div>';
+}
+
+function openPrintMapDlg() {
+  openDlg(
+    '<h2>Print current map</h2><div class="bd">' +
+    '<div class="fld"><label>Title</label>' +
+    '<input type="text" id="d-pt" placeholder="Map title" style="width:100%;font:inherit;' +
+    'font-size:13px;padding:6px;border:1px solid #cfd4dc;border-radius:5px"></div>' +
+    '<div class="fld" style="margin-top:8px"><label>Orientation</label>' +
+    '<label class="radio"><input type="radio" name="po" value="landscape" checked>' +
+    '<span>Landscape<span class="d">11 × 8.5 in — wider view, shorter legend band.</span></span></label>' +
+    '<label class="radio"><input type="radio" name="po" value="portrait">' +
+    '<span>Portrait<span class="d">8.5 × 11 in — taller map, narrower legend.</span></span></label></div>' +
+    '<div class="hint">The map prints exactly as it sits on screen. Pan and zoom ' +
+    'before printing; the legend covers whichever layers are switched on.</div>' +
+    '</div><div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
+    '<button class="go" id="d-go">Print</button></div>');
+  document.getElementById('d-cancel').addEventListener('click', closeDlg);
+  document.getElementById('d-go').addEventListener('click', function () {
+    var title = (document.getElementById('d-pt').value || '').trim();
+    var land = document.querySelector('input[name=po]:checked').value === 'landscape';
+    closeDlg();
+    printCurrentMap(title, land);
+  });
+}
+
+function printCurrentMap(title, landscape) {
+  var css = document.getElementById('printpagecss');
+  if (!css) { css = document.createElement('style'); css.id = 'printpagecss';
+              document.head.appendChild(css); }
+  css.textContent = '@page{size:' + (landscape ? '11in 8.5in' : '8.5in 11in') +
+                    ';margin:0.35in}';
+
+  document.getElementById('pf-legend').innerHTML = buildPrintLegend();
+  document.getElementById('pf-scale').innerHTML = buildScaleBar();
+  var d = new Date();
+  document.getElementById('pf-title').innerHTML =
+    '<b>' + esc(title || 'California Geology & Faults') + '</b>' +
+    '<span>' + d.toLocaleDateString(undefined,
+      { year: 'numeric', month: 'long', day: 'numeric' }) + '</span>';
+
+  // A WebGL canvas keeps whatever pixel dimensions it was last sized to; the
+  // print rasteriser just scales that bitmap into the page box. If the screen
+  // aspect differs from the print aspect the map comes out stretched. So the map
+  // element is resized on screen to the exact print box first, re-rendered at
+  // that shape, and only then printed.
+  //
+  // Page box, inches, at the 0.35in margin above, less the legend band:
+  var pw = (landscape ? 11 : 8.5) - 0.7;
+  var ph = (landscape ? 8.5 : 11) - 0.7 - 1.85;
+  var mapEl = document.getElementById('map');
+  var prev = { w: mapEl.style.width, h: mapEl.style.height,
+               pos: mapEl.style.position, l: mapEl.style.left, t: mapEl.style.top };
+  mapEl.style.position = 'fixed';
+  mapEl.style.left = '0'; mapEl.style.top = '0';
+  mapEl.style.width = Math.round(pw * 96) + 'px';
+  mapEl.style.height = Math.round(ph * 96) + 'px';
+
+  function restore() {
+    mapEl.style.width = prev.w; mapEl.style.height = prev.h;
+    mapEl.style.position = prev.pos; mapEl.style.left = prev.l; mapEl.style.top = prev.t;
+    map.resize();
+  }
+
+  var fired = false;
+  function go() {
+    if (fired) return;
+    fired = true;
+    // one frame for the resized canvas to be composited before the dialog opens
+    setTimeout(function () {
+      window.print();
+      setTimeout(restore, 300);
+    }, 150);
+  }
+  map.once('idle', go);
+  setTimeout(go, 2500);   // floor, in case idle already fired or a tile stalls
+  map.resize();
+}
+
+document.getElementById('m-printmap').addEventListener('click', function () {
+  MENU.hidden = true;
+  openPrintMapDlg();
+});
+window.addEventListener('afterprint', function () { map.resize(); });
 
 document.getElementById('m-gwdepth').addEventListener('click', function () {
   MENU.hidden = true;
