@@ -2850,13 +2850,8 @@ function buildScaleBar() {
 
 // Sheet sizes, short edge first. Portrait uses them as given, landscape swaps.
 var SHEETS = {
-  letter:  { label: 'Letter — 8.5 × 11 in',        d: [8.5, 11] },
-  legal:   { label: 'Legal — 8.5 × 14 in',         d: [8.5, 14] },
-  tabloid: { label: 'Tabloid / B — 11 × 17 in',    d: [11, 17] },
-  ansic:   { label: 'ANSI C — 17 × 22 in',         d: [17, 22] },
-  ansid:   { label: 'ANSI D — 22 × 34 in',         d: [22, 34] },
-  a4:      { label: 'A4 — 210 × 297 mm',           d: [8.27, 11.69] },
-  a3:      { label: 'A3 — 297 × 420 mm',           d: [11.69, 16.54] }
+  letter:  { label: '8.5 × 11 in',  d: [8.5, 11] },
+  tabloid: { label: '11 × 17 in',   d: [11, 17] }
 };
 var printPrefs = { sheet: 'letter', landscape: true };
 
