@@ -70,40 +70,39 @@
      is the single number that keeps the two from overlapping. */
   #printfoot, #printsrc { display: none; }
   @media print {
-    /* --pm is the paper margin, applied by hand. @page margin is useless here:
-       position:fixed in paged media resolves against the page box, not the
-       margin box, so left:0 is the sheet edge and the @page margin is ignored.
-       Every fixed element is inset by --pm instead. */
-    :root { --pm: 0.5in; --footh: 1.85in; --footgap: 0.12in; --srch: 0.30in; }
-    html, body { background: #fff !important; }
+    /* Normal document flow, not position:fixed.
+       Fixed positioning in paged media is unreliable: Chrome sized the map
+       correctly from left+right but painted it at the page origin, so the sheet
+       came out with margins on the right and bottom and none on the left or top.
+       In flow, @page margin does the job on all four edges, which is what it is
+       for. DOM order is already map -> source -> band, so no reordering needed. */
+    html, body { background: #fff !important; margin: 0; padding: 0;
+                 width: auto; height: auto; overflow: visible; }
     .panel, .panel-open, #pbox, #backdrop, #toast, .swpop,
     .mapboxgl-ctrl, .mapboxgl-ctrl-group, .mapboxgl-popup { display: none !important; }
-    /* Neat line around the map field. box-sizing keeps the rule inside the
-       printable box rather than pushing the map past the margin. */
-    #map { position: fixed !important;
-           left: var(--pm); top: var(--pm); right: var(--pm);
-           bottom: calc(var(--footh) + var(--footgap) + var(--srch) + var(--pm));
-           width: auto !important; height: auto !important;
-           border: 1.25pt solid #000; box-sizing: border-box; }
-    /* Source and date, directly under the map's neat line and above the band --
-       the arrangement the sample sheet uses. */
+
+    #map {
+      position: static !important; inset: auto !important;
+      display: block; width: 100% !important; height: var(--maph) !important;
+      border: 1.25pt solid #000; box-sizing: border-box;
+      break-inside: avoid; break-after: avoid;
+    }
     #printsrc {
       display: flex; justify-content: space-between; align-items: flex-start;
-      position: fixed; left: var(--pm); right: var(--pm);
-      bottom: calc(var(--footh) + var(--footgap) + var(--pm));
-      height: var(--srch); box-sizing: border-box; padding: 2px 1px 0;
-      font-size: 6.6pt; line-height: 1.2; color: #222; gap: 12px;
+      width: 100%; box-sizing: border-box; height: var(--srch);
+      padding: 2px 1px 0; gap: 12px;
+      font-size: 6.6pt; line-height: 1.2; color: #222;
+      break-inside: avoid; break-before: avoid;
     }
     #pf-src { flex: 1; }
     #pf-srcdate { flex: none; white-space: nowrap; }
+
     #printfoot {
-      display: flex; position: fixed;
-      left: var(--pm); right: var(--pm); bottom: var(--pm);
-      height: var(--footh); box-sizing: border-box;
+      display: flex; width: 100%; box-sizing: border-box; height: var(--footh);
       border: 1.25pt solid #000; background: #fff; padding: 7px 9px 6px;
       gap: 10px; font-size: 8.4pt; line-height: 1.25; color: #111;
+      break-inside: avoid; break-before: avoid;
     }
-    /* North arrow and scales at the left, as on the sample sheet. */
     .pf-left { flex: none; width: 1.15in; display: flex; flex-direction: column;
                align-items: center; gap: 3px; padding-top: 1px; }
     .pf-north { flex: none; }
@@ -115,9 +114,10 @@
     .pf-sb .tk { display: flex; justify-content: space-between;
                  font-size: 5.8pt; line-height: 1.1; margin-top: 1px; }
     .pf-sb .un { font-size: 5.8pt; text-align: center; margin-top: 0; }
-    /* Legend flows in columns so long lists stay inside the band. */
-    .pf-legend { flex: 1; display: flex; flex-flow: column wrap; align-content: flex-start;
-                 height: 100%; gap: 0 13px; overflow: hidden; }
+
+    .pf-legend { flex: 1; display: flex; flex-flow: column wrap;
+                 align-content: flex-start; height: 100%; gap: 0 13px;
+                 overflow: hidden; }
     .pf-grp { break-inside: avoid; margin-right: 6px; }
     .pf-grp h4 { margin: 0 0 1px; font-size: 7.6pt; font-weight: 700;
                  text-transform: uppercase; letter-spacing: .04em; }
@@ -128,9 +128,9 @@
     .pf-row i.ln { height: 2.5px; border: 0; }
     .pf-chips { display: flex; flex-wrap: wrap; gap: 2px; max-width: 3.4in; }
     .pf-chips span { font-size: 6.4pt; padding: 0 2px; border: .4px solid rgba(0,0,0,.4); }
+
     .pf-right { width: 2.5in; flex: none; display: flex; flex-direction: column;
                 align-items: flex-end; justify-content: flex-end; }
-    /* Title block: two separate ruled boxes, title above date. */
     .pf-title { width: 100%; box-sizing: border-box; border: 1.25pt solid #000; }
     .pf-title > div { padding: 3px 7px; box-sizing: border-box; }
     .pf-tb-title { border-bottom: 1.25pt solid #000; }
@@ -139,6 +139,7 @@
     .pf-tb-title b { display: block; font-size: 10.5pt; line-height: 1.2; }
     .pf-tb-date b { display: block; font-size: 9pt; line-height: 1.2; font-weight: 600; }
   }
+
 
   .toc { border-top: 1px solid #eeeeea; }
   .toc:first-of-type { border-top: 0; }
@@ -2973,22 +2974,27 @@ function printCurrentMap(title, landscape, sheet) {
   var pageW = landscape ? d0[1] : d0[0];
   var pageH = landscape ? d0[0] : d0[1];
   var margin = 0.5;      // half-inch all round, clear of any printer's dead zone
-  var gap = 0.12;        // breathing space between the map's neat line and the band
   var srch = 0.30;       // source/date strip between the map and the band
   // The legend band grows with the sheet: 1.85in is right on Letter and absurdly
   // thin on a D-size plot. Clamped so it never eats a small sheet or floats on a
   // large one.
   var foot = Math.min(3.2, Math.max(1.6, pageH * 0.19));
 
+  // Map box, inches: the page less both margins, the source strip and the band.
+  // No separate gap -- in flow the band's own rule provides the separation.
+  var pw = pageW - margin * 2;
+  var ph = pageH - margin * 2 - foot - srch;
+
   var css = document.getElementById('printpagecss');
   if (!css) { css = document.createElement('style'); css.id = 'printpagecss';
               document.head.appendChild(css); }
-  // @page margin 0 on purpose: the fixed elements above carry the margin as an
-  // inset, and a non-zero @page margin would stack on top of it.
+  // @page carries the margin now that the sheet is laid out in normal flow --
+  // that is exactly the case @page margin handles correctly on every edge.
+  // --maph is the map's height, the page less margins, source strip and band.
   css.textContent =
-    '@page{size:' + pageW + 'in ' + pageH + 'in;margin:0}' +
-    '@media print{:root{--pm:' + margin + 'in;--footh:' + foot.toFixed(2) +
-    'in;--footgap:' + gap + 'in;--srch:' + srch + 'in}}';
+    '@page{size:' + pageW + 'in ' + pageH + 'in;margin:' + margin + 'in}' +
+    '@media print{:root{--maph:' + ph.toFixed(3) + 'in;--footh:' + foot.toFixed(2) +
+    'in;--srch:' + srch + 'in}}';
 
   document.getElementById('pf-legend').innerHTML = buildPrintLegend();
   document.getElementById('pf-scale').innerHTML = buildScaleBar();
@@ -3009,9 +3015,6 @@ function printCurrentMap(title, landscape, sheet) {
   // element is resized on screen to the exact print box first, re-rendered at
   // that shape, and only then printed.
   //
-  // Map box, inches: the page less both margins, the legend band and the gap.
-  var pw = pageW - margin * 2;
-  var ph = pageH - margin * 2 - foot - gap - srch;
   var mapEl = document.getElementById('map');
   var prev = { w: mapEl.style.width, h: mapEl.style.height,
                pos: mapEl.style.position, l: mapEl.style.left, t: mapEl.style.top };
