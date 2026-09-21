@@ -3191,15 +3191,30 @@ function densifyRing(ring, stepM) {
 }
 
 // Contour the selected values across the five sites.
+// The label suffix follows whatever is being contoured. Both label layers hold a
+// literal ' ft' otherwise, which is wrong for every surface except elevation.
+function setContourUnits(suffix) {
+  ['contour-label', 'contour-label-min'].forEach(function (id) {
+    if (!map.getLayer(id)) return;
+    map.setLayoutProperty(id, 'text-field',
+      ['concat', ['to-string', ['get', 'e']], suffix]);
+  });
+}
+
 function contourSyn(bounded) {
   if (bounded && !SYN_PARCEL) { loadSynParcel(function () { contourSyn(true); }); return; }
   synBounded = !!bounded;
 
+  // Contour in ug/L, not mg/L. The engine rounds level values to two decimals,
+  // so in mg/L the levels 0.006 and 0.012 would both come back labelled '0.01'
+  // -- distinct contours sharing a label and neither value correct. In ug/L the
+  // same levels are 6 and 12, which survive intact. It is also the unit the site
+  // labels and the legend already use.
   var pts = [];
   SYN_FEATURES.forEach(function (f) {
     var v = synSel.values[f.properties.id];
     if (v == null) return;
-    pts.push({ x: f.geometry.coordinates[0], y: f.geometry.coordinates[1], z: v });
+    pts.push({ x: f.geometry.coordinates[0], y: f.geometry.coordinates[1], z: v * 1000 });
   });
   var siteCount = pts.length;
 
@@ -3215,11 +3230,11 @@ function contourSyn(bounded) {
     });
   }
 
-  // Interval from the actual spread. With the boundary at zero the floor is 0,
-  // so the range is 0 to the highest site value.
+  // Interval from the actual spread, in ug/L. With the boundary at zero the
+  // floor is 0, so the range is 0 to the highest site value.
   var zs = pts.map(function (p) { return p.z; });
   var span = Math.max.apply(null, zs) - Math.min.apply(null, zs);
-  var interval = span > 0 ? Math.max(0.0005, +(span / 6).toPrecision(1)) : 0.001;
+  var interval = span > 0 ? Math.max(0.5, +(span / 6).toPrecision(1)) : 1;
   var res;
   try {
     res = makeContours(pts, { interval: interval, grid: 320, index: 5, clip: clip });
@@ -3237,15 +3252,16 @@ function contourSyn(bounded) {
   var cbx = document.getElementById('t-contours'); if (cbx) cbx.checked = true;
   var cst = { line: '#0b7285' };
   if (map.getLayer('contour-line')) map.setPaintProperty('contour-line', 'line-color', cst.line);
-  document.getElementById('ct-cap').textContent = (interval * 1000) + ' µg/L';
+  setContourUnits(' µg/L');
+  document.getElementById('ct-cap').textContent = interval + ' µg/L';
   ctInfo = { label: bounded ? 'Synergy results · bounded to APN ' + SYN_PARCEL.props.ain
                             : 'Synergy results',
-             field: synSel.chem + ' (mg/L)',
+             field: synSel.chem + ' (µg/L)',
              interval: interval, indexEvery: 5,
              zmin: res.stats.zmin, zmax: res.stats.zmax, clipped: !!clip,
              levels: res.stats.levels, lines: res.stats.lines,
              smoothed: !!(res.stats.blur || res.stats.smooth),
-             color: cst.line, units: 'mg/L',
+             color: cst.line, units: 'µg/L',
              // Only the real samples are summarised; the boundary zeros are a
              // modelling assumption, not measurements, and would drag every
              // statistic toward nothing.
@@ -3253,7 +3269,7 @@ function contourSyn(bounded) {
   renderContourLegend();
   applyState();
   showToast(siteCount + ' sites' + (edgePts ? ' + ' + edgePts + ' boundary zeros' : '') +
-            ' · ' + res.stats.lines + ' contour lines at ' + (interval * 1000) + ' µg/L',
+            ' · ' + res.stats.lines + ' contour lines at ' + interval + ' µg/L',
             'Dismiss', function () {});
 }
 
@@ -3625,6 +3641,7 @@ function runContour() {
     }
     if (map.getSource('contours')) map.getSource('contours').setData(res);
     var cstyle = contourStyle(field);
+    setContourUnits(field === 'rate' ? ' ft/yr' : ' ft');
     if (map.getLayer('contour-line'))
       map.setPaintProperty('contour-line', 'line-color', cstyle.line);
     // Labels stay bold black whatever is being contoured; the line carries the
