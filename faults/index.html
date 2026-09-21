@@ -468,6 +468,22 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-syn" checked>
+          <button class="tw" type="button" data-sym="sym-syn" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="syn" tabindex="0" role="button">Synergy sites</span>
+          <span class="cnt">5</span>
+        </div>
+        <div class="sym" id="sym-syn" hidden>
+          <div class="ctrow"><span class="sw"><i class="dot" style="background:#e6007e"></i></span>
+            <span>Sample site</span></div>
+          <div class="ctmeta">Five sample locations, SW-1 to SW-5, in a 180 × 240 m
+            block near Lakewood.<br>Site IDs label from zoom 13.</div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-wells">
           <button class="tw" type="button" data-sym="sym-wells" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -798,6 +814,8 @@ var showContours = false;
 var showAP = false;
 var showLiq = false;
 var showPipe = false;
+var showSyn = true;   // small site layer, on by default
+var SYN_COLOR = '#e6007e';
 
 // NPMS commodity classes. 'Blank' is half the California extract -- the 2001
 // release simply did not carry a commodity for those segments -- so it gets a
@@ -1309,6 +1327,40 @@ function addLayers() {
                'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.15, 18, 0.6] }
     });
   }
+  // Synergy sample sites. Five points in a 180 x 240 m block, so they need a
+  // generous halo to stay findable when zoomed out and labels once you are close.
+  if (!map.getSource('synergy')) {
+    map.addSource('synergy', { type: 'geojson', data: './synergy.geojson' });
+  }
+  if (!map.getLayer('syn-dot')) {
+    map.addLayer({
+      id: 'syn-dot', type: 'circle', source: 'synergy',
+      paint: {
+        'circle-color': SYN_COLOR,
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 3.5, 13, 6, 18, 11],
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 13, 1.6, 18, 2.4]
+      }
+    });
+  }
+  if (!map.getLayer('syn-label')) {
+    map.addLayer({
+      id: 'syn-label', type: 'symbol', source: 'synergy',
+      minzoom: 13,
+      layout: {
+        'text-field': ['get', 'id'],
+        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 13, 10, 18, 14],
+        'text-offset': [0, 1.1], 'text-anchor': 'top',
+        'text-allow-overlap': false, 'text-padding': 3
+      },
+      paint: {
+        'text-color': '#ffffff', 'text-halo-color': '#000000',
+        'text-halo-width': 0.7, 'text-halo-blur': 0
+      }
+    });
+  }
+
   // Search highlight: a white outline over a dark casing, one pair per source
   // because LA and Orange are separate tilesets. The filter starts matching
   // nothing; a search points it at the parcel it found.
@@ -1674,6 +1726,9 @@ function applyState() {
     map.setLayoutProperty('water-dot', 'visibility', showWater ? 'visible' : 'none');
     map.setPaintProperty('water-dot', 'circle-color', waterColorExpr());
   }
+  ['syn-dot', 'syn-label'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSyn ? 'visible' : 'none');
+  });
   if (map.getLayer('pipe-line')) {
     map.setLayoutProperty('pipe-line', 'visibility', showPipe ? 'visible' : 'none');
   }
@@ -1769,7 +1824,7 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
@@ -1777,13 +1832,14 @@ map.on('load', function () {
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'liq-fill' && !liq) liq = h.properties;
       if (h.layer.id === 'pipe-line' && !pipe) pipe = h.properties;
+      if (h.layer.id === 'syn-dot' && !syn) syn = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn) return;
 
     var html = '';
     if (water && showWater) {
@@ -1882,6 +1938,13 @@ map.on('load', function () {
       html += '<div class="pop-row">Order: ' + esc(soil.o || 'Other') +
               (soil.c && soil.n ? ' · dominant component ' + esc(soil.c) : '') + '</div>';
     }
+    if (syn && showSyn) {
+      if (html) html += '<div class="pop-sep"></div>';
+      html += '<div class="pop-name">' + esc(syn.id || 'Sample site') + '</div>';
+      html += '<div class="pop-row pop-unit"><i style="background:' + SYN_COLOR +
+              '"></i>Synergy sample site</div>';
+      if (syn.loc) html += '<div class="pop-row">' + esc(syn.loc) + '</div>';
+    }
     if (pipe && showPipe) {
       if (html) html += '<div class="pop-sep"></div>';
       var pc = (PIPE_CMD.filter(function (c) { return c[0] === pipe.cmd; })[0]
@@ -1952,7 +2015,7 @@ map.on('load', function () {
 // so a switched-off layer never answers.
 var CLICK_LAYERS = ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
-                    'well-dot', 'water-dot'];
+                    'well-dot', 'water-dot', 'syn-dot'];
 
 // Which rendered layers each entry in the table of contents owns. Parcels own
 // two, because LA and Orange are separate tilesets that read as one layer.
@@ -1968,6 +2031,7 @@ var LAYER_HITS = {
   blocks:   ['cb-fill'],
   soils:    ['soil-fill'],
   geo:      ['geo-fill'],
+  syn:      ['syn-dot'],
   contours: []
 };
 var LAYER_NAMES = {};   // filled from the panel markup at startup
@@ -2068,7 +2132,10 @@ function pipeLegend() {
 }
 (function () {
   pipeLegend();
-  document.getElementById('t-pipe').addEventListener('change', function () {
+  document.getElementById('t-syn').addEventListener('change', function () {
+  showSyn = this.checked; applyState();
+});
+document.getElementById('t-pipe').addEventListener('change', function () {
     showPipe = this.checked; applyState();
   });
 })();
@@ -2859,6 +2926,8 @@ function pfGroup(title, rows) {
 
 function buildPrintLegend() {
   var out = [];
+  if (showSyn) out.push(pfGroup('Synergy sites',
+    [pfRow('dot', SYN_COLOR, 'Sample site (SW-1 to SW-5)')]));
   if (showWells) out.push(pfGroup('Oil & gas wells', WELL_STATUS.map(function (w) {
     return pfRow('dot', w[2], w[1]); })));
   if (showWater) {
@@ -3351,6 +3420,7 @@ var LAYER_FLAGS = [
   ['ap', 't-ap', function (v) { showAP = v; }, function () { return showAP; }],
   ['liq', 't-liq', function (v) { showLiq = v; }, function () { return showLiq; }],
   ['pipe', 't-pipe', function (v) { showPipe = v; }, function () { return showPipe; }],
+  ['syn', 't-syn', function (v) { showSyn = v; }, function () { return showSyn; }],
   ['contours', 't-contours', function (v) { showContours = v; }, function () { return showContours; }],
   ['bores', 't-bores', function (v) { showBores = v; }, function () { return showBores; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
