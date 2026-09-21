@@ -434,6 +434,7 @@
         <div class="mh">Drawing</div>
         <button id="m-toolbar">Graphic Tools</button>
         <div class="mh">Analysis</div>
+        <button id="m-syn">Synergy results…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -475,10 +476,8 @@
           <span class="cnt">5</span>
         </div>
         <div class="sym" id="sym-syn" hidden>
-          <div class="ctrow"><span class="sw"><i class="dot" style="background:#e6007e"></i></span>
-            <span>Sample site</span></div>
-          <div class="ctmeta">Five sample locations, SW-1 to SW-5, in a 180 × 240 m
-            block near Lakewood.<br>Site IDs label from zoom 13.</div>
+          <div id="syn-legend"></div>
+          <div class="ctmeta" id="syn-meta"></div>
         </div>
       </div>
 
@@ -815,6 +814,7 @@ var showAP = false;
 var showLiq = false;
 var showPipe = false;
 var showSyn = true;   // small site layer, on by default
+var SYN_FEATURES = null;   // pristine site features, kept so values can be re-applied
 var SYN_COLOR = '#e6007e';
 
 // NPMS commodity classes. 'Blank' is half the California extract -- the 2001
@@ -1331,6 +1331,11 @@ function addLayers() {
   // generous halo to stay findable when zoomed out and labels once you are close.
   if (!map.getSource('synergy')) {
     map.addSource('synergy', { type: 'geojson', data: './synergy.geojson' });
+    // Hold the original features: applying a selection rewrites the source, and
+    // re-reading it back would compound each time.
+    fetch('./synergy.geojson').then(function (r) { return r.json(); })
+      .then(function (fc) { SYN_FEATURES = fc.features; })
+      .catch(function () { /* the layer still draws from the source */ });
   }
   if (!map.getLayer('syn-dot')) {
     map.addLayer({
@@ -2132,7 +2137,8 @@ function pipeLegend() {
 }
 (function () {
   pipeLegend();
-  document.getElementById('t-syn').addEventListener('change', function () {
+  synLegend();
+document.getElementById('t-syn').addEventListener('change', function () {
   showSyn = this.checked; applyState();
 });
 document.getElementById('t-pipe').addEventListener('change', function () {
@@ -2908,6 +2914,262 @@ document.getElementById('m-toolbar').addEventListener('click', function () {
   }
 });
 
+// ================= Synergy results =================
+// The sample results live in a separate table joined to the sites on SiteID.
+// Selection is by chemical and a DATE RANGE, not a single date: the timestamps
+// are individual analyses rather than synchronised sampling rounds, so only 1 of
+// 457 date-and-chemical combinations has the three sites a contour needs, while
+// every chemical has all five over any range.
+var SYN = null;                     // loaded on first use
+var synSel = null;                  // { chem, from, to, stat, values, min, max }
+
+// Sequential single hue, light to dark with concentration. Breaks span the
+// 0.001-0.05 mg/L the table actually covers.
+var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+                   'August', 'September', 'October', 'November', 'December'];
+function monthLabel(ym) {
+  if (!ym || ym.length < 7) return ym || '';
+  var m = +ym.slice(5, 7);
+  return (MONTH_NAMES[m - 1] || ym.slice(5, 7)) + ' ' + ym.slice(0, 4);
+}
+
+var SYN_BREAKS = [0.010, 0.020, 0.030, 0.040];
+var SYN_RAMP = ['#deebf7', '#9ecae1', '#4292c6', '#2171b5', '#084081'];
+var SYN_NODATA = '#bdbdbd';
+
+function synColorExpr() {
+  if (!synSel) return SYN_COLOR;
+  var step = ['step', ['get', 'val'], SYN_RAMP[0]];
+  SYN_BREAKS.forEach(function (b, i) { step.push(b, SYN_RAMP[i + 1]); });
+  return ['case', ['!', ['has', 'val']], SYN_NODATA, step];
+}
+
+function loadSyn(cb) {
+  if (SYN) { cb(); return; }
+  fetch('./synergy_results.json').then(function (r) { return r.json(); })
+    .then(function (j) { SYN = j; cb(); })
+    .catch(function (e) {
+      showToast('Could not load the results table: ' + esc(e.message), 'Dismiss', function () {});
+    });
+}
+
+// One value per site for the chosen chemical and window.
+function synAggregate(chem, from, to, stat) {
+  var ci = SYN.chemicals.indexOf(chem);
+  var per = {};
+  SYN.rows.forEach(function (r) {
+    if (r[1] !== ci) return;
+    if (r[2] < from || r[2] > to) return;
+    var site = SYN.sites[r[0]];
+    (per[site] = per[site] || []).push({ d: r[2], v: r[3] });
+  });
+  var out = {};
+  Object.keys(per).forEach(function (site) {
+    var a = per[site];
+    if (stat === 'mean') {
+      out[site] = a.reduce(function (t, x) { return t + x.v; }, 0) / a.length;
+    } else if (stat === 'max') {
+      out[site] = a.reduce(function (m, x) { return Math.max(m, x.v); }, -Infinity);
+    } else {                                  // latest
+      a.sort(function (p, q) { return p.d < q.d ? 1 : p.d > q.d ? -1 : 0; });
+      out[site] = a[0].v;
+    }
+  });
+  return { values: out, counts: Object.keys(per).reduce(function (o, k) {
+    o[k] = per[k].length; return o; }, {}) };
+}
+
+// Write the selected values onto the site features so the map can paint them.
+function applySynValues() {
+  var src = map.getSource('synergy');
+  if (!src || !SYN_FEATURES) return;
+  var fc = { type: 'FeatureCollection', features: SYN_FEATURES.map(function (f) {
+    var p = { id: f.properties.id, loc: f.properties.loc };
+    if (synSel && synSel.values[p.id] != null) p.val = synSel.values[p.id];
+    return { type: 'Feature', properties: p, geometry: f.geometry };
+  }) };
+  src.setData(fc);
+  if (map.getLayer('syn-dot')) map.setPaintProperty('syn-dot', 'circle-color', synColorExpr());
+  if (map.getLayer('syn-label')) {
+    map.setLayoutProperty('syn-label', 'text-field', synSel
+      ? ['concat', ['get', 'id'], '\n',
+         ['case', ['has', 'val'],
+          ['concat', ['to-string', ['round', ['*', ['get', 'val'], 10000]]], ' µg/L'],
+          'no data']]
+      : ['get', 'id']);
+  }
+  synLegend();
+}
+
+function synLegend() {
+  var host = document.getElementById('syn-legend');
+  if (!host) return;
+  if (!synSel) {
+    host.innerHTML = '<div class="ctrow"><span class="sw">' +
+      '<i class="dot" style="background:' + SYN_COLOR + '"></i></span>' +
+      '<span>Sample site</span></div>';
+    var m0 = document.getElementById('syn-meta');
+    if (m0) m0.innerHTML = 'Five sample locations, SW-1 to SW-5, near Lakewood.<br>' +
+      'Use <b>Tools &rsaquo; Synergy results</b> to colour them by a chemical.';
+    return;
+  }
+  var rows = SYN_RAMP.map(function (c, i) {
+    var lo = i === 0 ? 0 : SYN_BREAKS[i - 1], hi = SYN_BREAKS[i];
+    var lab = hi ? (lo * 1000) + ' – ' + (hi * 1000) + ' µg/L'
+                 : (lo * 1000) + ' µg/L +';
+    return '<div class="ctrow"><span class="sw"><i class="dot" style="background:' + c +
+           '"></i></span><span>' + lab + '</span></div>';
+  });
+  rows.push('<div class="ctrow"><span class="sw"><i class="dot" style="background:' +
+            SYN_NODATA + '"></i></span><span>No result in range</span></div>');
+  host.innerHTML = rows.join('');
+  var n = Object.keys(synSel.values).length;
+  var m = document.getElementById('syn-meta');
+  if (m) m.innerHTML =
+    '<b>' + esc(synSel.chem) + '</b><br>' +
+    esc(monthLabel(synSel.fromM)) + ' to ' + esc(monthLabel(synSel.toM)) + ' · ' +
+    ({ latest: 'latest result', mean: 'mean of results', max: 'maximum result' }[synSel.stat]) +
+    '<br>' + n + ' of ' + SYN.sites.length + ' sites with data' +
+    (n < 3 ? ' — too few to contour' : '');
+}
+
+function openSynDlg() {
+  loadSyn(function () {
+    var last = synSel || { chem: SYN.chemicals[0], fromM: SYN.from.slice(0, 7),
+                           toM: SYN.to.slice(0, 7), stat: 'latest' };
+    openDlg(
+      '<h2>Synergy results</h2><div class="bd">' +
+      '<div class="fld"><label>Chemical</label><select id="d-chem">' +
+        SYN.chemicals.map(function (c) {
+          return '<option value="' + esc(c) + '"' + (c === last.chem ? ' selected' : '') +
+                 '>' + esc(c) + '</option>';
+        }).join('') + '</select></div>' +
+      '<div class="fld" style="margin-top:8px"><label>Month range</label>' +
+      '<div style="display:flex;gap:6px;align-items:center">' +
+        '<input type="month" id="d-from" value="' + esc(last.fromM) + '" min="' +
+          esc(SYN.from.slice(0, 7)) + '" max="' + esc(SYN.to.slice(0, 7)) +
+          '" style="flex:1;font:inherit;font-size:12.5px;padding:4px;' +
+          'border:1px solid #cfd4dc;border-radius:5px">' +
+        '<span style="opacity:.6">to</span>' +
+        '<input type="month" id="d-to" value="' + esc(last.toM) + '" min="' +
+          esc(SYN.from.slice(0, 7)) + '" max="' + esc(SYN.to.slice(0, 7)) +
+          '" style="flex:1;font:inherit;font-size:12.5px;padding:4px;' +
+          'border:1px solid #cfd4dc;border-radius:5px">' +
+      '</div><div class="hint">Results run ' + esc(monthLabel(SYN.from.slice(0, 7))) +
+      ' to ' + esc(monthLabel(SYN.to.slice(0, 7))) + '. Whole months, and a range ' +
+      'rather than one: the timestamps are individual analyses, so a single day ' +
+      'almost never covers enough sites to contour.</div></div>' +
+      '<div class="fld" style="margin-top:8px"><label>Value per site</label>' +
+      '<select id="d-stat">' +
+        ['latest|Latest result in range', 'mean|Mean of results in range',
+         'max|Maximum in range'].map(function (o) {
+          var kv = o.split('|');
+          return '<option value="' + kv[0] + '"' + (kv[0] === last.stat ? ' selected' : '') +
+                 '>' + kv[1] + '</option>';
+        }).join('') + '</select></div>' +
+      '<div id="d-err"></div></div>' +
+      '<div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
+      '<button class="cx" id="d-clear">Clear</button>' +
+      '<button class="go" id="d-show">Show</button>' +
+      '<button class="go" id="d-cont">Show + contour</button></div>');
+
+    document.getElementById('d-cancel').addEventListener('click', closeDlg);
+    document.getElementById('d-clear').addEventListener('click', function () {
+      synSel = null; applySynValues(); applyState(); closeDlg();
+      showToast('Result colouring cleared.', 'Dismiss', function () {});
+    });
+
+    function gather() {
+      var chem = document.getElementById('d-chem').value;
+      var fromM = document.getElementById('d-from').value || SYN.from.slice(0, 7);
+      var toM = document.getElementById('d-to').value || SYN.to.slice(0, 7);
+      if (fromM > toM) { var t = fromM; fromM = toM; toM = t; }   // tolerate reversed
+      // Whole months: -01 to -31 as plain strings. The rows carry YYYY-MM-DD, so
+      // lexical comparison is date comparison, and -31 catches every month end
+      // without needing to know how long the month is.
+      var from = fromM + '-01', to = toM + '-31';
+      var stat = document.getElementById('d-stat').value;
+      var agg = synAggregate(chem, from, to, stat);
+      synSel = { chem: chem, fromM: fromM, toM: toM, from: from, to: to, stat: stat,
+                 values: agg.values, counts: agg.counts };
+      showSyn = true;
+      var cb = document.getElementById('t-syn'); if (cb) cb.checked = true;
+      applySynValues();
+      applyState();
+      saveState();
+      return Object.keys(agg.values).length;
+    }
+
+    document.getElementById('d-show').addEventListener('click', function () {
+      var n = gather();
+      closeDlg();
+      showToast(n + ' of ' + SYN.sites.length + ' sites have ' + esc(synSel.chem) +
+                ' in range', 'Dismiss', function () {});
+    });
+
+    document.getElementById('d-cont').addEventListener('click', function () {
+      var n = gather();
+      var err = document.getElementById('d-err');
+      if (n < 3) {
+        synSel = synSel;   // keep the display, just refuse the contour
+        if (err) err.innerHTML = '<div class="err">Only ' + n +
+          ' site' + (n === 1 ? '' : 's') + ' with data in that range. Contouring ' +
+          'needs at least 3 — widen the dates or pick another chemical.</div>';
+        return;
+      }
+      closeDlg();
+      contourSyn();
+    });
+  });
+}
+
+// Contour the selected values across the five sites.
+function contourSyn() {
+  var pts = [];
+  SYN_FEATURES.forEach(function (f) {
+    var v = synSel.values[f.properties.id];
+    if (v == null) return;
+    pts.push({ x: f.geometry.coordinates[0], y: f.geometry.coordinates[1], z: v });
+  });
+  // Five points over 180 x 240 m: the interval has to come from the spread,
+  // not from a fixed figure meant for feet of elevation.
+  var zs = pts.map(function (p) { return p.z; });
+  var span = Math.max.apply(null, zs) - Math.min.apply(null, zs);
+  var interval = span > 0 ? Math.max(0.0005, +(span / 6).toPrecision(1)) : 0.001;
+  var res;
+  try {
+    res = makeContours(pts, { interval: interval, grid: 220, index: 5 });
+  } catch (e) {
+    showToast('Contouring failed: ' + esc(e.message), 'Dismiss', function () {});
+    return;
+  }
+  if (!res.features.length) {
+    showToast('No contours — the five values are too close together to band.',
+              'Dismiss', function () {});
+    return;
+  }
+  if (map.getSource('contours')) map.getSource('contours').setData(res);
+  showContours = true;
+  var cbx = document.getElementById('t-contours'); if (cbx) cbx.checked = true;
+  var cst = { line: '#0b7285', label: '#075462' };
+  if (map.getLayer('contour-line')) map.setPaintProperty('contour-line', 'line-color', cst.line);
+  ['contour-label', 'contour-label-min'].forEach(function (id) {
+    if (map.getLayer(id)) map.setPaintProperty(id, 'text-color', cst.label);
+  });
+  document.getElementById('ct-cap').textContent = (interval * 1000) + ' µg/L';
+  ctInfo = { label: 'Synergy results', field: synSel.chem + ' (mg/L)',
+             interval: interval, indexEvery: 5,
+             zmin: res.stats.zmin, zmax: res.stats.zmax, clipped: false,
+             levels: res.stats.levels, lines: res.stats.lines,
+             smoothed: !!(res.stats.blur || res.stats.smooth),
+             color: cst.line, units: 'mg/L',
+             area: areaStats(pts, null) };
+  renderContourLegend();
+  applyState();
+  showToast(pts.length + ' sites · ' + res.stats.lines + ' contour lines at ' +
+            (interval * 1000) + ' µg/L', 'Dismiss', function () {});
+}
+
 // ================= Print current map =================
 // Prints what is on screen: the map fills the sheet above a band carrying a
 // legend of the visible layers, a scale bar, a north arrow and a title block.
@@ -2926,8 +3188,18 @@ function pfGroup(title, rows) {
 
 function buildPrintLegend() {
   var out = [];
-  if (showSyn) out.push(pfGroup('Synergy sites',
-    [pfRow('dot', SYN_COLOR, 'Sample site (SW-1 to SW-5)')]));
+  if (showSyn) {
+    if (synSel) {
+      var sr = SYN_RAMP.map(function (c, i) {
+        var lo = i === 0 ? 0 : SYN_BREAKS[i - 1], hi = SYN_BREAKS[i];
+        return pfRow('dot', c, hi ? (lo * 1000) + '–' + (hi * 1000) : (lo * 1000) + '+');
+      });
+      sr.push(pfRow('dot', SYN_NODATA, 'No result'));
+      out.push(pfGroup(synSel.chem + ' µg/L', sr));
+    } else {
+      out.push(pfGroup('Synergy sites', [pfRow('dot', SYN_COLOR, 'Sample site')]));
+    }
+  }
   if (showWells) out.push(pfGroup('Oil & gas wells', WELL_STATUS.map(function (w) {
     return pfRow('dot', w[2], w[1]); })));
   if (showWater) {
@@ -3194,6 +3466,11 @@ document.getElementById('m-printmap').addEventListener('click', function () {
   openPrintMapDlg();
 });
 window.addEventListener('afterprint', function () { map.resize(); });
+
+document.getElementById('m-syn').addEventListener('click', function () {
+  MENU.hidden = true;
+  openSynDlg();
+});
 
 document.getElementById('m-gwdepth').addEventListener('click', function () {
   MENU.hidden = true;
