@@ -1327,6 +1327,20 @@ function addLayers() {
                'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.15, 18, 0.6] }
     });
   }
+  // The parcel the results are bounded to. Drawn only while a bounded contour is
+  // on screen, so the clip edge is visible rather than implied.
+  if (!map.getSource('synparcel')) {
+    map.addSource('synparcel', { type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] } });
+  }
+  if (!map.getLayer('synparcel-line')) {
+    map.addLayer({
+      id: 'synparcel-line', type: 'line', source: 'synparcel',
+      layout: { visibility: 'none', 'line-join': 'round' },
+      paint: { 'line-color': '#0b7285', 'line-width': 1.8, 'line-dasharray': [4, 2] }
+    });
+  }
+
   // Synergy sample sites. Five points in a 180 x 240 m block, so they need a
   // generous halo to stay findable when zoomed out and labels once you are close.
   if (!map.getSource('synergy')) {
@@ -1730,6 +1744,10 @@ function applyState() {
   if (map.getLayer('water-dot')) {
     map.setLayoutProperty('water-dot', 'visibility', showWater ? 'visible' : 'none');
     map.setPaintProperty('water-dot', 'circle-color', waterColorExpr());
+  }
+  if (map.getLayer('synparcel-line')) {
+    map.setLayoutProperty('synparcel-line', 'visibility',
+      (showContours && synBounded) ? 'visible' : 'none');
   }
   ['syn-dot', 'syn-label'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSyn ? 'visible' : 'none');
@@ -3067,6 +3085,11 @@ function openSynDlg() {
           return '<option value="' + kv[0] + '"' + (kv[0] === last.stat ? ' selected' : '') +
                  '>' + kv[1] + '</option>';
         }).join('') + '</select></div>' +
+      '<label class="radio" style="margin-top:6px"><input type="checkbox" id="d-bound" checked>' +
+      '<span>Bound to parcel 7237017013' +
+      '<span class="d">Holds the parcel boundary at zero and carries the contours out to ' +
+      'it. Without this the surface only spans the area between the five wells.</span>' +
+      '</span></label>' +
       '<div id="d-err"></div></div>' +
       '<div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
       '<button class="cx" id="d-clear">Clear</button>' +
@@ -3075,7 +3098,7 @@ function openSynDlg() {
 
     document.getElementById('d-cancel').addEventListener('click', closeDlg);
     document.getElementById('d-clear').addEventListener('click', function () {
-      synSel = null; applySynValues(); applyState(); closeDlg();
+      synSel = null; synBounded = false; applySynValues(); applyState(); closeDlg();
       showToast('Result colouring cleared.', 'Dismiss', function () {});
     });
 
@@ -3117,28 +3140,87 @@ function openSynDlg() {
           'needs at least 3 — widen the dates or pick another chemical.</div>';
         return;
       }
+      var bnd = document.getElementById('d-bound').checked;
       closeDlg();
-      contourSyn();
+      contourSyn(bnd);
     });
   });
 }
 
+var SYN_PARCEL = null;        // the bounding parcel ring, loaded on first use
+var synBounded = false;       // is the contour on screen bounded to the parcel
+
+function loadSynParcel(cb) {
+  if (SYN_PARCEL) { cb(SYN_PARCEL); return; }
+  fetch('./synergy_parcel.geojson').then(function (r) { return r.json(); })
+    .then(function (fc) {
+      var f = fc.features[0];
+      SYN_PARCEL = { ring: f.geometry.coordinates[0], props: f.properties };
+      if (map.getSource('synparcel')) map.getSource('synparcel').setData(fc);
+      cb(SYN_PARCEL);
+    })
+    .catch(function (e) {
+      showToast('Could not load the parcel boundary: ' + esc(e.message),
+                'Dismiss', function () {});
+      cb(null);
+    });
+}
+
+// Walk the ring inserting points so no gap exceeds `stepM` metres. The source
+// ring has segments from 0 to 590 m; left as-is, a 590 m edge would contribute
+// two zeros and the surface would bulge straight through it.
+function densifyRing(ring, stepM) {
+  var out = [];
+  for (var i = 1; i < ring.length; i++) {
+    var a = ring[i - 1], b = ring[i];
+    out.push(a);
+    var lat = (a[1] + b[1]) / 2 * Math.PI / 180;
+    var dx = (b[0] - a[0]) * 111320 * Math.cos(lat);
+    var dy = (b[1] - a[1]) * 110570;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    var n = Math.floor(d / stepM);
+    for (var k = 1; k < n; k++) {
+      var t = k / n;
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+    }
+  }
+  out.push(ring[ring.length - 1]);
+  return out;
+}
+
 // Contour the selected values across the five sites.
-function contourSyn() {
+function contourSyn(bounded) {
+  if (bounded && !SYN_PARCEL) { loadSynParcel(function () { contourSyn(true); }); return; }
+  synBounded = !!bounded;
+
   var pts = [];
   SYN_FEATURES.forEach(function (f) {
     var v = synSel.values[f.properties.id];
     if (v == null) return;
     pts.push({ x: f.geometry.coordinates[0], y: f.geometry.coordinates[1], z: v });
   });
-  // Five points over 180 x 240 m: the interval has to come from the spread,
-  // not from a fixed figure meant for feet of elevation.
+  var siteCount = pts.length;
+
+  var clip = null, edgePts = 0;
+  if (bounded && SYN_PARCEL) {
+    // Hold the parcel boundary at zero and let the surface fall to it. Without
+    // this the interpolation only spans the hull of the five wells and says
+    // nothing about the rest of the parcel.
+    clip = SYN_PARCEL.ring;
+    densifyRing(clip, 20).forEach(function (c) {
+      pts.push({ x: c[0], y: c[1], z: 0 });
+      edgePts++;
+    });
+  }
+
+  // Interval from the actual spread. With the boundary at zero the floor is 0,
+  // so the range is 0 to the highest site value.
   var zs = pts.map(function (p) { return p.z; });
   var span = Math.max.apply(null, zs) - Math.min.apply(null, zs);
   var interval = span > 0 ? Math.max(0.0005, +(span / 6).toPrecision(1)) : 0.001;
   var res;
   try {
-    res = makeContours(pts, { interval: interval, grid: 220, index: 5 });
+    res = makeContours(pts, { interval: interval, grid: 320, index: 5, clip: clip });
   } catch (e) {
     showToast('Contouring failed: ' + esc(e.message), 'Dismiss', function () {});
     return;
@@ -3157,17 +3239,23 @@ function contourSyn() {
     if (map.getLayer(id)) map.setPaintProperty(id, 'text-color', cst.label);
   });
   document.getElementById('ct-cap').textContent = (interval * 1000) + ' µg/L';
-  ctInfo = { label: 'Synergy results', field: synSel.chem + ' (mg/L)',
+  ctInfo = { label: bounded ? 'Synergy results · bounded to APN ' + SYN_PARCEL.props.ain
+                            : 'Synergy results',
+             field: synSel.chem + ' (mg/L)',
              interval: interval, indexEvery: 5,
-             zmin: res.stats.zmin, zmax: res.stats.zmax, clipped: false,
+             zmin: res.stats.zmin, zmax: res.stats.zmax, clipped: !!clip,
              levels: res.stats.levels, lines: res.stats.lines,
              smoothed: !!(res.stats.blur || res.stats.smooth),
              color: cst.line, units: 'mg/L',
-             area: areaStats(pts, null) };
+             // Only the real samples are summarised; the boundary zeros are a
+             // modelling assumption, not measurements, and would drag every
+             // statistic toward nothing.
+             area: areaStats(pts.slice(0, siteCount), null) };
   renderContourLegend();
   applyState();
-  showToast(pts.length + ' sites · ' + res.stats.lines + ' contour lines at ' +
-            (interval * 1000) + ' µg/L', 'Dismiss', function () {});
+  showToast(siteCount + ' sites' + (edgePts ? ' + ' + edgePts + ' boundary zeros' : '') +
+            ' · ' + res.stats.lines + ' contour lines at ' + (interval * 1000) + ' µg/L',
+            'Dismiss', function () {});
 }
 
 // ================= Print current map =================
