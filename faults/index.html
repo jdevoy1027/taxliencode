@@ -1352,6 +1352,23 @@ function addLayers() {
     map.addSource('synparcel', { type: 'geojson',
       data: { type: 'FeatureCollection', features: [] } });
   }
+  if (!map.getLayer('synparcel-year')) {
+    map.addLayer({
+      id: 'synparcel-year', type: 'symbol', source: 'synparcel',
+      filter: ['==', ['geometry-type'], 'Point'],
+      layout: {
+        visibility: 'none',
+        'text-field': ['get', 'yr'],
+        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 13, 20, 16, 34, 19, 52],
+        'text-allow-overlap': true, 'text-ignore-placement': true
+      },
+      paint: {
+        'text-color': '#ffffff', 'text-halo-color': '#000000',
+        'text-halo-width': 1.4, 'text-halo-blur': 0
+      }
+    });
+  }
   if (!map.getLayer('synparcel-line')) {
     map.addLayer({
       id: 'synparcel-line', type: 'line', source: 'synparcel',
@@ -1775,6 +1792,11 @@ function applyState() {
   if (map.getLayer('synparcel-line')) {
     map.setLayoutProperty('synparcel-line', 'visibility',
       (showContours && synBounded) ? 'visible' : 'none');
+  }
+  if (map.getLayer('synparcel-year')) {
+    // Shown whenever a lapse is running, bounded or not: it is the frame
+    // indicator, not part of the clip.
+    map.setLayoutProperty('synparcel-year', 'visibility', TL ? 'visible' : 'none');
   }
   ['syn-dot', 'syn-label'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSyn ? 'visible' : 'none');
@@ -3044,9 +3066,6 @@ function applySynValues() {
   var fc = { type: 'FeatureCollection', features: SYN_FEATURES.map(function (f) {
     var p = { id: f.properties.id, loc: f.properties.loc };
     if (synSel && synSel.values[p.id] != null) p.val = synSel.values[p.id];
-    // Only set during a time lapse, so the year line appears there and nowhere
-    // else -- a single-shot selection spans a range, not a year.
-    if (synSel && synSel.year) p.yr = String(synSel.year);
     return { type: 'Feature', properties: p, geometry: f.geometry };
   }) };
   src.setData(fc);
@@ -3060,8 +3079,7 @@ function applySynValues() {
           ['concat', ['to-string',
             ['/', ['round', ['*', ['get', 'val'], 10000]], 10]], ' µg/L'],
           'no data'],
-         // Third line, only while a time lapse is running.
-         ['case', ['has', 'yr'], ['concat', '\n', ['get', 'yr']], '']]
+         ]
       : ['get', 'id']);
   }
   synLegend();
@@ -3214,8 +3232,17 @@ function loadSynParcel(cb) {
   fetch('./synergy_parcel.geojson').then(function (r) { return r.json(); })
     .then(function (fc) {
       var f = fc.features[0];
-      SYN_PARCEL = { ring: f.geometry.coordinates[0], props: f.properties };
-      if (map.getSource('synparcel')) map.getSource('synparcel').setData(fc);
+      var ring = f.geometry.coordinates[0];
+      var xs = ring.map(function (c) { return c[0]; });
+      var ys = ring.map(function (c) { return c[1]; });
+      var mnx = Math.min.apply(null, xs), mxx = Math.max.apply(null, xs);
+      var mny = Math.min.apply(null, ys), mxy = Math.max.apply(null, ys);
+      SYN_PARCEL = { ring: ring, props: f.properties, poly: f,
+        // 9% down from the north edge, on the centre line. The polygon's own
+        // centroid lands in the middle of the five sites, where a 50px year
+        // would sit on top of the readings.
+        anchor: [(mnx + mxx) / 2, mxy - (mxy - mny) * 0.09] };
+      setParcelYear(null);
       cb(SYN_PARCEL);
     })
     .catch(function (e) {
@@ -3391,7 +3418,20 @@ function tlBuildFrames(chem, bounded) {
     } catch (e) { f.fc = null; }
   });
   return { chem: chem, bounded: bounded, frames: frames, interval: interval,
-           i: 0, timer: null, speed: 4000 };   // four seconds a year
+           i: 0, timer: null, speed: 5000 };   // five seconds a year
+}
+
+// Feeds the parcel source: the polygon always, plus a point carrying the year
+// while a lapse is running.
+function setParcelYear(year) {
+  var src = map.getSource('synparcel');
+  if (!src || !SYN_PARCEL) return;
+  var feats = [SYN_PARCEL.poly];
+  if (year != null) {
+    feats.push({ type: 'Feature', properties: { yr: String(year) },
+                 geometry: { type: 'Point', coordinates: SYN_PARCEL.anchor } });
+  }
+  src.setData({ type: 'FeatureCollection', features: feats });
 }
 
 function tlShow(i) {
@@ -3405,6 +3445,7 @@ function tlShow(i) {
              values: f.values, counts: {}, year: f.year };
   showSyn = true;
   applySynValues();
+  setParcelYear(f.year);
 
   if (f.fc && map.getSource('contours')) {
     map.getSource('contours').setData(f.fc);
@@ -3465,6 +3506,8 @@ function tlStop() {
   tlPause();
   TL = null;
   if (synSel && synSel.year) { delete synSel.year; applySynValues(); }
+  setParcelYear(null);
+  applyState();
   var bar = document.getElementById('tlbar');
   if (bar) { bar.hidden = true; bar.innerHTML = ''; }
 }
