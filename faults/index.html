@@ -3540,15 +3540,23 @@ function setShade(shade) {
   if (!map.getSource('syn-shade')) {
     map.addSource('syn-shade', { type: 'image', url: shade.url,
                                  coordinates: shade.coords });
-    // Beneath the contour lines and their labels, which are what carry the
-    // values; the shading is the reading aid, not the record.
+    // Beneath everything the Synergy tool draws. The shading is a backdrop --
+    // the reading aid, not the record -- so the sample symbols, their labels,
+    // the parcel outline, the year, and the contour lines and values all have to
+    // sit on top of it. An image layer is opaque where it paints, so anything
+    // under it is not dimmed by the 0.62 opacity, it is covered.
+    //
+    // Anchored to the first of the group that exists rather than to one fixed
+    // id, so the order survives any of them being renamed or added later.
+    var below = ['synparcel-year', 'synparcel-line', 'syn-dot', 'contour-line']
+      .filter(function (id) { return map.getLayer(id); })[0];
     map.addLayer({
       id: 'syn-shade', type: 'raster', source: 'syn-shade',
       paint: { 'raster-opacity': SHADE_OPACITY,
                // No cross-fade: at one frame every five seconds a fade reads as
                // the data dissolving rather than the year changing.
                'raster-fade-duration': 0 }
-    }, map.getLayer('contour-line') ? 'contour-line' : undefined);
+    }, below);
   } else {
     map.getSource('syn-shade').updateImage({ url: shade.url,
                                              coordinates: shade.coords });
