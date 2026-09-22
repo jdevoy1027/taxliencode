@@ -1416,8 +1416,17 @@ function addLayers() {
         'text-padding': 2
       },
       paint: {
+        // A real black halo, not the hairline the basemap labels wear. These sit
+        // on top of the band shading, which runs from pale yellow to dark red --
+        // white text needs a halo with actual weight to hold against both ends
+        // of that ramp, and 0.7px reads as no halo at all over the light bands.
+        // Scaled with zoom so it stays proportional as the text grows; Mapbox
+        // stops rendering halo beyond about a quarter of the font size, and
+        // these stay inside that.
         'text-color': '#ffffff', 'text-halo-color': '#000000',
-        'text-halo-width': 0.7, 'text-halo-blur': 0
+        'text-halo-width': ['interpolate', ['linear'], ['zoom'],
+                            10, 1.2, 13, 1.7, 18, 2.4],
+        'text-halo-blur': 0
       }
     });
   }
@@ -1853,10 +1862,16 @@ function applyState() {
 // API before being relied on: a font Mapbox cannot serve makes the label vanish
 // rather than fall back.
 //
-// Contour labels are the one exception. They are coloured to match their contour
-// lines, and that colour is what separates a groundwater surface from a
-// topographic one when both are drawn on the same map.
-var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1 };
+// Two exceptions, both of which set their own text treatment when they are
+// added and would be flattened back to the house style by this pass:
+//
+//   contour labels  coloured to match their contour lines, and that colour is
+//                   what separates a groundwater surface from a topographic one
+//                   when both are drawn on the same map.
+//   syn-label       the sample sites, carrying a well name and its concentration.
+//                   It wears a heavier black halo than everything else because it
+//                   is read against the band shading rather than the basemap.
+var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1, 'syn-label': 1 };
 // Basemap place names to suppress. Matched as a substring against the label
 // text, so 'Los Cerritos' catches both the neighbourhood and Los Cerritos
 // Wetlands, whichever layer Mapbox happens to put them in.
