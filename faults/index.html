@@ -3044,6 +3044,9 @@ function applySynValues() {
   var fc = { type: 'FeatureCollection', features: SYN_FEATURES.map(function (f) {
     var p = { id: f.properties.id, loc: f.properties.loc };
     if (synSel && synSel.values[p.id] != null) p.val = synSel.values[p.id];
+    // Only set during a time lapse, so the year line appears there and nowhere
+    // else -- a single-shot selection spans a range, not a year.
+    if (synSel && synSel.year) p.yr = String(synSel.year);
     return { type: 'Feature', properties: p, geometry: f.geometry };
   }) };
   src.setData(fc);
@@ -3056,7 +3059,9 @@ function applySynValues() {
           // 0.0087 mg/L reads 8.7 ug/L, not 9 and not 87.
           ['concat', ['to-string',
             ['/', ['round', ['*', ['get', 'val'], 10000]], 10]], ' µg/L'],
-          'no data']]
+          'no data'],
+         // Third line, only while a time lapse is running.
+         ['case', ['has', 'yr'], ['concat', '\n', ['get', 'yr']], '']]
       : ['get', 'id']);
   }
   synLegend();
@@ -3386,7 +3391,7 @@ function tlBuildFrames(chem, bounded) {
     } catch (e) { f.fc = null; }
   });
   return { chem: chem, bounded: bounded, frames: frames, interval: interval,
-           i: 0, timer: null, speed: 1100 };
+           i: 0, timer: null, speed: 4000 };   // four seconds a year
 }
 
 function tlShow(i) {
@@ -3397,7 +3402,7 @@ function tlShow(i) {
 
   synSel = { chem: TL.chem, fromM: SYN.from.slice(0, 7), toM: f.year + '-12',
              from: SYN.from, to: f.year + '-12-31', stat: 'latest',
-             values: f.values, counts: {} };
+             values: f.values, counts: {}, year: f.year };
   showSyn = true;
   applySynValues();
 
@@ -3459,6 +3464,7 @@ function tlPause() { if (TL) { clearInterval(TL.timer); TL.timer = null; tlRende
 function tlStop() {
   tlPause();
   TL = null;
+  if (synSel && synSel.year) { delete synSel.year; applySynValues(); }
   var bar = document.getElementById('tlbar');
   if (bar) { bar.hidden = true; bar.innerHTML = ''; }
 }
