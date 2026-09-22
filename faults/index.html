@@ -1365,13 +1365,19 @@ function addLayers() {
   if (!map.getLayer('syn-label')) {
     map.addLayer({
       id: 'syn-label', type: 'symbol', source: 'synergy',
-      minzoom: 13,
+      // All five are always labelled. Collision culling is the right default for
+      // thousands of boreholes, but here it silently drops sites that sit close
+      // together -- and a missing label on a five-point survey reads as a
+      // missing sample. ignore-placement also stops these crowding out the
+      // labels beneath them.
+      minzoom: 10,
       layout: {
         'text-field': ['get', 'id'],
         'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 13, 10, 18, 14],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 10, 9, 13, 11, 18, 14],
         'text-offset': [0, 1.1], 'text-anchor': 'top',
-        'text-allow-overlap': false, 'text-padding': 3
+        'text-allow-overlap': true, 'text-ignore-placement': true,
+        'text-padding': 2
       },
       paint: {
         'text-color': '#ffffff', 'text-halo-color': '#000000',
