@@ -1969,6 +1969,19 @@ map.on('load', function () {
       html += '<div class="pop-row pop-unit"><i style="background:' + SYN_COLOR +
               '"></i>Synergy sample site</div>';
       if (syn.loc) html += '<div class="pop-row">' + esc(syn.loc) + '</div>';
+      if (synSel) {
+        var sv = synSel.values[syn.id];
+        html += '<div class="pop-row"><b>' + esc(synSel.chem) + ':</b> ' +
+                (sv == null ? 'no result in range'
+                            : (Math.round(sv * 10000) / 10) + ' µg/L') + '</div>';
+        if (sv != null && synSel.counts && synSel.counts[syn.id]) {
+          html += '<div class="pop-row" style="font-size:11px;opacity:.7">' +
+                  synSel.counts[syn.id] + ' result' +
+                  (synSel.counts[syn.id] === 1 ? '' : 's') + ' in range · ' +
+                  esc({ latest: 'showing latest', mean: 'showing mean',
+                        max: 'showing maximum' }[synSel.stat]) + '</div>';
+        }
+      }
     }
     if (pipe && showPipe) {
       if (html) html += '<div class="pop-sep"></div>';
@@ -3014,7 +3027,10 @@ function applySynValues() {
     map.setLayoutProperty('syn-label', 'text-field', synSel
       ? ['concat', ['get', 'id'], '\n',
          ['case', ['has', 'val'],
-          ['concat', ['to-string', ['round', ['*', ['get', 'val'], 10000]]], ' µg/L'],
+          // mg/L -> ug/L is x1000. The x10000 then /10 keeps one decimal:
+          // 0.0087 mg/L reads 8.7 ug/L, not 9 and not 87.
+          ['concat', ['to-string',
+            ['/', ['round', ['*', ['get', 'val'], 10000]], 10]], ' µg/L'],
           'no data']]
       : ['get', 'id']);
   }
