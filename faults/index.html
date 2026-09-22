@@ -1853,7 +1853,10 @@ var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1 };
 // Basemap place names to suppress. Matched as a substring against the label
 // text, so 'Los Cerritos' catches both the neighbourhood and Los Cerritos
 // Wetlands, whichever layer Mapbox happens to put them in.
-var HIDE_LABELS = ['Los Cerritos'];
+// 'Los Cerrito' rather than 'Los Cerritos': it catches the singular and plural
+// spellings and anything appended -- Wetlands, Channel -- while leaving El
+// Cerrito up north alone.
+var HIDE_LABELS = ['Los Cerrito'];
 
 function hideNamedLabels() {
   if (!HIDE_LABELS.length) return;
@@ -1866,6 +1869,9 @@ function hideNamedLabels() {
       return ['!', ['in', t, ['coalesce', ['get', 'name_en'], ['get', 'name'], '']]];
     });
     var existing = map.getFilter(l.id);
+    // Already applied: re-wrapping on every styledata would nest ['all'] deeper
+    // each time until the filter stopped being worth evaluating.
+    if (existing && JSON.stringify(existing).indexOf(HIDE_LABELS[0]) !== -1) return;
     // Keep whatever filter the style already had, or the layer starts drawing
     // features it was never meant to.
     var next = existing ? ['all', existing].concat(excl) : ['all'].concat(excl);
@@ -1891,6 +1897,9 @@ map.on('load', function () {
   addLayers();
   styleLabels();
   hideNamedLabels();
+  // Re-apply if the style reloads for any reason; the guard above makes this
+  // idempotent.
+  map.on('styledata', hideNamedLabels);
   var done = {};
   map.on('sourcedata', function (e) {
     if ((e.sourceId === 'geology' || e.sourceId === 'faults') && map.isSourceLoaded(e.sourceId)) {
