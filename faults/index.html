@@ -1850,6 +1850,29 @@ function applyState() {
 // lines, and that colour is what separates a groundwater surface from a
 // topographic one when both are drawn on the same map.
 var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1 };
+// Basemap place names to suppress. Matched as a substring against the label
+// text, so 'Los Cerritos' catches both the neighbourhood and Los Cerritos
+// Wetlands, whichever layer Mapbox happens to put them in.
+var HIDE_LABELS = ['Los Cerritos'];
+
+function hideNamedLabels() {
+  if (!HIDE_LABELS.length) return;
+  (map.getStyle().layers || []).forEach(function (l) {
+    // Basemap layers only. Our own label layers carry their own text and would
+    // not survive a filter written against name_en.
+    if (l.type !== 'symbol' || l.source !== 'composite') return;
+    if (!('text-field' in (l.layout || {}))) return;
+    var excl = HIDE_LABELS.map(function (t) {
+      return ['!', ['in', t, ['coalesce', ['get', 'name_en'], ['get', 'name'], '']]];
+    });
+    var existing = map.getFilter(l.id);
+    // Keep whatever filter the style already had, or the layer starts drawing
+    // features it was never meant to.
+    var next = existing ? ['all', existing].concat(excl) : ['all'].concat(excl);
+    try { map.setFilter(l.id, next); } catch (e) { /* layer without a filter slot */ }
+  });
+}
+
 function styleLabels() {
   (map.getStyle().layers || []).forEach(function (l) {
     if (l.type !== 'symbol' || LABEL_KEEP[l.id]) return;
@@ -1867,6 +1890,7 @@ function styleLabels() {
 map.on('load', function () {
   addLayers();
   styleLabels();
+  hideNamedLabels();
   var done = {};
   map.on('sourcedata', function (e) {
     if ((e.sourceId === 'geology' || e.sourceId === 'faults') && map.isSourceLoaded(e.sourceId)) {
