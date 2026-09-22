@@ -180,6 +180,24 @@
   }
 
 
+  /* Time lapse playback bar, centred over the map. */
+  #tlbar {
+    position: absolute; z-index: 7; left: 50%; transform: translateX(-50%);
+    bottom: 26px; display: flex; align-items: center; gap: 10px;
+    background: rgba(255,255,255,.96); border: 1px solid #cfd4dc;
+    border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.20);
+    padding: 8px 12px; font-size: 12.5px; max-width: min(620px, 92vw);
+  }
+  #tlbar[hidden] { display: none; }
+  #tlbar button { font: inherit; border: 1px solid #cfd4dc; background: #fff;
+                  border-radius: 6px; cursor: pointer; padding: 3px 9px; color: #1a1a18; }
+  #tlbar button:hover { background: #f3f3ef; }
+  #tlbar .tl-year { font-weight: 700; font-size: 15px; min-width: 3.2em; text-align: center; }
+  #tlbar input[type=range] { flex: 1; min-width: 120px; accent-color: #0b7285; }
+  #tlbar .tl-meta { color: #55554f; white-space: nowrap; font-size: 11.5px; }
+  @media (max-width: 620px) { #tlbar { bottom: 8px; gap: 6px; padding: 6px 8px; }
+                              #tlbar .tl-meta { display: none; } }
+
   .toc { border-top: 1px solid #eeeeea; }
   .toc:first-of-type { border-top: 0; }
   .tr { display: flex; align-items: center; gap: 7px; padding: 5px 0; }
@@ -398,6 +416,7 @@
 <button class="panel-open" id="panel-open" type="button" hidden
         title="Reopen the layers panel">&#9776; Layers</button>
 <img id="pf-map" alt="" aria-hidden="true">
+<div id="tlbar" hidden></div>
 <div id="printsrc" aria-hidden="true">
   <span id="pf-src"></span><span id="pf-srcdate"></span>
 </div>
@@ -3118,10 +3137,12 @@ function openSynDlg() {
       '<div class="ft"><button class="cx" id="d-cancel">Cancel</button>' +
       '<button class="cx" id="d-clear">Clear</button>' +
       '<button class="go" id="d-show">Show</button>' +
-      '<button class="go" id="d-cont">Show + contour</button></div>');
+      '<button class="go" id="d-cont">Show + contour</button>' +
+      '<button class="go" id="d-lapse">Time lapse</button></div>');
 
     document.getElementById('d-cancel').addEventListener('click', closeDlg);
     document.getElementById('d-clear').addEventListener('click', function () {
+      tlStop();
       synSel = null; synBounded = false; applySynValues(); applyState(); closeDlg();
       showToast('Result colouring cleared.', 'Dismiss', function () {});
     });
@@ -3167,6 +3188,15 @@ function openSynDlg() {
       var bnd = document.getElementById('d-bound').checked;
       closeDlg();
       contourSyn(bnd);
+    });
+
+    // The time lapse ignores the month range: it walks every year the chemical
+    // was measured, which is the whole point of it.
+    document.getElementById('d-lapse').addEventListener('click', function () {
+      var chem = document.getElementById('d-chem').value;
+      var bnd = document.getElementById('d-bound').checked;
+      closeDlg();
+      startTimeLapse(chem, bnd);
     });
   });
 }
@@ -3293,6 +3323,159 @@ function contourSyn(bounded) {
   showToast(siteCount + ' sites' + (edgePts ? ' + ' + edgePts + ' boundary zeros' : '') +
             ' · ' + res.stats.lines + ' contour lines at ' + interval + ' µg/L',
             'Dismiss', function () {});
+}
+
+// ================= Time lapse =================
+// Year-by-year animation of one chemical. Each frame carries forward the most
+// recent value at each site as of that year end, rather than only that year's
+// samples: sampling is irregular, and a site not visited in a given year has not
+// reverted to nothing.
+var TL = null;      // { chem, bounded, frames:[...], interval, i, timer, speed }
+
+function tlBuildFrames(chem, bounded) {
+  var ci = SYN.chemicals.indexOf(chem);
+  var rows = SYN.rows.filter(function (r) { return r[1] === ci; })
+                     .sort(function (a, b) { return a[2] < b[2] ? -1 : 1; });
+  if (!rows.length) return null;
+  var y0 = +rows[0][2].slice(0, 4), y1 = +rows[rows.length - 1][2].slice(0, 4);
+
+  var frames = [], state = {}, k = 0;
+  for (var y = y0; y <= y1; y++) {
+    while (k < rows.length && +rows[k][2].slice(0, 4) <= y) {
+      state[SYN.sites[rows[k][0]]] = rows[k][3];
+      k++;
+    }
+    var vals = {};
+    Object.keys(state).forEach(function (sx) { vals[sx] = state[sx]; });
+    frames.push({ year: y, values: vals, n: Object.keys(vals).length });
+  }
+
+  // One interval for the whole run, from the highest value in any frame. A
+  // per-frame interval would relabel the bands every year and make the
+  // animation impossible to read as a trend.
+  var peak = 0;
+  frames.forEach(function (f) {
+    Object.keys(f.values).forEach(function (sx) {
+      peak = Math.max(peak, f.values[sx] * 1000);
+    });
+  });
+  var interval = Math.max(0.5, +(peak / 6).toPrecision(1));
+
+  var edge = [];
+  if (bounded && SYN_PARCEL) {
+    densifyRing(SYN_PARCEL.ring, 20).forEach(function (c) {
+      edge.push({ x: c[0], y: c[1], z: 0 });
+    });
+  }
+  frames.forEach(function (f) {
+    var pts = [];
+    SYN_FEATURES.forEach(function (ft) {
+      var v = f.values[ft.properties.id];
+      if (v == null) return;
+      pts.push({ x: ft.geometry.coordinates[0], y: ft.geometry.coordinates[1], z: v * 1000 });
+    });
+    f.sites = pts.length;
+    // Same rule as the single-shot tool: fewer than three real samples is not a
+    // surface. Those years still play, showing the sites without contours.
+    if (pts.length < 3) { f.fc = null; return; }
+    try {
+      f.fc = makeContours(pts.concat(edge), {
+        interval: interval, grid: 320, index: 5,
+        clip: (bounded && SYN_PARCEL) ? SYN_PARCEL.ring : null
+      });
+    } catch (e) { f.fc = null; }
+  });
+  return { chem: chem, bounded: bounded, frames: frames, interval: interval,
+           i: 0, timer: null, speed: 1100 };
+}
+
+function tlShow(i) {
+  if (!TL) return;
+  i = Math.max(0, Math.min(TL.frames.length - 1, i));
+  TL.i = i;
+  var f = TL.frames[i];
+
+  synSel = { chem: TL.chem, fromM: SYN.from.slice(0, 7), toM: f.year + '-12',
+             from: SYN.from, to: f.year + '-12-31', stat: 'latest',
+             values: f.values, counts: {} };
+  showSyn = true;
+  applySynValues();
+
+  if (f.fc && map.getSource('contours')) {
+    map.getSource('contours').setData(f.fc);
+    showContours = true;
+    synBounded = TL.bounded;
+    setContourUnits(' µg/L');
+    if (map.getLayer('contour-line'))
+      map.setPaintProperty('contour-line', 'line-color', '#0b7285');
+    ctInfo = { label: 'Synergy · ' + f.year, field: TL.chem + ' (µg/L)',
+               interval: TL.interval, indexEvery: 5,
+               zmin: f.fc.stats.zmin, zmax: f.fc.stats.zmax,
+               clipped: TL.bounded, levels: f.fc.stats.levels,
+               lines: f.fc.stats.lines, color: '#0b7285', units: 'µg/L',
+               smoothed: true };
+    renderContourLegend();
+  } else if (map.getSource('contours')) {
+    map.getSource('contours').setData({ type: 'FeatureCollection', features: [] });
+  }
+  applyState();
+  tlRenderBar();
+}
+
+function tlRenderBar() {
+  var bar = document.getElementById('tlbar');
+  if (!bar || !TL) return;
+  var f = TL.frames[TL.i];
+  bar.hidden = false;
+  bar.innerHTML =
+    '<button type="button" id="tl-play" title="Play or pause">' +
+      (TL.timer ? '❚❚' : '▶') + '</button>' +
+    '<div class="tl-year">' + f.year + '</div>' +
+    '<input type="range" id="tl-range" min="0" max="' + (TL.frames.length - 1) +
+      '" value="' + TL.i + '">' +
+    '<div class="tl-meta">' + esc(TL.chem) + ' · ' + f.sites + ' of ' +
+      SYN.sites.length + ' sites' +
+      (f.fc ? '' : ' · too few to contour') + '</div>' +
+    '<button type="button" id="tl-close" title="Close">&times;</button>';
+  document.getElementById('tl-play').addEventListener('click', tlToggle);
+  document.getElementById('tl-close').addEventListener('click', tlStop);
+  document.getElementById('tl-range').addEventListener('input', function () {
+    tlPause(); tlShow(+this.value);
+  });
+}
+
+function tlToggle() { TL && TL.timer ? tlPause() : tlPlay(); }
+function tlPlay() {
+  if (!TL) return;
+  if (TL.i >= TL.frames.length - 1) TL.i = 0;
+  clearInterval(TL.timer);
+  TL.timer = setInterval(function () {
+    if (TL.i >= TL.frames.length - 1) { tlPause(); return; }
+    tlShow(TL.i + 1);
+  }, TL.speed);
+  tlRenderBar();
+}
+function tlPause() { if (TL) { clearInterval(TL.timer); TL.timer = null; tlRenderBar(); } }
+function tlStop() {
+  tlPause();
+  TL = null;
+  var bar = document.getElementById('tlbar');
+  if (bar) { bar.hidden = true; bar.innerHTML = ''; }
+}
+
+function startTimeLapse(chem, bounded) {
+  if (bounded && !SYN_PARCEL) {
+    loadSynParcel(function () { startTimeLapse(chem, true); });
+    return;
+  }
+  var built = tlBuildFrames(chem, bounded);
+  if (!built) { showToast('No results for ' + esc(chem) + '.', 'Dismiss', function () {}); return; }
+  TL = built;
+  tlShow(0);
+  tlPlay();
+  var withC = built.frames.filter(function (f) { return f.fc; }).length;
+  showToast(built.frames.length + ' years, ' + withC + ' contoured, at ' +
+            built.interval + ' µg/L throughout', 'Dismiss', function () {});
 }
 
 // ================= Print current map =================
