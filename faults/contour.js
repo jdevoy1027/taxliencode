@@ -420,7 +420,7 @@
         });
       });
     }
-    return {
+    var out = {
       type: 'FeatureCollection',
       features: feats,
       stats: {
@@ -430,6 +430,23 @@
         clipped: !!clip, blur: blur, smooth: smooth
       }
     };
+    // The interpolated surface itself, so a caller can shade the bands between
+    // contours rather than only draw their boundaries. Z is the value per cell,
+    // M the mask of cells inside the data -- and inside the clip, when there is
+    // one. Cell (i, j) is at x0 + i*sx, y0 + j*sy, index j*nx + i, with j
+    // increasing NORTHWARD.
+    //
+    // Non-enumerable on purpose. The result of this function is handed straight
+    // to a Mapbox GeoJSON source, and both JSON.stringify and the structured
+    // clone that crosses into the worker copy own ENUMERABLE properties only.
+    // Left enumerable, two 320x320 typed arrays -- about 800 KB -- would be
+    // serialised on every setData for nothing.
+    Object.defineProperty(out, 'grid', {
+      value: { Z: g.Z, M: g.M, nx: g.nx, ny: g.ny,
+               x0: g.x0, y0: g.y0, sx: g.sx, sy: g.sy },
+      enumerable: false, writable: true, configurable: true
+    });
+    return out;
   }
 
   global.makeContours = makeContours;

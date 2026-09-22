@@ -1813,6 +1813,13 @@ function applyState() {
   ['contour-line', 'contour-label', 'contour-label-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showContours ? 'visible' : 'none');
   });
+  // The band shading belongs to the contours it was derived from: turning the
+  // contour layer off has to take the fill with it, or the map keeps showing a
+  // surface with nothing to read the values off.
+  if (map.getLayer('syn-shade')) {
+    map.setLayoutProperty('syn-shade', 'visibility',
+      (showContours && shadeOn) ? 'visible' : 'none');
+  }
   if (map.getLayer('naip')) {
     map.setLayoutProperty('naip', 'visibility', baseMap === 'naip' ? 'visible' : 'none');
   }
@@ -2328,7 +2335,20 @@ function renderContourLegend() {
     return (Math.round(v * 10) / 10).toLocaleString();
   };
   var col = ctInfo.color || '#8a6a4a';
-  host.innerHTML =
+  // Shaded bands, when a run has them. Listed high to low so the legend reads
+  // the way the ramp does -- deepest red at the top.
+  var bandRows = '';
+  if (ctInfo.bands && ctInfo.bands.length) {
+    bandRows = ctInfo.bands.slice().reverse().map(function (b, i) {
+      return '<div class="ctrow"><span class="sw">' +
+             '<i style="height:11px;background:' + b.color +
+             ';border:1px solid rgba(0,0,0,.25)"></i></span><span>' +
+             fmt(b.lo) + (i === 0 ? '+' : ' – ' + fmt(b.hi)) + '</span></div>';
+    }).join('') +
+    '<div class="ctmeta" style="margin-bottom:6px">Shaded by concentration, ' +
+    esc(ctInfo.units || '') + '</div>';
+  }
+  host.innerHTML = bandRows +
     '<div class="ctrow"><span class="sw"><i style="height:2.6px;background:' + col + '"></i></span>' +
     '<span>Index — every <b>' + fmt(idx) + '</b>, labelled</span></div>' +
     '<div class="ctrow"><span class="sw"><i style="height:1px;background:' + col + '"></i></span>' +
@@ -3397,6 +3417,131 @@ function contourSyn(bounded) {
 // reverted to nothing.
 var TL = null;      // { chem, bounded, frames:[...], interval, i, timer, speed }
 
+// ---- Shaded bands -------------------------------------------------------
+// The contour engine traces boundaries, not areas, so the fill between two
+// contours is not a paint property on the line layer -- there is no polygon to
+// paint. What there IS is the interpolated surface the lines were traced from,
+// so each band is drawn by classifying that surface into the same levels and
+// rendering it as an image pinned to the grid's corners, underneath the lines.
+//
+// ColorBrewer YlOrRd. Sequential, single-ended, and the direction the request
+// asks for: pale yellow at the bottom of the range through orange to dark red at
+// the top. Steps are interpolated in between so the ramp still reads as a
+// continuum when a run has more or fewer bands than the nine here.
+var SHADE_RAMP = ['#ffffcc', '#ffeda0', '#fed976', '#feb24c', '#fd8d3c',
+                  '#fc4e2a', '#e31a1c', '#bd0026', '#800026'];
+var SHADE_OPACITY = 0.62;   // enough to read the aerial through
+var shadeOn = false;
+
+function shadeRGB(t) {
+  var n = SHADE_RAMP.length - 1;
+  var f = Math.max(0, Math.min(1, t)) * n;
+  var i = Math.min(n - 1, Math.floor(f)), u = f - i;
+  var a = SHADE_RAMP[i], b = SHADE_RAMP[i + 1], out = [];
+  for (var c = 0; c < 3; c++) {
+    var av = parseInt(a.substr(1 + c * 2, 2), 16);
+    var bv = parseInt(b.substr(1 + c * 2, 2), 16);
+    out.push(Math.round(av + (bv - av) * u));
+  }
+  return out;
+}
+function shadeHex(t) {
+  return '#' + shadeRGB(t).map(function (v) {
+    return ('0' + v.toString(16)).slice(-2); }).join('');
+}
+
+// The bands one run is divided into, fixed for the whole animation. Deriving
+// them per frame would recolour the same concentration differently from year to
+// year and destroy the comparison the lapse exists to make.
+function shadeBands(peak, interval) {
+  var nb = Math.max(1, Math.ceil(peak / interval - 1e-9));
+  var bands = [];
+  for (var b = 0; b < nb; b++) {
+    bands.push({ lo: b * interval, hi: (b + 1) * interval,
+                 color: shadeHex(nb > 1 ? b / (nb - 1) : 1) });
+  }
+  return bands;
+}
+
+// Rasterise one frame's surface into a PNG data URL.
+//
+// Rendered at twice the grid across and sampled bilinearly, so a band edge lands
+// within half a cell of the contour line traced from the same surface -- the
+// same tolerance the tracer itself works to. Classifying the 320 grid directly
+// and letting the map scale it up would stair-step every boundary at the zooms
+// this parcel is viewed at; going finer than 2x only interpolates detail the
+// surface does not have, at quadratic cost.
+//
+// A pixel is drawn only where all four grid cells it sits between are inside the
+// mask; sampling across the mask edge would bleed colour past the parcel
+// boundary that the contours themselves stop at.
+function shadeFromGrid(g, interval, bands) {
+  var W = g.nx * 2, H = g.ny * 2;
+  var cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  var ctx = cv.getContext('2d');
+  var img = ctx.createImageData(W, H), d = img.data;
+  var cols = bands.map(function (b) {
+    return [parseInt(b.color.substr(1, 2), 16),
+            parseInt(b.color.substr(3, 2), 16),
+            parseInt(b.color.substr(5, 2), 16)];
+  });
+  var nb = cols.length, nx = g.nx, ny = g.ny, Z = g.Z, M = g.M;
+  for (var py = 0; py < H; py++) {
+    // Canvas row 0 is the top of the image, which is the NORTH edge -- the
+    // opposite end of the grid, whose j increases northward.
+    var gy = (H - 1 - py) / (H - 1) * (ny - 1);
+    var j0 = Math.floor(gy), j1 = Math.min(ny - 1, j0 + 1), ty = gy - j0;
+    var r0 = j0 * nx, r1 = j1 * nx;
+    for (var px = 0; px < W; px++) {
+      var gx = px / (W - 1) * (nx - 1);
+      var i0 = Math.floor(gx), i1 = Math.min(nx - 1, i0 + 1), tx = gx - i0;
+      var o = (py * W + px) * 4;
+      var k00 = r0 + i0, k10 = r0 + i1, k01 = r1 + i0, k11 = r1 + i1;
+      if (!(M[k00] && M[k10] && M[k01] && M[k11])) { d[o + 3] = 0; continue; }
+      var v = (Z[k00] * (1 - tx) + Z[k10] * tx) * (1 - ty) +
+              (Z[k01] * (1 - tx) + Z[k11] * tx) * ty;
+      var b = Math.floor(v / interval);
+      if (b < 0) b = 0; else if (b >= nb) b = nb - 1;
+      var c = cols[b];
+      d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // Pixel 0 samples cell centre 0 and pixel W-1 samples cell centre nx-1, so the
+  // image spans centre to centre, not the cells' outer edges.
+  var x1 = g.x0 + (nx - 1) * g.sx, y1 = g.y0 + (ny - 1) * g.sy;
+  return { url: cv.toDataURL('image/png'),
+           coords: [[g.x0, y1], [x1, y1], [x1, g.y0], [g.x0, g.y0]] };
+}
+
+function setShade(shade) {
+  shadeOn = !!shade;
+  if (!shade) {
+    if (map.getLayer('syn-shade'))
+      map.setLayoutProperty('syn-shade', 'visibility', 'none');
+    return;
+  }
+  if (!map.getSource('syn-shade')) {
+    map.addSource('syn-shade', { type: 'image', url: shade.url,
+                                 coordinates: shade.coords });
+    // Beneath the contour lines and their labels, which are what carry the
+    // values; the shading is the reading aid, not the record.
+    map.addLayer({
+      id: 'syn-shade', type: 'raster', source: 'syn-shade',
+      paint: { 'raster-opacity': SHADE_OPACITY,
+               // No cross-fade: at one frame every five seconds a fade reads as
+               // the data dissolving rather than the year changing.
+               'raster-fade-duration': 0 }
+    }, map.getLayer('contour-line') ? 'contour-line' : undefined);
+  } else {
+    map.getSource('syn-shade').updateImage({ url: shade.url,
+                                             coordinates: shade.coords });
+  }
+  map.setLayoutProperty('syn-shade', 'visibility',
+                        showContours ? 'visible' : 'none');
+}
+
 function tlBuildFrames(chem, bounded) {
   var ci = SYN.chemicals.indexOf(chem);
   var rows = SYN.rows.filter(function (r) { return r[1] === ci; })
@@ -3425,6 +3570,7 @@ function tlBuildFrames(chem, bounded) {
     });
   });
   var interval = Math.max(0.5, +(peak / 6).toPrecision(1));
+  var bands = shadeBands(peak, interval);
 
   var edge = [];
   if (bounded && SYN_PARCEL) {
@@ -3449,9 +3595,18 @@ function tlBuildFrames(chem, bounded) {
         clip: (bounded && SYN_PARCEL) ? SYN_PARCEL.ring : null
       });
     } catch (e) { f.fc = null; }
+    // Shade now, not at playback: rasterising 590k pixels mid-animation would
+    // stall the frame it is meant to draw. The PNG is a few tens of KB, where
+    // the surface it came from is 800 KB of typed array per year, so the grid is
+    // dropped once it has been used.
+    if (f.fc && f.fc.grid) {
+      try { f.shade = shadeFromGrid(f.fc.grid, interval, bands); }
+      catch (e) { f.shade = null; }
+      f.fc.grid = null;
+    }
   });
   return { chem: chem, bounded: bounded, frames: frames, interval: interval,
-           i: 0, timer: null, speed: 5000 };   // five seconds a year
+           bands: bands, i: 0, timer: null, speed: 5000 };   // five seconds a year
 }
 
 // Feeds the parcel source: the polygon always, plus a point carrying the year
@@ -3492,11 +3647,13 @@ function tlShow(i) {
                zmin: f.fc.stats.zmin, zmax: f.fc.stats.zmax,
                clipped: TL.bounded, levels: f.fc.stats.levels,
                lines: f.fc.stats.lines, color: '#0b7285', units: 'µg/L',
-               smoothed: true };
+               smoothed: true, bands: TL.bands };
     renderContourLegend();
   } else if (map.getSource('contours')) {
     map.getSource('contours').setData({ type: 'FeatureCollection', features: [] });
   }
+  // After showContours is settled, so the first shaded frame is not added hidden.
+  setShade(f.shade || null);
   applyState();
   tlRenderBar();
 }
@@ -3538,6 +3695,9 @@ function tlPause() { if (TL) { clearInterval(TL.timer); TL.timer = null; tlRende
 function tlStop() {
   tlPause();
   TL = null;
+  setShade(null);
+  if (ctInfo) delete ctInfo.bands;
+  renderContourLegend();
   if (synSel && synSel.year) { delete synSel.year; applySynValues(); }
   setParcelYear(null);
   applyState();
@@ -3645,8 +3805,18 @@ function buildPrintLegend() {
     out.push('<div class="pf-grp"><h4>Geologic unit (PTYPE)</h4>' +
              '<div class="pf-chips">' + chips + '</div></div>');
   }
-  if (showContours && ctInfo) out.push(pfGroup('Contours',
-    [pfRow('ln', ctInfo.color || '#8a6a4a', ctInfo.field + ' · ' + ctInfo.interval + ' interval')]));
+  if (showContours && ctInfo) {
+    var crows = [pfRow('ln', ctInfo.color || '#8a6a4a',
+                       ctInfo.field + ' · ' + ctInfo.interval + ' interval')];
+    if (shadeOn && ctInfo.bands) {
+      ctInfo.bands.slice().reverse().forEach(function (b, i) {
+        crows.push(pfRow('', b.color,
+          Math.round(b.lo * 10) / 10 + (i === 0 ? '+' : ' – ' + Math.round(b.hi * 10) / 10) +
+          ' ' + (ctInfo.units || '')));
+      });
+    }
+    out.push(pfGroup('Contours', crows));
+  }
   return out.join('') || '<div class="pf-grp"><h4>No layers shown</h4></div>';
 }
 
