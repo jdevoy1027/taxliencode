@@ -420,7 +420,8 @@
            text-overflow:ellipsis;white-space:nowrap;border-bottom:1px solid #ebebe6;margin-bottom:3px}
   .lmenu button{display:block;width:100%;text-align:left;font:inherit;font-size:12.5px;
                 padding:6px 9px;border:0;background:none;border-radius:5px;cursor:pointer;color:#1a1a18}
-  .lmenu button:hover{background:#eef5f2;color:#1d4a3e}
+  .lmenu button:hover:not(:disabled){background:#eef5f2;color:#1d4a3e}
+  .lmenu button:disabled{opacity:.4;cursor:default;background:none;color:#85857e}
 
   .toast{position:absolute;z-index:9;left:50%;transform:translateX(-50%);bottom:22px;
          background:rgba(20,20,20,.9);color:#fff;padding:9px 14px;border-radius:22px;
@@ -2963,6 +2964,33 @@ function srcExtent(id, cb) {
 // so the tick, the map and the saved session all stay in step -- setting layer
 // visibility directly would leave the checkbox lying about the state.
 // Returns true only when it actually changed something.
+// Where the map was before each jump the layer commands made.
+//
+// Only the commands push. Ordinary panning and zooming does not, or the stack
+// would fill with every drag and "previous extent" would mean the view from a
+// moment ago rather than the one before the jump -- which is the only one worth
+// getting back to. Capped, so a long session cannot grow it without limit.
+var VIEW_STACK = [];
+var VIEW_MAX = 20;
+
+function pushView() {
+  VIEW_STACK.push({ center: map.getCenter().toArray(), zoom: map.getZoom() });
+  if (VIEW_STACK.length > VIEW_MAX) VIEW_STACK.shift();
+}
+
+function popView() {
+  var v = VIEW_STACK.pop();
+  if (!v) {
+    showToast('No previous extent to return to.', 'Dismiss', function () {});
+    return;
+  }
+  map.easeTo({ center: v.center, zoom: v.zoom, duration: 800 });
+  var left = VIEW_STACK.length;
+  showToast('Returned to the previous extent.' +
+            (left ? ' ' + left + ' more step' + (left === 1 ? '' : 's') + ' back.' : ''),
+            'Dismiss', function () {});
+}
+
 // The lowest zoom at which a table-of-contents entry draws anything.
 //
 // Two separate floors, and the binding one is the higher: the layer's own
@@ -3031,6 +3059,8 @@ function zoomToLayer(key) {
 function fitLayerExtent(key, acc) {
   var name = LAYER_NAMES[key] || key;
   var bounds = [[acc[0], acc[1]], [acc[2], acc[3]]];
+  // Recorded before anything moves, so this is genuinely the view being left.
+  pushView();
   // Switched on before the camera moves, so the tiles for the new view are
   // requested with the layer already live rather than a frame later.
   var turnedOn = setLayerVisible(key);
@@ -3361,6 +3391,7 @@ function zoomToRecord(i) {
     return;
   }
   var b = r.bbox;
+  pushView();
   // Closed first: the table is modal, and zooming behind it would be invisible.
   closeDlg();
   // A feature split across tiles highlights as each of its pieces, which abut,
@@ -3395,7 +3426,8 @@ function openCtxMenu(header, items, x, y) {
   d.className = 'lmenu';
   d.innerHTML = '<div class="lmenu-h">' + esc(header) + '</div>' +
     items.map(function (it, i) {
-      return '<button type="button" data-i="' + i + '">' + esc(it.label) + '</button>';
+      return '<button type="button" data-i="' + i + '"' +
+             (it.disabled ? ' disabled' : '') + '>' + esc(it.label) + '</button>';
     }).join('');
   document.body.appendChild(d);
   // Positioned after it is in the document, so its measured size can keep it on
@@ -3407,15 +3439,22 @@ function openCtxMenu(header, items, x, y) {
     var b = e.target.closest ? e.target.closest('button[data-i]') : null;
     if (!b) return;
     var it = items[+b.getAttribute('data-i')];
+    if (!it || it.disabled) return;
     closeLayerMenu();
-    if (it) it.run();
+    it.run();
   });
 }
 
 function openLayerMenu(key, x, y) {
   openCtxMenu(LAYER_NAMES[key] || key, [
     { label: 'Zoom to extent of layer', run: function () { zoomToLayer(key); } },
-    { label: 'Show table for layer', run: function () { showLayerTable(key); } }
+    { label: 'Show table for layer', run: function () { showLayerTable(key); } },
+    // Shown even with nothing to go back to, greyed rather than hidden, so the
+    // command is discoverable before it is ever usable and the menu does not
+    // change shape under the cursor.
+    { label: 'Return to previous extent' +
+             (VIEW_STACK.length > 1 ? ' (' + VIEW_STACK.length + ' back)' : ''),
+      disabled: !VIEW_STACK.length, run: popView }
   ], x, y);
 }
 
