@@ -381,7 +381,23 @@
   .dtab tbody tr:hover{background:#f6f6f1}
   /* Right-aligned and tabular so the decimal points line up down the column. */
   .dtab .n{text-align:right;font-variant-numeric:tabular-nums}
-  .dempty{padding:20px;text-align:center;color:#85857e;font-size:12.5px}
+  .dempty{padding:20px;text-align:center;color:#85857e;font-size:12.5px;line-height:1.5}
+  /* Wider still, for the table and its chart side by side. */
+  .dlg.xwide{width:min(940px,100%)}
+  .sdgrid{display:flex;gap:17px;align-items:flex-start}
+  .sdgrid>div{flex:1 1 0;min-width:0}
+  /* Below this the two panes cannot both hold their detail, so they stack
+     rather than shrink the chart to unreadability. */
+  @media (max-width:780px){.sdgrid{flex-direction:column}.sdgrid>div{width:100%}}
+  .chartbox{position:relative;border:1px solid #e6e6e0;border-radius:8px;padding:4px 2px 0}
+  .chartbox svg{display:block;width:100%;height:auto}
+  .ctip{position:absolute;z-index:3;pointer-events:none;background:rgba(20,20,20,.92);
+        color:#fff;font-size:11.5px;line-height:1.45;padding:6px 9px;border-radius:7px;
+        white-space:nowrap;transform:translate(-50%,-100%);margin-top:-9px}
+  .ctip[hidden]{display:none}
+  .ctip b{font-weight:640}
+  .clegend{display:flex;flex-wrap:wrap;gap:4px 13px;margin-top:8px}
+  .clegend span{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#3a3a35}
 
   .toast{position:absolute;z-index:9;left:50%;transform:translateX(-50%);bottom:22px;
          background:rgba(20,20,20,.9);color:#fff;padding:9px 14px;border-radius:22px;
@@ -3256,11 +3272,174 @@ function renderSynData() {
     '</tbody></table>';
 }
 
+// ---- Concentration against year ----------------------------------------
+// One series per site, so a site is an identity and gets a fixed colour and
+// marker for the life of the tool. Colour follows the site, never its position
+// in the filtered result -- filtering down to three sites must not repaint the
+// three that remain.
+//
+// The five colours were not chosen by eye. They are the widest-separated set of
+// five the sRGB gamut allows at >=3:1 contrast on white, found by searching
+// OKLCH hue at maximum in-gamut chroma and maximising the worst pair across
+// normal vision and simulated protanopia, deuteranopia and tritanopia. Worst
+// pair: 19.0 normal (floor 15), 14.1 / 12.1 / 10.1 for the three dichromacies
+// (floor 8). Okabe-Ito, the usual reach for this, fails here -- its green and
+// pink collapse to 7.6 under deuteranopia and two of its hues miss 3:1 on white.
+//
+// Shape carries the same distinction independently, so identity never rests on
+// colour alone -- for print, for photocopies, and for the cases simulation does
+// not cover.
+var SYN_SERIES = ['#d0126f', '#da7306', '#01a2c5', '#0063eb', '#6407af'];
+var SYN_SHAPE  = ['circle', 'square', 'triangle', 'diamond', 'dtriangle'];
+
+function synYearFrac(d) {
+  return +d.slice(0, 4) + (+d.slice(5, 7) - 1) / 12 + (+d.slice(8, 10) - 1) / 365;
+}
+
+// A round number near span/target: 1, 2 or 5 times a power of ten.
+function synNiceStep(span, target) {
+  var raw = span / target, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  var n = raw / mag;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+}
+
+function synMark(shape, x, y, fill, extra) {
+  var r = 4.4, p = null;
+  var common = ' fill="' + fill + '" stroke="#ffffff" stroke-width="1.6"' + (extra || '');
+  if (shape === 'square') {
+    return '<rect x="' + (x - r * 0.88).toFixed(1) + '" y="' + (y - r * 0.88).toFixed(1) +
+           '" width="' + (r * 1.76).toFixed(1) + '" height="' + (r * 1.76).toFixed(1) +
+           '"' + common + '/>';
+  }
+  if (shape === 'triangle')  p = [[x, y - r * 1.15], [x + r, y + r * 0.75], [x - r, y + r * 0.75]];
+  if (shape === 'dtriangle') p = [[x, y + r * 1.15], [x + r, y - r * 0.75], [x - r, y - r * 0.75]];
+  if (shape === 'diamond')   p = [[x, y - r * 1.2], [x + r * 1.05, y], [x, y + r * 1.2], [x - r * 1.05, y]];
+  if (p) {
+    return '<polygon points="' + p.map(function (q) {
+      return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' ') + '"' + common + '/>';
+  }
+  return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + r +
+         '"' + common + '/>';
+}
+
+function renderSynChart() {
+  var chem = document.getElementById('sd-chem').value;
+  var site = document.getElementById('sd-site').value;
+  var host = document.getElementById('sd-chart');
+  var leg  = document.getElementById('sd-legend');
+  var cap  = document.getElementById('sd-chartcap');
+  var tip  = document.getElementById('sd-tip');
+  if (tip) tip.hidden = true;
+  leg.innerHTML = '';
+
+  if (!chem) {
+    cap.textContent = 'Concentration by year';
+    host.innerHTML = '<div class="dempty">Pick a single chemical to plot.<br>' +
+      '<span style="font-size:11.5px">The y axis is one chemical’s concentration, ' +
+      'so plotting all fifteen together would put unrelated substances on a shared ' +
+      'scale and compare nothing.</span></div>';
+    return;
+  }
+
+  var bySite = {};
+  SYN.rows.forEach(function (r) {
+    if (SYN.chemicals[r[1]] !== chem) return;
+    var s = SYN.sites[r[0]];
+    if (site && s !== site) return;
+    (bySite[s] = bySite[s] || []).push({ x: synYearFrac(r[2]), v: r[3] * 1000, d: r[2], s: s });
+  });
+  // Walk SYN.sites, not Object.keys, so the drawing order -- and with it the
+  // colour each site gets -- is the same whatever the filter returned.
+  var names = SYN.sites.filter(function (s) { return bySite[s]; });
+  cap.textContent = chem + ' µg/L by year';
+  if (!names.length) {
+    host.innerHTML = '<div class="dempty">No results to plot.</div>';
+    return;
+  }
+
+  var xs = [], vs = [];
+  names.forEach(function (s) {
+    bySite[s].sort(function (a, b) { return a.x - b.x; });
+    bySite[s].forEach(function (p) { xs.push(p.x); vs.push(p.v); });
+  });
+  var x0 = Math.floor(Math.min.apply(null, xs)), x1 = Math.ceil(Math.max.apply(null, xs));
+  if (x1 <= x0) x1 = x0 + 1;
+  // Zero-based: these are concentrations, and a truncated axis would exaggerate
+  // every change in them.
+  var ystep = synNiceStep(Math.max.apply(null, vs) || 1, 5);
+  var ymax = Math.max(ystep, Math.ceil(Math.max.apply(null, vs) / ystep) * ystep);
+
+  var W = 460, H = 300, ml = 46, mr = 12, mt = 12, mb = 34;
+  var pw = W - ml - mr, ph = H - mt - mb;
+  var px = function (x) { return ml + (x - x0) / (x1 - x0) * pw; };
+  var py = function (v) { return mt + (1 - v / ymax) * ph; };
+
+  var g = '';
+  // Grid and y labels. Recessive -- the data is the ink that matters.
+  for (var v = 0; v <= ymax + 1e-9; v += ystep) {
+    var yy = py(v).toFixed(1);
+    g += '<line x1="' + ml + '" y1="' + yy + '" x2="' + (W - mr) + '" y2="' + yy +
+         '" stroke="' + (v === 0 ? '#c9c9c2' : '#ecece6') + '" stroke-width="1"/>' +
+         '<text x="' + (ml - 7) + '" y="' + (py(v) + 3.6).toFixed(1) +
+         '" text-anchor="end" font-size="10.5" fill="#85857e">' +
+         (Math.round(v * 10) / 10) + '</text>';
+  }
+  // x ticks on whole years, thinned so the labels never collide
+  var xstep = Math.max(1, Math.ceil((x1 - x0) / 6));
+  for (var yr = x0; yr <= x1; yr += xstep) {
+    g += '<text x="' + px(yr).toFixed(1) + '" y="' + (H - mb + 16) +
+         '" text-anchor="middle" font-size="10.5" fill="#85857e">' + yr + '</text>' +
+         '<line x1="' + px(yr).toFixed(1) + '" y1="' + (H - mb) + '" x2="' + px(yr).toFixed(1) +
+         '" y2="' + (H - mb + 4) + '" stroke="#c9c9c2" stroke-width="1"/>';
+  }
+  // No unit label on the axis: it would sit on top of the highest tick label,
+  // and the caption above the chart already reads '<chemical> µg/L by year'.
+
+  // Lines first, then markers, so no line crosses over a point it belongs to.
+  names.forEach(function (s) {
+    var i = SYN.sites.indexOf(s);
+    var pts = bySite[s].map(function (p) {
+      return px(p.x).toFixed(1) + ',' + py(p.v).toFixed(1); }).join(' ');
+    if (bySite[s].length > 1) {
+      g += '<polyline points="' + pts + '" fill="none" stroke="' + SYN_SERIES[i % 5] +
+           '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+    }
+  });
+  names.forEach(function (s) {
+    var i = SYN.sites.indexOf(s);
+    bySite[s].forEach(function (p) {
+      g += synMark(SYN_SHAPE[i % 5], px(p.x), py(p.v), SYN_SERIES[i % 5],
+        ' data-s="' + esc(p.s) + '" data-v="' + p.v.toFixed(1) + '" data-d="' + esc(p.d) +
+        '" style="cursor:pointer"');
+    });
+  });
+
+  host.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
+    'aria-label="' + esc(chem) + ' concentration in micrograms per litre by year, ' +
+    'one line per sample site. The table beside this chart carries the same numbers.">' +
+    g + '</svg>';
+
+  // A legend whenever more than one site is drawn; with one, the caption above
+  // already names what is on screen.
+  if (names.length > 1) {
+    leg.innerHTML = names.map(function (s) {
+      var i = SYN.sites.indexOf(s);
+      return '<span><svg width="20" height="12" aria-hidden="true">' +
+             '<line x1="1" y1="6" x2="19" y2="6" stroke="' + SYN_SERIES[i % 5] +
+             '" stroke-width="2" stroke-linecap="round"/>' +
+             synMark(SYN_SHAPE[i % 5], 10, 6, SYN_SERIES[i % 5]) + '</svg>' + esc(s) + '</span>';
+    }).join('');
+  }
+}
+
 function openSynDataDlg() {
   loadSyn(function () {
     // Carry the chemical over from the results tool if one is showing, so
     // opening this next to a map already coloured for benzene lands on benzene.
-    var chem0 = (synSel && synSel.chem) || '';
+    // Defaults to a real chemical rather than 'All', because the chart needs one
+    // to have a y axis at all and an empty panel is a poor thing to open on.
+    // 'All chemicals' stays available for reading the table across everything.
+    var chem0 = (synSel && synSel.chem) || SYN.chemicals[0];
     function opts(list, sel) {
       return list.map(function (v) {
         return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') +
@@ -3277,21 +3456,56 @@ function openSynDataDlg() {
         '<select id="sd-site"><option value="">All sites</option>' +
           opts(SYN.sites, '') + '</select></div>' +
       '</div>' +
-      '<div class="fld" style="margin-top:13px;margin-bottom:0">' +
-        '<label id="sd-count"></label>' +
-        '<div class="dwrap" id="sd-out"></div>' +
-        '<div class="hint">Every individual analysis, newest first. ' +
-        'Concentrations are converted from the source mg/L to µg/L, the unit the ' +
-        'map and its legend use.</div>' +
+      '<div class="sdgrid" style="margin-top:13px">' +
+        '<div class="fld" style="margin-bottom:0">' +
+          '<label id="sd-count"></label>' +
+          '<div class="dwrap" id="sd-out"></div>' +
+          '<div class="hint">Every individual analysis, newest first. ' +
+          'Concentrations are converted from the source mg/L to µg/L, the unit the ' +
+          'map and its legend use.</div>' +
+        '</div>' +
+        '<div class="fld" style="margin-bottom:0">' +
+          '<label id="sd-chartcap"></label>' +
+          '<div class="chartbox"><div id="sd-chart"></div>' +
+            '<div class="ctip" id="sd-tip" hidden></div></div>' +
+          '<div class="clegend" id="sd-legend"></div>' +
+          '<div class="hint">One line per site, on a zero-based axis. ' +
+          'The table alongside carries the same numbers.</div>' +
+        '</div>' +
       '</div></div>' +
-      '<div class="ft"><button class="cx" id="sd-close">Close</button></div>', 'wide');
+      '<div class="ft"><button class="cx" id="sd-close">Close</button></div>', 'xwide');
 
     document.getElementById('sd-close').addEventListener('click', closeDlg);
-    // Redrawn on change rather than behind a Show button: the whole table is
-    // 500 rows and already in memory, so there is nothing to wait for.
-    document.getElementById('sd-chem').addEventListener('change', renderSynData);
-    document.getElementById('sd-site').addEventListener('change', renderSynData);
+    // Redrawn on change rather than behind a Show button: all 500 rows are
+    // already in memory, so there is nothing to wait for.
+    ['sd-chem', 'sd-site'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function () {
+        renderSynData(); renderSynChart();
+      });
+    });
+
+    // Hover readout. Bound once to the box, which survives every redraw, rather
+    // than to the markers, which do not.
+    var box = document.querySelector('.chartbox');
+    var tip = document.getElementById('sd-tip');
+    box.addEventListener('mouseover', function (e) {
+      var t = e.target;
+      if (!t.getAttribute || !t.getAttribute('data-s')) return;
+      tip.innerHTML = '<b>' + t.getAttribute('data-s') + '</b> · ' +
+                      t.getAttribute('data-v') + ' µg/L<br>' + t.getAttribute('data-d');
+      tip.hidden = false;
+      // Measured in page pixels, so it lands correctly however the SVG has been
+      // scaled to the column.
+      var r = t.getBoundingClientRect(), b = box.getBoundingClientRect();
+      tip.style.left = (r.left + r.width / 2 - b.left) + 'px';
+      tip.style.top  = (r.top - b.top) + 'px';
+    });
+    box.addEventListener('mouseout', function (e) {
+      if (e.target.getAttribute && e.target.getAttribute('data-s')) tip.hidden = true;
+    });
+
     renderSynData();
+    renderSynChart();
   });
 }
 
