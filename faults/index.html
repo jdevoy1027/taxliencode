@@ -3451,9 +3451,12 @@ function openLayerMenu(key, x, y) {
     { label: 'Show table for layer', run: function () { showLayerTable(key); } },
     // Shown even with nothing to go back to, greyed rather than hidden, so the
     // command is discoverable before it is ever usable and the menu does not
-    // change shape under the cursor.
-    { label: 'Return to previous extent' +
-             (VIEW_STACK.length > 1 ? ' (' + VIEW_STACK.length + ' back)' : ''),
+    // change shape under the cursor. On a fresh load that greyed state is the
+    // first thing anyone sees of it, so it says why it is inert rather than
+    // leaving it to look broken.
+    { label: 'Zoom to previous extent' +
+             (!VIEW_STACK.length ? ' (none yet)'
+              : VIEW_STACK.length > 1 ? ' (' + VIEW_STACK.length + ' back)' : ''),
       disabled: !VIEW_STACK.length, run: popView }
   ], x, y);
 }
