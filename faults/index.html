@@ -2930,6 +2930,30 @@ function srcExtent(id, cb) {
 // so the tick, the map and the saved session all stay in step -- setting layer
 // visibility directly would leave the checkbox lying about the state.
 // Returns true only when it actually changed something.
+// The lowest zoom at which a table-of-contents entry draws anything.
+//
+// Two separate floors, and the binding one is the higher: the layer's own
+// minzoom, and the zoom its source's tiles begin at. Lowering a layer's minzoom
+// past its tileset achieves nothing -- GL JS overzooms a tileset upward beyond
+// its maxzoom, but never downward below its minzoom, because those tiles were
+// never generated. The wells tileset starts at z6, so z6 is the floor for the
+// wells however the layer is configured.
+//
+// An entry with several layers draws as soon as any one of them does, so the
+// entry's floor is the smallest across them.
+function layerMinZoom(key) {
+  var out = null;
+  (LAYER_TABLE[key] || LAYER_HITS[key] || []).forEach(function (id) {
+    var l = map.getLayer(id);
+    if (!l) return;
+    var s = null;
+    try { s = map.getSource(l.source); } catch (e) { s = null; }
+    var z = Math.max(l.minzoom || 0, (s && s.minzoom) || 0);
+    out = out == null ? z : Math.min(out, z);
+  });
+  return out;
+}
+
 function setLayerVisible(key) {
   for (var i = 0; i < LAYER_FLAGS.length; i++) {
     if (LAYER_FLAGS[i][0] !== key) continue;
@@ -2970,26 +2994,27 @@ function zoomToLayer(key) {
       // requested with the layer already live rather than a frame later.
       var turnedOn = setLayerVisible(key);
 
-      // Where the fit will land, asked before moving. Framing a layer's extent
-      // usually means zooming out, and several layers do not draw below a
-      // minimum zoom -- parcels not below 14 -- so switching one on and flying
-      // to its full extent can still leave an empty map. Better to say so than
-      // to let it look broken.
+      // Where the fit would land, asked before moving. Framing an extent means
+      // zooming out, and a layer whose data starts deeper than that would draw
+      // nothing at all -- the command would do exactly as asked and show an
+      // empty map, which is not what anyone means by it.
       var cam = null;
       try { cam = map.cameraForBounds(bounds, { padding: 40 }); } catch (e) { cam = null; }
-      var minz = null;
-      (LAYER_TABLE[key] || LAYER_HITS[key] || []).forEach(function (id) {
-        var l = map.getLayer(id);
-        if (l && l.minzoom != null) minz = minz == null ? l.minzoom : Math.min(minz, l.minzoom);
-      });
-
-      map.fitBounds(bounds, { padding: 40, duration: 900 });
+      var minz = layerMinZoom(key);
 
       var f = function (v) { return (Math.round(v * 1000) / 1000).toFixed(3); };
       var note = turnedOn ? ' · switched the layer on' : '';
+
       if (cam && minz != null && cam.zoom < minz) {
-        note += ' · it draws from zoom ' + minz + ' and this view is zoom ' +
-                (Math.round(cam.zoom * 10) / 10) + ', so zoom in to see it';
+        // Hold at the shallowest zoom the data exists at, centred on the
+        // extent. Showing the features slightly cropped beats framing the
+        // extent perfectly with nothing in it.
+        map.easeTo({ center: cam.center, zoom: minz, duration: 900 });
+        note += ' · held at zoom ' + minz + ' so the features draw — their tiles ' +
+                'start there, and the whole extent would need zoom ' +
+                (Math.round(cam.zoom * 10) / 10);
+      } else {
+        map.fitBounds(bounds, { padding: 40, duration: 900 });
       }
       showToast(esc(name) + ' extent · ' + f(acc[0]) + ', ' + f(acc[1]) + ' to ' +
                 f(acc[2]) + ', ' + f(acc[3]) + note, 'Dismiss', function () {});
