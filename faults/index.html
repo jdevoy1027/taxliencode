@@ -399,6 +399,16 @@
   .clegend{display:flex;flex-wrap:wrap;gap:4px 13px;margin-top:8px}
   .clegend span{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#3a3a35}
 
+  /* Right-click menu on a layer name. */
+  .lmenu{position:fixed;z-index:40;background:#fff;border:1px solid #c7c7c0;border-radius:8px;
+         box-shadow:0 10px 28px rgba(0,0,0,.22);padding:4px;min-width:208px}
+  .lmenu-h{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+           color:#85857e;padding:5px 9px 5px;max-width:230px;overflow:hidden;
+           text-overflow:ellipsis;white-space:nowrap;border-bottom:1px solid #ebebe6;margin-bottom:3px}
+  .lmenu button{display:block;width:100%;text-align:left;font:inherit;font-size:12.5px;
+                padding:6px 9px;border:0;background:none;border-radius:5px;cursor:pointer;color:#1a1a18}
+  .lmenu button:hover{background:#eef5f2;color:#1d4a3e}
+
   .toast{position:absolute;z-index:9;left:50%;transform:translateX(-50%);bottom:22px;
          background:rgba(20,20,20,.9);color:#fff;padding:9px 14px;border-radius:22px;
          font-size:12.5px;display:flex;align-items:center;gap:11px}
@@ -2794,7 +2804,271 @@ document.querySelectorAll('.lbl[data-layer]').forEach(function (el) {
   el.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' || e.key === ' ') { pick(e); }
   });
+  // Right-click for the layer commands. A right-click is invisible until
+  // someone tries it, so the tooltip says it is there. The Menu key raises the
+  // same event, which keeps it reachable from the keyboard.
+  el.title = 'Click to make active · right-click for layer commands';
+  el.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    openLayerMenu(el.getAttribute('data-layer'), e.clientX, e.clientY);
+  });
 });
+
+// ================= Layer commands (right-click a layer name) =================
+// Which sources each table-of-contents entry is fed by. Separate from
+// LAYER_HITS, which names rendered layers for click reporting -- extent is a
+// property of the data, and parcels are one entry over two tilesets.
+var LAYER_SRC = {
+  wells: ['wells'], water: ['waterwells'], bores: ['bores'], faults: ['faults'],
+  ap: ['apzones'], liq: ['liqzones'], pipe: ['pipelines'],
+  parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
+  geo: ['geology'], syn: ['synergy'], contours: ['contours']
+};
+// The GeoJSON sources' files, so the envelope can be computed without reaching
+// into the source object's private state.
+var SRC_URL = {
+  faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
+  bores: './boreholes.geojson', synergy: './synergy.geojson',
+  contours: './bore_contours.geojson'
+};
+// Contours are the exception to caching: setData replaces them whenever the
+// contour or Synergy tools run, so the envelope is recomputed each time.
+var EXTENT_CACHE = {};
+
+function fcBBox(j) {
+  var b = [Infinity, Infinity, -Infinity, -Infinity];
+  function walk(c) {
+    if (typeof c[0] === 'number') {
+      if (c[0] < b[0]) b[0] = c[0];
+      if (c[1] < b[1]) b[1] = c[1];
+      if (c[0] > b[2]) b[2] = c[0];
+      if (c[1] > b[3]) b[3] = c[1];
+      return;
+    }
+    for (var i = 0; i < c.length; i++) walk(c[i]);
+  }
+  (j && j.features || []).forEach(function (f) {
+    if (f.geometry && f.geometry.coordinates) walk(f.geometry.coordinates);
+  });
+  return isFinite(b[0]) ? b : null;
+}
+
+// A vector tileset's envelope comes from its TileJSON, which the source has
+// already fetched. Three ways to reach it, in order of cost, because the first
+// two read internals that are not part of the public API and could be renamed
+// by a GL JS release: the TileJSON fields copied onto the source, the
+// LngLatBounds it builds from them, then asking the API directly.
+//
+// Tile-aligned rather than exact either way -- it is the extent of the tiles
+// holding data, not the data's own envelope -- which is close enough to frame a
+// view by.
+function vectorBounds(src, cb) {
+  if (Array.isArray(src.bounds) && src.bounds.length === 4) { cb(src.bounds.slice()); return; }
+  var tb = src.tileBounds && src.tileBounds.bounds;
+  if (tb && typeof tb.toArray === 'function') {
+    var a = tb.toArray();                                  // [[w, s], [e, n]]
+    cb([a[0][0], a[0][1], a[1][0], a[1][1]]);
+    return;
+  }
+  var u = String(src.url || '');
+  if (u.indexOf('mapbox://') !== 0) { cb(null); return; }
+  fetch('https://api.mapbox.com/v4/' + u.slice(9) + '.json?access_token=' +
+        encodeURIComponent(mapboxgl.accessToken))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      cb(Array.isArray(j.bounds) && j.bounds.length === 4 ? j.bounds : null);
+    })
+    .catch(function () { cb(null); });
+}
+
+function srcExtent(id, cb) {
+  if (EXTENT_CACHE[id]) { cb(EXTENT_CACHE[id]); return; }
+  var src = map.getSource(id);
+  if (!src) { cb(null); return; }
+  if (src.type === 'vector') {
+    vectorBounds(src, function (b) {
+      if (b) EXTENT_CACHE[id] = b;
+      cb(b);
+    });
+    return;
+  }
+  // GeoJSON: walk the data for the exact envelope. If the source is carrying
+  // live data put there by setData, use that rather than the file it started
+  // from -- the contour source holds whatever was last contoured.
+  var live = null;
+  try { live = map.getSource(id)._data; } catch (e) { live = null; }
+  if (live && typeof live === 'object' && live.type) { cb(fcBBox(live)); return; }
+  var url = (typeof live === 'string' && live) || SRC_URL[id];
+  if (!url) { cb(null); return; }
+  fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+    var b = fcBBox(j);
+    if (b && id !== 'contours') EXTENT_CACHE[id] = b;
+    cb(b);
+  }).catch(function () { cb(null); });
+}
+
+function zoomToLayer(key) {
+  var ids = LAYER_SRC[key] || [];
+  var name = LAYER_NAMES[key] || key;
+  if (!ids.length) {
+    showToast('No extent available for ' + esc(name) + '.', 'Dismiss', function () {});
+    return;
+  }
+  var acc = null, left = ids.length;
+  ids.forEach(function (id) {
+    srcExtent(id, function (b) {
+      if (b) {
+        acc = acc ? [Math.min(acc[0], b[0]), Math.min(acc[1], b[1]),
+                     Math.max(acc[2], b[2]), Math.max(acc[3], b[3])] : b.slice();
+      }
+      if (--left) return;                       // wait for every source
+      if (!acc) {
+        showToast('Could not work out an extent for ' + esc(name) + '.',
+                  'Dismiss', function () {});
+        return;
+      }
+      map.fitBounds([[acc[0], acc[1]], [acc[2], acc[3]]],
+                    { padding: 40, duration: 900 });
+      // Zooming does not switch a layer on -- that would be a state change the
+      // command was not asked to make -- but say so, or the view lands on an
+      // empty map with no explanation.
+      var hits = LAYER_HITS[key] || [];
+      var off = hits.length && !hits.some(function (i) {
+        return map.getLayer(i) && map.getLayoutProperty(i, 'visibility') !== 'none';
+      });
+      var f = function (v) { return (Math.round(v * 1000) / 1000).toFixed(3); };
+      showToast(esc(name) + ' extent · ' + f(acc[0]) + ', ' + f(acc[1]) + ' to ' +
+                f(acc[2]) + ', ' + f(acc[3]) +
+                (off ? ' · the layer is switched off, so nothing will draw' : ''),
+                'Dismiss', function () {});
+    });
+  });
+}
+
+// Contours report on no layer when clicked, so LAYER_HITS has nothing for them,
+// but they are drawn and can be tabulated.
+var LAYER_TABLE = { contours: ['contour-line'] };
+var TABLE_CAP = 500;
+
+function showLayerTable(key) {
+  var name = LAYER_NAMES[key] || key;
+  var ids = (LAYER_TABLE[key] || LAYER_HITS[key] || []).filter(function (id) {
+    return map.getLayer(id);
+  });
+  var vis = ids.filter(function (id) {
+    return map.getLayoutProperty(id, 'visibility') !== 'none';
+  });
+  // Vector tiles hold only what has been fetched for the current view, so this
+  // is the features on screen, not the whole dataset -- for parcels that is a
+  // few hundred out of millions. Said plainly in the dialog rather than implied.
+  var feats = vis.length ? map.queryRenderedFeatures({ layers: vis }) : [];
+
+  // One feature can be split across several tiles and come back once per tile.
+  var seen = {}, rows = [];
+  feats.forEach(function (f) {
+    var k = f.id != null ? 'i' + f.id : 'p' + JSON.stringify(f.properties || {});
+    if (seen[k]) return;
+    seen[k] = 1;
+    rows.push(f.properties || {});
+  });
+
+  var why = '';
+  if (!rows.length) {
+    var minz = null;
+    ids.forEach(function (id) {
+      var l = map.getLayer(id);
+      if (l && l.minzoom != null) minz = minz == null ? l.minzoom : Math.min(minz, l.minzoom);
+    });
+    why = !ids.length ? 'This entry draws nothing that can be tabulated.'
+        : !vis.length ? 'The layer is switched off. Tick it in the layer list first.'
+        : (minz != null && map.getZoom() < minz)
+          ? 'It does not draw below zoom ' + minz + ', and the map is at zoom ' +
+            (Math.round(map.getZoom() * 10) / 10) + '. Zoom in and try again.'
+        : 'Nothing from this layer is in the current view.';
+  }
+
+  // Columns ordered by how many rows carry them, so the fields that describe
+  // every feature come first and sparse ones fall off the end.
+  var freq = {}, order = [], idx = {};
+  rows.forEach(function (p) {
+    Object.keys(p).forEach(function (k) {
+      if (freq[k] === undefined) { freq[k] = 0; idx[k] = order.length; order.push(k); }
+      freq[k]++;
+    });
+  });
+  order.sort(function (a, b) { return freq[b] - freq[a] || idx[a] - idx[b]; });
+  var cols = order.slice(0, 8);
+  var shown = rows.slice(0, TABLE_CAP);
+
+  var body;
+  if (!rows.length) {
+    body = '<div class="dempty">' + esc(why) + '</div>';
+  } else {
+    body = '<table class="dtab"><thead><tr>' +
+      cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') +
+      '</tr></thead><tbody>' +
+      shown.map(function (p) {
+        return '<tr>' + cols.map(function (c) {
+          var v = p[c];
+          return '<td' + (typeof v === 'number' ? ' class="n"' : '') + '>' +
+                 (v == null || v === '' ? '<span style="opacity:.4">—</span>' : esc(v)) +
+                 '</td>';
+        }).join('') + '</tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  openDlg('<h2>' + esc(name) + ' — features in view</h2><div class="bd">' +
+    '<div class="fld" style="margin-bottom:0"><label>' +
+      rows.length.toLocaleString() + ' feature' + (rows.length === 1 ? '' : 's') +
+      (rows.length > TABLE_CAP ? ' · showing the first ' + TABLE_CAP : '') +
+      (order.length > cols.length ? ' · ' + cols.length + ' of ' + order.length + ' fields' : '') +
+    '</label>' +
+    '<div class="dwrap" id="lt-out">' + body + '</div>' +
+    '<div class="hint">What is drawn in the current view, not the whole layer — ' +
+    'pan or zoom and open it again for a different set.' +
+    (rows.length > TABLE_CAP
+      ? ' ' + (rows.length - TABLE_CAP).toLocaleString() + ' further features are in view but not listed.'
+      : '') +
+    (order.length > cols.length
+      ? ' Fields are ordered by how many features carry them; ' +
+        (order.length - cols.length) + ' rarer ones are not shown.'
+      : '') +
+    '</div></div></div>' +
+    '<div class="ft"><button class="cx" id="lt-close">Close</button></div>', 'xwide');
+  document.getElementById('lt-close').addEventListener('click', closeDlg);
+}
+
+var lmenu = null;
+function closeLayerMenu() { if (lmenu) { lmenu.remove(); lmenu = null; } }
+document.addEventListener('click', function (e) {
+  if (lmenu && !lmenu.contains(e.target)) closeLayerMenu();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeLayerMenu();
+});
+
+function openLayerMenu(key, x, y) {
+  closeLayerMenu();
+  var d = document.createElement('div');
+  d.className = 'lmenu';
+  d.innerHTML = '<div class="lmenu-h">' + esc(LAYER_NAMES[key] || key) + '</div>' +
+    '<button type="button" data-cmd="zoom">Zoom to extent of layer</button>' +
+    '<button type="button" data-cmd="table">Show table for layer</button>';
+  document.body.appendChild(d);
+  // Placed after it is in the document, so its measured size can keep it on
+  // screen when the click lands near an edge.
+  d.style.left = Math.max(6, Math.min(x, window.innerWidth - d.offsetWidth - 8)) + 'px';
+  d.style.top = Math.max(6, Math.min(y, window.innerHeight - d.offsetHeight - 8)) + 'px';
+  lmenu = d;
+  d.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button[data-cmd]') : null;
+    if (!b) return;
+    var cmd = b.getAttribute('data-cmd');
+    closeLayerMenu();
+    if (cmd === 'zoom') zoomToLayer(key); else showLayerTable(key);
+  });
+}
 
 function setActiveLayer(key) {
   activeLayer = (activeLayer === key) ? null : key;   // click again to clear
