@@ -83,7 +83,7 @@ window.initAnnotate = function (map) {
   const hint = document.createElement('div'); hint.id = 'annot-hint'; document.body.appendChild(hint);
 
   const cur = { tool: null, color: '#ed1c24', width: 3, fill: false, dash: false, cap: 'round' };
-  const HINTS = { pencil: 'Drag to draw freehand', line: 'Click points · double-click to finish', arrow: 'Drag, or click start then end',
+  const HINTS = { pencil: 'Drag to draw freehand', line: 'Drag for one segment, or click points · double-click to finish', arrow: 'Drag, or click start then end',
     rect: 'Drag, or click two opposite corners', circle: 'Drag from center, or click center then edge', polygon: 'Click vertices · double-click to finish',
     text: 'Click to place text', erase: 'Click a shape to delete it', bucket: 'Click a shape to recolor it', pick: 'Click a shape to pick its color' };
 
@@ -217,7 +217,14 @@ window.initAnnotate = function (map) {
   const llOf = (e) => { const u = map.unproject(ptOf(e)); return [u.lng, u.lat]; };
   const hitAid = (e) => { const f = map.queryRenderedFeatures(ptOf(e), { layers: HIT })[0]; return f || null; };
 
+  // Two different questions, and the line tool answers them differently.
+  //   TWO_POINT  a second click commits the shape.
+  //   DRAGGABLE  a press-drag-release draws it in one gesture.
+  // Line is draggable but not two-point: dragging lays down a single segment,
+  // while clicking still begins a multi-vertex polyline that a double-click
+  // finishes, so both a quick segment and a many-cornered path stay possible.
   const TWO_POINT = { rect: 1, circle: 1, arrow: 1 };
+  const DRAGGABLE = { rect: 1, circle: 1, arrow: 1, line: 1 };
   const DRAG_MIN = 5;                       // px before a press counts as a drag
 
   // Vertex dots for every point placed so far, so a click always shows something.
@@ -240,6 +247,7 @@ window.initAnnotate = function (map) {
     if (cur.tool === 'rect') commit([feat(rectPoly(a, b), 'rect')]);
     else if (cur.tool === 'circle') commit([feat(circlePoly(a, b), 'circle')]);
     else if (cur.tool === 'arrow') { const head = feat(arrowHead(a, b), 'arrowhead', true); head.properties.dash = false; commit([feat({ type: 'LineString', coordinates: [a, b] }, 'arrow'), head]); }
+    else if (cur.tool === 'line') commit([feat({ type: 'LineString', coordinates: [a, b] }, 'line')]);
     pts = []; setPv([]);
   }
 
@@ -249,7 +257,7 @@ window.initAnnotate = function (map) {
     // shape. Only when no click-click is already under way, or the press would
     // steal the anchor from it. Click-click still works: a press that never
     // moves falls through to the click handler below.
-    if (TWO_POINT[cur.tool] && !pts.length) { down = { px: ptOf(e), ll: llOf(e) }; dragged = false; }
+    if (DRAGGABLE[cur.tool] && !pts.length) { down = { px: ptOf(e), ll: llOf(e) }; dragged = false; }
   });
   ov.addEventListener('mousemove', (e) => {
     if (cur.tool === 'pencil' && free) { const p = ptOf(e); if (Math.hypot(p[0] - lastPx[0], p[1] - lastPx[1]) >= 2.5) { free.push(llOf(e)); lastPx = p; setPv([pvFeat({ type: 'LineString', coordinates: free })]); } return; }
