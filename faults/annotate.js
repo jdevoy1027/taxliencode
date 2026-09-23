@@ -56,6 +56,14 @@ window.initAnnotate = function (map) {
   #pbox .act button:hover{background:#eaf1ff}
   #pbox .done{width:100%;height:26px;margin-top:0;background:#2d6cdf;color:#fff;border:none;border-radius:3px;cursor:pointer;font:700 11px inherit}
   #annot-ov{position:absolute;inset:0;z-index:2;display:none;cursor:crosshair}
+  #tfont{position:fixed;z-index:10001;background:#e9e9e9;border:1px solid #888;border-radius:5px;
+    box-shadow:0 8px 24px rgba(0,0,0,.32);padding:8px;width:194px;font:12px Tahoma,Helvetica,Arial,sans-serif}
+  #tfont .lbl{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#555;margin:0 0 4px}
+  #tfont .row{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px}
+  #tfont .row button{flex:1 0 48px;height:25px;background:#fff;border:1px solid #aaa;border-radius:3px;cursor:pointer;font:600 11px inherit;color:#222}
+  #tfont .row button.active{background:#2d6cdf;border-color:#2d6cdf;color:#fff}
+  #tfont .fonts button{flex:1 0 100%;height:27px;text-align:left;padding:0 9px;font-size:13px}
+  #tfont .done{width:100%;height:25px;background:#2d6cdf;color:#fff;border:0;border-radius:3px;cursor:pointer;font:700 11px inherit}
   #annot-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:5;display:none;
     background:rgba(26,26,46,.92);color:#fff;padding:4px 10px;border-radius:5px;font:12px Tahoma,Helvetica,Arial,sans-serif}`;
   document.head.appendChild(Object.assign(document.createElement('style'), { textContent: css }));
@@ -82,13 +90,71 @@ window.initAnnotate = function (map) {
   const ov = document.createElement('div'); ov.id = 'annot-ov'; map.getContainer().appendChild(ov);
   const hint = document.createElement('div'); hint.id = 'annot-hint'; document.body.appendChild(hint);
 
-  const cur = { tool: null, color: '#ed1c24', width: 3, fill: false, dash: false, cap: 'round' };
+  // Every stack here was checked against the Mapbox glyph API before being
+  // offered. A font Mapbox cannot serve does not fall back -- the label simply
+  // does not draw -- so an unverified name silently loses the annotation.
+  // Second entry in each stack is the fallback for glyphs the first lacks.
+  const FONTS = [
+    ['bold',    'Bold',      ['DIN Pro Bold', 'Arial Unicode MS Bold'],           'font-weight:700'],
+    ['regular', 'Regular',   ['DIN Pro Regular', 'Arial Unicode MS Regular'],     'font-weight:400'],
+    ['italic',  'Italic',    ['DIN Pro Italic', 'Arial Unicode MS Regular'],      'font-style:italic'],
+    ['mono',    'Mono',      ['Roboto Mono Regular', 'Arial Unicode MS Regular'], 'font-family:ui-monospace,Menlo,Consolas,monospace'],
+    ['open',    'Open Sans', ['Open Sans Bold', 'Arial Unicode MS Bold'],         'font-weight:700;font-family:\'Open Sans\',Segoe UI,sans-serif'],
+  ];
+  const TSIZES = [12, 16, 20, 26, 34, 44];
+  const cur = { tool: null, color: '#ed1c24', width: 3, fill: false, dash: false, cap: 'round', tsize: 16, tfont: 'bold' };
   const HINTS = { pencil: 'Drag to draw freehand', line: 'Drag for one segment, or click points · double-click to finish', arrow: 'Drag, or click start then end',
     rect: 'Drag, or click two opposite corners', circle: 'Drag from center, or click center then edge', polygon: 'Click vertices · double-click to finish',
-    text: 'Click to place text', erase: 'Click a shape to delete it', bucket: 'Click a shape to recolor it', pick: 'Click a shape to pick its color' };
+    text: 'Click to place text · hold the Text button for size and font', erase: 'Click a shape to delete it', bucket: 'Click a shape to recolor it', pick: 'Click a shape to pick its color' };
 
   const toolEls = {}; const tg = box.querySelector('#p-tools');
   TOOLS.forEach(([k, title]) => { const b = document.createElement('div'); b.className = 'tool'; b.title = title; b.innerHTML = svg(k); b.onclick = () => setTool(k); tg.appendChild(b); toolEls[k] = b; });
+  // Text carries two settings the other tools do not, and a palette this narrow
+  // has nowhere to keep them on show. Hold the Text button -- or right-click it
+  // -- for size and font; a plain click still just picks the tool.
+  const textBtn = toolEls.text;
+  textBtn.title = 'Text \u2014 hold or right-click to set size and font';
+  let lpTimer = null, lpFired = false, fontPanel = null;
+  textBtn.onclick = () => { if (lpFired) { lpFired = false; return; } setTool('text'); };
+  textBtn.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;                       // right-click has its own path
+    lpFired = false;
+    lpTimer = setTimeout(() => { lpFired = true; openFontPanel(); }, 420);
+  });
+  ['mouseup', 'mouseleave'].forEach((t) => textBtn.addEventListener(t, () => clearTimeout(lpTimer)));
+  // A right-click fires no click afterwards, so lpFired must NOT be set here or
+  // it would swallow the next ordinary left-click on the button.
+  textBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); clearTimeout(lpTimer); openFontPanel(); });
+
+  function closeFontPanel() { if (fontPanel) { fontPanel.remove(); fontPanel = null; } }
+  function openFontPanel() {
+    closeFontPanel();
+    const d = document.createElement('div'); d.id = 'tfont';
+    d.innerHTML = '<div class="lbl">Text size</div><div class="row" id="tf-sz"></div>' +
+                  '<div class="lbl">Font</div><div class="row fonts" id="tf-ft"></div>' +
+                  '<button class="done" id="tf-done">Done</button>';
+    document.body.appendChild(d);
+    const pick = (host, b) => { host.querySelectorAll('button').forEach((x) => x.classList.remove('active')); b.classList.add('active'); };
+    const szr = d.querySelector('#tf-sz');
+    TSIZES.forEach((n) => { const b = document.createElement('button'); b.textContent = n;
+      if (n === cur.tsize) b.classList.add('active');
+      b.onclick = () => { cur.tsize = n; pick(szr, b); }; szr.appendChild(b); });
+    const ftr = d.querySelector('#tf-ft');
+    FONTS.forEach(([k, label, stack, css]) => { const b = document.createElement('button'); b.textContent = label;
+      b.setAttribute('style', css);
+      if (k === cur.tfont) b.classList.add('active');
+      b.onclick = () => { cur.tfont = k; pick(ftr, b); }; ftr.appendChild(b); });
+    d.querySelector('#tf-done').onclick = closeFontPanel;
+    // Placed after it is in the document so its measured size keeps it on screen.
+    const r = textBtn.getBoundingClientRect();
+    d.style.left = Math.max(6, Math.min(r.right + 8, window.innerWidth - d.offsetWidth - 8)) + 'px';
+    d.style.top = Math.max(6, Math.min(r.top, window.innerHeight - d.offsetHeight - 8)) + 'px';
+    fontPanel = d;
+  }
+  document.addEventListener('mousedown', (e) => {
+    if (fontPanel && !fontPanel.contains(e.target) && !textBtn.contains(e.target)) closeFontPanel();
+  });
+
   const SZ = [2, 4, 8]; const szEls = []; const sg = box.querySelector('#p-sizes');
   SZ.forEach((w) => { const b = document.createElement('div'); b.className = 'sz' + (w === cur.width ? ' active' : ''); b.title = w + 'px';
     b.innerHTML = `<span class="bar" style="width:${4 + w * 1.4}px;height:${w}px"></span>`;
@@ -147,8 +213,16 @@ window.initAnnotate = function (map) {
   [[false, 'round'], [false, 'square'], [true, 'round'], [true, 'square']].forEach(([d, cap]) => { const id = `annot-line-${d ? 'd' : 's'}-${cap}`;
     map.addLayer({ id, type: 'line', source: 'annot', filter: ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'dash'], d], ['==', ['get', 'cap'], cap]], layout: { 'line-cap': cap, 'line-join': 'round' },
       paint: Object.assign({ 'line-color': ['get', 'color'], 'line-width': ['get', 'width'] }, d ? { 'line-dasharray': [2, 1.6] } : {}) }); HIT.push(id); });
+  // text-font cannot read a property directly: the spec requires the font stacks
+  // to appear as literals inside the expression, so the choice is a match over a
+  // key rather than a get of the stack itself. Both fall back for annotations
+  // saved before these existed -- tsize to the old width-derived size, tfont to
+  // the match's default.
+  const TFONT = ['match', ['get', 'tfont']];
+  FONTS.forEach(([k, , stack]) => { if (k !== 'bold') TFONT.push(k, ['literal', stack]); });
+  TFONT.push(['literal', FONTS[0][2]]);
   map.addLayer({ id: 'annot-text', type: 'symbol', source: 'annot', filter: ['==', ['get', 'atype'], 'text'],
-    layout: { 'text-field': ['get', 'text'], 'text-size': ['+', 11, ['*', ['get', 'width'], 1.8]], 'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'], 'text-allow-overlap': true },
+    layout: { 'text-field': ['get', 'text'], 'text-size': ['coalesce', ['get', 'tsize'], ['+', 11, ['*', ['get', 'width'], 1.8]]], 'text-font': TFONT, 'text-allow-overlap': true },
     paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.6 } }); HIT.push('annot-text');
   // The draft is turquoise and solid, and the shape takes the chosen colour only
   // once it is committed. A dashed draft in the final colour was hard to tell
@@ -292,8 +366,8 @@ window.initAnnotate = function (map) {
     const c = llOf(e);
     if (cur.tool === 'erase') { const f = hitAid(e); if (f) { const a = f.properties.aid; fc.features = fc.features.filter((x) => x.properties.aid != a); refresh(); } return; }
     if (cur.tool === 'pick') { const f = hitAid(e); if (f && f.properties.color) setColor(f.properties.color); return; }
-    if (cur.tool === 'bucket') { const f = hitAid(e); if (f) { const a = f.properties.aid; fc.features.forEach((x) => { if (x.properties.aid == a) { x.properties.color = cur.color; x.properties.width = cur.width; x.properties.dash = cur.dash; x.properties.cap = cur.cap; x.properties.fill = x.properties.atype === 'arrowhead' ? true : cur.fill; if (x.properties.atype === 'arrowhead') x.properties.dash = false; } }); refresh(); } return; }
-    if (cur.tool === 'text') { const t = prompt('Annotation text:'); if (t) { const f = feat({ type: 'Point', coordinates: c }, 'text'); f.properties.text = t; commit([f]); } return; }
+    if (cur.tool === 'bucket') { const f = hitAid(e); if (f) { const a = f.properties.aid; fc.features.forEach((x) => { if (x.properties.aid == a) { x.properties.color = cur.color; x.properties.width = cur.width; x.properties.dash = cur.dash; x.properties.cap = cur.cap; x.properties.fill = x.properties.atype === 'arrowhead' ? true : cur.fill; if (x.properties.atype === 'arrowhead') x.properties.dash = false; if (x.properties.atype === 'text') { x.properties.tsize = cur.tsize; x.properties.tfont = cur.tfont; } } }); refresh(); } return; }
+    if (cur.tool === 'text') { const t = prompt('Annotation text:'); if (t) { const f = feat({ type: 'Point', coordinates: c }, 'text'); f.properties.text = t; f.properties.tsize = cur.tsize; f.properties.tfont = cur.tfont; commit([f]); } return; }
     if (TWO_POINT[cur.tool]) { pts.push(c); if (pts.length === 2) commitTwoPoint(pts[0], pts[1]); else previewTo(null); return; }
     // previewTo(null) on every placed point: the vertex appears the instant it
     // is clicked, rather than waiting for the pointer to move.
