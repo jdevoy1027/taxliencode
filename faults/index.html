@@ -547,6 +547,7 @@
     <div class="sec">
       <h2>Layers</h2>
       <div class="actbar" id="actbar" hidden></div>
+      <div class="actbar" id="hlbar" hidden></div>
 
       <div class="toc">
         <div class="tr">
@@ -2701,10 +2702,38 @@ function searchMsg(t) {
 
 // Outline the parcel a search landed on. Passing null clears both counties,
 // which every new search does first so a stale highlight never lingers.
+// Two different highlights can sit on the map: the search outline on a parcel,
+// and the record highlight from zoom-to-record and the attribute inspector.
+// Both were only clearable from the thing that created them -- a toast that
+// gets replaced, a dialog button easily missed, or in the search's case from
+// nothing at all -- which left no way to ask for a highlight to go away.
+//
+// So while anything is highlighted there is a bar in the panel saying what, and
+// one control that takes all of it off.
+var hlNote = null;
+
+function setHighlightNote(text) {
+  hlNote = text || null;
+  var bar = document.getElementById('hlbar');
+  if (!bar) return;
+  if (!hlNote) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML = 'Highlighted: <b>' + esc(hlNote) + '</b>' +
+                  '<button type="button" id="hl-clear">Clear</button>';
+  var b = document.getElementById('hl-clear');
+  if (b) b.addEventListener('click', clearAllHighlights);
+}
+
+function clearAllHighlights() {
+  clearHilite();
+  highlightParcel(null);
+  setHighlightNote(null);
+}
+
 function highlightParcel(ain) {
   ['pc-hlc', 'pc-hl', 'pc2-hlc', 'pc2-hl'].forEach(function (id) {
     if (map.getLayer(id)) {
-      map.setFilter(id, ['==', ['get', 'ain'], ain == null ? ' ' : String(ain)]);
+      map.setFilter(id, ['==', ['get', 'ain'], ain == null ? '\u0000' : String(ain)]);
     }
   });
 }
@@ -2751,7 +2780,10 @@ function openParcelAt(lngLat, wantAin, wantAddr) {
     }
 
     if (hit) {
-      if (hit.ain) highlightParcel(hit.ain);
+      if (hit.ain) {
+        highlightParcel(hit.ain);
+        setHighlightNote('Parcel ' + hit.ain);
+      }
       new mapboxgl.Popup({ closeButton: true, maxWidth: '290px' })
         .setLngLat(lngLat).setHTML(parcelPopupHtml(hit)).addTo(map);
       searchMsg('');
@@ -2816,7 +2848,10 @@ function searchAddress(q) {
 
 function doParcelSearch() {
   var q = (document.getElementById('pq').value || '').trim();
-  if (!q) return;
+  // An empty box clears rather than doing nothing. Emptying the field and
+  // searching is the obvious way to ask for the highlight to go away, and it
+  // used to return before even reaching the clear below.
+  if (!q) { clearAllHighlights(); return; }
   highlightParcel(null);
   var digits = q.replace(/\D/g, '');
   // Digits/spaces/dashes only, and either 10 (LA AIN) or 8 (Orange County APN,
@@ -3389,6 +3424,8 @@ function showFeatureAttrs(pt) {
   // Highlighted while it is being read, so which feature answered is never in
   // doubt where several overlap.
   setHilite(f.geometry ? [f.geometry] : []);
+  setHighlightNote(name + (fields.length && props[fields[0]] != null && props[fields[0]] !== ''
+    ? ' · ' + fields[0] + ' ' + props[fields[0]] : ''));
 
   var body = fields.length
     ? '<table class="dtab attrs"><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>' +
@@ -3420,7 +3457,7 @@ function showFeatureAttrs(pt) {
 
   document.getElementById('fa-close').addEventListener('click', closeDlg);
   document.getElementById('fa-clear').addEventListener('click', function () {
-    clearHilite(); closeDlg();
+    clearAllHighlights(); closeDlg();
   });
 }
 
@@ -3498,6 +3535,7 @@ function zoomToRecord(i) {
   // A feature split across tiles highlights as each of its pieces, which abut,
   // so it reads as one shape.
   setHilite(r.geoms);
+  setHighlightNote(ltRecordLabel(i));
   if (b[0] === b[2] && b[1] === b[3]) {
     // A point has no extent to fit, so move to it and close in instead.
     map.easeTo({ center: [b[0], b[1]], zoom: Math.max(map.getZoom(), 17), duration: 800 });
@@ -3507,7 +3545,7 @@ function zoomToRecord(i) {
   }
   // The highlight stays until it is dismissed, so it survives panning around
   // the record. The toast button is what takes it off again.
-  showToast('Zoomed to ' + esc(ltRecordLabel(i)) + '.', 'Clear highlight', clearHilite);
+  showToast('Zoomed to ' + esc(ltRecordLabel(i)) + '.', 'Clear highlight', clearAllHighlights);
 }
 
 var lmenu = null;
