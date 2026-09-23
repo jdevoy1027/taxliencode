@@ -83,8 +83,8 @@ window.initAnnotate = function (map) {
   const hint = document.createElement('div'); hint.id = 'annot-hint'; document.body.appendChild(hint);
 
   const cur = { tool: null, color: '#ed1c24', width: 3, fill: false, dash: false, cap: 'round' };
-  const HINTS = { pencil: 'Drag to draw freehand', line: 'Click points · double-click to finish', arrow: 'Click start, then end',
-    rect: 'Click two opposite corners', circle: 'Click center, then edge', polygon: 'Click vertices · double-click to finish',
+  const HINTS = { pencil: 'Drag to draw freehand', line: 'Click points · double-click to finish', arrow: 'Drag, or click start then end',
+    rect: 'Drag, or click two opposite corners', circle: 'Drag from center, or click center then edge', polygon: 'Click vertices · double-click to finish',
     text: 'Click to place text', erase: 'Click a shape to delete it', bucket: 'Click a shape to recolor it', pick: 'Click a shape to pick its color' };
 
   const toolEls = {}; const tg = box.querySelector('#p-tools');
@@ -130,6 +130,9 @@ window.initAnnotate = function (map) {
   })();
 
   // ── data + layers ──────────────────────────────────────────────────────────
+  // CSS 'turquoise'. Bright enough to read over the aerial basemap and not in
+  // the drawing palette, so a draft is never mistaken for a finished shape.
+  const DRAFT = '#40e0d0';
   const fc = { type: 'FeatureCollection', features: [] };
   const pv = { type: 'FeatureCollection', features: [] };
   map.addSource('annot', { type: 'geojson', data: fc });
@@ -147,8 +150,17 @@ window.initAnnotate = function (map) {
   map.addLayer({ id: 'annot-text', type: 'symbol', source: 'annot', filter: ['==', ['get', 'atype'], 'text'],
     layout: { 'text-field': ['get', 'text'], 'text-size': ['+', 11, ['*', ['get', 'width'], 1.8]], 'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'], 'text-allow-overlap': true },
     paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.6 } }); HIT.push('annot-text');
-  map.addLayer({ id: 'annot-pv-fill', type: 'fill', source: 'annot-pv', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['case', ['get', 'fill'], 0.18, 0] } });
-  map.addLayer({ id: 'annot-pv-line', type: 'line', source: 'annot-pv', paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'], 'line-dasharray': [2, 1.6] } });
+  // The draft is turquoise and solid, and the shape takes the chosen colour only
+  // once it is committed. A dashed draft in the final colour was hard to tell
+  // from a finished dashed shape in the same colour; one fixed draft colour says
+  // "this is not placed yet" without depending on what is being drawn.
+  map.addLayer({ id: 'annot-pv-fill', type: 'fill', source: 'annot-pv', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': DRAFT, 'fill-opacity': ['case', ['get', 'fill'], 0.18, 0] } });
+  map.addLayer({ id: 'annot-pv-line', type: 'line', source: 'annot-pv', filter: ['!=', ['geometry-type'], 'Point'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': DRAFT, 'line-width': ['get', 'width'] } });
+  // Vertex markers. These are what make a first click visible: before this, the
+  // first click of a two-click shape recorded a point and drew nothing at all,
+  // so nothing appeared until the pointer moved -- which reads as the click
+  // having been ignored.
+  map.addLayer({ id: 'annot-pv-dot', type: 'circle', source: 'annot-pv', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 4.5, 'circle-color': DRAFT, 'circle-stroke-color': '#10333a', 'circle-stroke-width': 1.4 } });
   const refresh = () => map.getSource('annot').setData(fc);
   const setPv = (f) => { pv.features = f; map.getSource('annot-pv').setData(pv); };
 
@@ -191,7 +203,7 @@ window.initAnnotate = function (map) {
 
   // ── tool selection ──────────────────────────────────────────────────────────
   function setTool(t) {
-    cur.tool = (cur.tool === t) ? null : t; pts = []; free = null; setPv([]);
+    cur.tool = (cur.tool === t) ? null : t; pts = []; free = null; down = null; dragged = false; swallowClick = false; setPv([]);
     Object.values(toolEls).forEach((b) => b.classList.remove('active'));
     if (cur.tool && toolEls[cur.tool]) toolEls[cur.tool].classList.add('active');
     ov.style.display = cur.tool ? 'block' : 'none';
@@ -200,33 +212,84 @@ window.initAnnotate = function (map) {
   }
 
   // ── interaction (overlay) ────────────────────────────────────────────────────
-  let pts = [], free = null, lastPx = null;
+  let pts = [], free = null, lastPx = null, down = null, dragged = false, swallowClick = false;
   const ptOf = (e) => { const r = ov.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   const llOf = (e) => { const u = map.unproject(ptOf(e)); return [u.lng, u.lat]; };
   const hitAid = (e) => { const f = map.queryRenderedFeatures(ptOf(e), { layers: HIT })[0]; return f || null; };
 
-  ov.addEventListener('mousedown', (e) => { if (cur.tool === 'pencil') { free = [llOf(e)]; lastPx = ptOf(e); } });
+  const TWO_POINT = { rect: 1, circle: 1, arrow: 1 };
+  const DRAG_MIN = 5;                       // px before a press counts as a drag
+
+  // Vertex dots for every point placed so far, so a click always shows something.
+  const pvPts = (cs) => cs.map((c) => ({ type: 'Feature', properties: { width: cur.width, fill: false }, geometry: { type: 'Point', coordinates: c } }));
+
+  // The rubber band for the click-click flow. Passing null draws only the dots,
+  // which is what the moment just after a click needs.
+  function previewTo(c) {
+    if (!pts.length) { setPv([]); return; }
+    const dots = pvPts(pts);
+    if (!c) { setPv(dots); return; }
+    if (cur.tool === 'rect') setPv([pvFeat(rectPoly(pts[0], c))].concat(dots));
+    else if (cur.tool === 'circle') setPv([pvFeat(circlePoly(pts[0], c))].concat(dots));
+    else if (cur.tool === 'arrow') setPv([pvFeat({ type: 'LineString', coordinates: [pts[0], c] })].concat(dots));
+    else if (cur.tool === 'line' || cur.tool === 'polygon') setPv([pvFeat({ type: 'LineString', coordinates: pts.concat([c]) })].concat(dots));
+    else setPv(dots);
+  }
+
+  function commitTwoPoint(a, b) {
+    if (cur.tool === 'rect') commit([feat(rectPoly(a, b), 'rect')]);
+    else if (cur.tool === 'circle') commit([feat(circlePoly(a, b), 'circle')]);
+    else if (cur.tool === 'arrow') { const head = feat(arrowHead(a, b), 'arrowhead', true); head.properties.dash = false; commit([feat({ type: 'LineString', coordinates: [a, b] }, 'arrow'), head]); }
+    pts = []; setPv([]);
+  }
+
+  ov.addEventListener('mousedown', (e) => {
+    if (cur.tool === 'pencil') { free = [llOf(e)]; lastPx = ptOf(e); return; }
+    // Press-drag-release for the two-point shapes, so one gesture draws one
+    // shape. Only when no click-click is already under way, or the press would
+    // steal the anchor from it. Click-click still works: a press that never
+    // moves falls through to the click handler below.
+    if (TWO_POINT[cur.tool] && !pts.length) { down = { px: ptOf(e), ll: llOf(e) }; dragged = false; }
+  });
   ov.addEventListener('mousemove', (e) => {
     if (cur.tool === 'pencil' && free) { const p = ptOf(e); if (Math.hypot(p[0] - lastPx[0], p[1] - lastPx[1]) >= 2.5) { free.push(llOf(e)); lastPx = p; setPv([pvFeat({ type: 'LineString', coordinates: free })]); } return; }
+    if (down) {
+      const p = ptOf(e);
+      if (!dragged && Math.hypot(p[0] - down.px[0], p[1] - down.px[1]) >= DRAG_MIN) dragged = true;
+      if (dragged) {
+        const c = llOf(e);
+        if (cur.tool === 'rect') setPv([pvFeat(rectPoly(down.ll, c))].concat(pvPts([down.ll])));
+        else if (cur.tool === 'circle') setPv([pvFeat(circlePoly(down.ll, c))].concat(pvPts([down.ll])));
+        else setPv([pvFeat({ type: 'LineString', coordinates: [down.ll, c] })].concat(pvPts([down.ll])));
+        return;
+      }
+    }
     if (!cur.tool || !pts.length) return;
-    const c = llOf(e);
-    if (cur.tool === 'rect') setPv([pvFeat(rectPoly(pts[0], c))]);
-    else if (cur.tool === 'circle') setPv([pvFeat(circlePoly(pts[0], c))]);
-    else if (cur.tool === 'arrow') setPv([pvFeat({ type: 'LineString', coordinates: [pts[0], c] })]);
-    else if (cur.tool === 'line' || cur.tool === 'polygon') setPv([pvFeat({ type: 'LineString', coordinates: pts.concat([c]) })]);
+    previewTo(llOf(e));
   });
-  ov.addEventListener('mouseup', () => { if (cur.tool === 'pencil' && free) { if (free.length >= 2) commit([feat({ type: 'LineString', coordinates: free }, 'pencil')]); free = null; setPv([]); } });
+  ov.addEventListener('mouseup', (e) => {
+    if (cur.tool === 'pencil' && free) { if (free.length >= 2) commit([feat({ type: 'LineString', coordinates: free }, 'pencil')]); free = null; setPv([]); return; }
+    if (down && dragged) {
+      commitTwoPoint(down.ll, llOf(e));
+      down = null; dragged = false;
+      // The click that follows this mouseup must not start a second shape.
+      swallowClick = true;
+      return;
+    }
+    down = null; dragged = false;
+  });
   ov.addEventListener('click', (e) => {
+    if (swallowClick) { swallowClick = false; return; }
     if (cur.tool === 'pencil') return;
     const c = llOf(e);
     if (cur.tool === 'erase') { const f = hitAid(e); if (f) { const a = f.properties.aid; fc.features = fc.features.filter((x) => x.properties.aid != a); refresh(); } return; }
     if (cur.tool === 'pick') { const f = hitAid(e); if (f && f.properties.color) setColor(f.properties.color); return; }
     if (cur.tool === 'bucket') { const f = hitAid(e); if (f) { const a = f.properties.aid; fc.features.forEach((x) => { if (x.properties.aid == a) { x.properties.color = cur.color; x.properties.width = cur.width; x.properties.dash = cur.dash; x.properties.cap = cur.cap; x.properties.fill = x.properties.atype === 'arrowhead' ? true : cur.fill; if (x.properties.atype === 'arrowhead') x.properties.dash = false; } }); refresh(); } return; }
     if (cur.tool === 'text') { const t = prompt('Annotation text:'); if (t) { const f = feat({ type: 'Point', coordinates: c }, 'text'); f.properties.text = t; commit([f]); } return; }
-    if (cur.tool === 'rect') { pts.push(c); if (pts.length === 2) { commit([feat(rectPoly(pts[0], pts[1]), 'rect')]); pts = []; setPv([]); } return; }
-    if (cur.tool === 'circle') { pts.push(c); if (pts.length === 2) { commit([feat(circlePoly(pts[0], pts[1]), 'circle')]); pts = []; setPv([]); } return; }
-    if (cur.tool === 'arrow') { pts.push(c); if (pts.length === 2) { const head = feat(arrowHead(pts[0], pts[1]), 'arrowhead', true); head.properties.dash = false; commit([feat({ type: 'LineString', coordinates: [pts[0], pts[1]] }, 'arrow'), head]); pts = []; setPv([]); } return; }
-    if (cur.tool === 'line' || cur.tool === 'polygon') pts.push(c);
+    if (TWO_POINT[cur.tool]) { pts.push(c); if (pts.length === 2) commitTwoPoint(pts[0], pts[1]); else previewTo(null); return; }
+    // previewTo(null) on every placed point: the vertex appears the instant it
+    // is clicked, rather than waiting for the pointer to move.
+    if (cur.tool === 'line' || cur.tool === 'polygon') { pts.push(c); previewTo(null); }
   });
   ov.addEventListener('dblclick', (e) => { e.preventDefault(); finishMulti(); });
   function finishMulti() {
@@ -236,7 +299,7 @@ window.initAnnotate = function (map) {
     pts = []; setPv([]);
   }
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { pts = []; free = null; setPv([]); }
+    if (e.key === 'Escape') { pts = []; free = null; down = null; dragged = false; setPv([]); }
     else if (e.key === 'Enter' && (cur.tool === 'line' || cur.tool === 'polygon')) finishMulti();
   });
 };
