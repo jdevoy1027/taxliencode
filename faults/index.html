@@ -2926,6 +2926,25 @@ function srcExtent(id, cb) {
   }).catch(function () { cb(null); });
 }
 
+// Turns a table-of-contents entry on through the same flag the checkbox drives,
+// so the tick, the map and the saved session all stay in step -- setting layer
+// visibility directly would leave the checkbox lying about the state.
+// Returns true only when it actually changed something.
+function setLayerVisible(key) {
+  for (var i = 0; i < LAYER_FLAGS.length; i++) {
+    if (LAYER_FLAGS[i][0] !== key) continue;
+    var row = LAYER_FLAGS[i];
+    if (row[3]()) return false;                 // already on, nothing to do
+    row[2](true);
+    var cb = document.getElementById(row[1]);
+    if (cb) cb.checked = true;
+    applyState();
+    saveState();
+    return true;
+  }
+  return false;
+}
+
 function zoomToLayer(key) {
   var ids = LAYER_SRC[key] || [];
   var name = LAYER_NAMES[key] || key;
@@ -2946,20 +2965,34 @@ function zoomToLayer(key) {
                   'Dismiss', function () {});
         return;
       }
-      map.fitBounds([[acc[0], acc[1]], [acc[2], acc[3]]],
-                    { padding: 40, duration: 900 });
-      // Zooming does not switch a layer on -- that would be a state change the
-      // command was not asked to make -- but say so, or the view lands on an
-      // empty map with no explanation.
-      var hits = LAYER_HITS[key] || [];
-      var off = hits.length && !hits.some(function (i) {
-        return map.getLayer(i) && map.getLayoutProperty(i, 'visibility') !== 'none';
+      var bounds = [[acc[0], acc[1]], [acc[2], acc[3]]];
+      // Switched on before the camera moves, so the tiles for the new view are
+      // requested with the layer already live rather than a frame later.
+      var turnedOn = setLayerVisible(key);
+
+      // Where the fit will land, asked before moving. Framing a layer's extent
+      // usually means zooming out, and several layers do not draw below a
+      // minimum zoom -- parcels not below 14 -- so switching one on and flying
+      // to its full extent can still leave an empty map. Better to say so than
+      // to let it look broken.
+      var cam = null;
+      try { cam = map.cameraForBounds(bounds, { padding: 40 }); } catch (e) { cam = null; }
+      var minz = null;
+      (LAYER_TABLE[key] || LAYER_HITS[key] || []).forEach(function (id) {
+        var l = map.getLayer(id);
+        if (l && l.minzoom != null) minz = minz == null ? l.minzoom : Math.min(minz, l.minzoom);
       });
+
+      map.fitBounds(bounds, { padding: 40, duration: 900 });
+
       var f = function (v) { return (Math.round(v * 1000) / 1000).toFixed(3); };
+      var note = turnedOn ? ' · switched the layer on' : '';
+      if (cam && minz != null && cam.zoom < minz) {
+        note += ' · it draws from zoom ' + minz + ' and this view is zoom ' +
+                (Math.round(cam.zoom * 10) / 10) + ', so zoom in to see it';
+      }
       showToast(esc(name) + ' extent · ' + f(acc[0]) + ', ' + f(acc[1]) + ' to ' +
-                f(acc[2]) + ', ' + f(acc[3]) +
-                (off ? ' · the layer is switched off, so nothing will draw' : ''),
-                'Dismiss', function () {});
+                f(acc[2]) + ', ' + f(acc[3]) + note, 'Dismiss', function () {});
     });
   });
 }
