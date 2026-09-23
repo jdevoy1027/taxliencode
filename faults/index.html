@@ -386,6 +386,12 @@
   /* Right-aligned and tabular so the decimal points line up down the column. */
   .dtab .n{text-align:right;font-variant-numeric:tabular-nums}
   .dempty{padding:20px;text-align:center;color:#85857e;font-size:12.5px;line-height:1.5}
+  .ltpager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:8px}
+  .ltpager button{font:inherit;font-size:12.5px;font-weight:560;padding:5px 12px;
+                  border:1px solid #d0d0ca;background:#fff;color:#3a3a35;
+                  border-radius:7px;cursor:pointer}
+  .ltpager button:disabled{opacity:.4;cursor:not-allowed}
+  .ltpager span{font-size:12px;color:#85857e;font-variant-numeric:tabular-nums}
   /* Wider still, for the table and its chart side by side. */
   .dlg.xwide{width:min(940px,100%)}
   .sdgrid{display:flex;gap:17px;align-items:flex-start}
@@ -3055,127 +3061,221 @@ function fitLayerExtent(key, acc) {
 // Contours report on no layer when clicked, so LAYER_HITS has nothing for them,
 // but they are drawn and can be tabulated.
 var LAYER_TABLE = { contours: ['contour-line'] };
-var TABLE_CAP = 500;
+// Rendered a page at a time. Every record is reachable; they are simply not all
+// in the DOM at once, because a layer like the boreholes is 13,137 rows and
+// putting a hundred thousand cells on the page at once stalls the browser for
+// no benefit -- nothing past the first screen can be read until it is scrolled
+// to anyway.
+var TABLE_PAGE = 2000;
+// A ceiling on collection, not on display. Only the tile-backed layers can
+// reach it, and only when a lot of tiles are loaded at once.
+var TABLE_MAX = 50000;
 
-function showLayerTable(key) {
-  var name = LAYER_NAMES[key] || key;
+var GEO_CACHE = {};
+
+function sourceGeoJSON(id, cb) {
+  if (GEO_CACHE[id]) { cb(GEO_CACHE[id]); return; }
+  var src = map.getSource(id);
+  if (!src) { cb(null); return; }
+  // Live data put there by setData wins over the file the source started from.
+  var live = null;
+  try { live = src._data; } catch (e) { live = null; }
+  if (live && typeof live === 'object' && live.type) { cb(live); return; }
+  var url = (typeof live === 'string' && live) || SRC_URL[id];
+  if (!url) { cb(null); return; }
+  fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+    if (j && id !== 'contours') GEO_CACHE[id] = j;
+    cb(j);
+  }).catch(function () { cb(null); });
+}
+
+// Two different meanings of "every record", because the two kinds of layer
+// differ in what the browser actually holds.
+//
+//   GeoJSON  the whole file is on the client, so this really is the entire
+//            layer -- all 13,137 boreholes, not the ones on screen.
+//   vector   only fetched tiles exist here. querySourceFeatures reaches every
+//            tile in the cache, which is wider than the viewport and includes
+//            places already panned over, but there is no browser API that
+//            enumerates a whole tileset. Complete is false and the dialog says so.
+function tableFeatures(key, cb) {
   var ids = (LAYER_TABLE[key] || LAYER_HITS[key] || []).filter(function (id) {
     return map.getLayer(id);
   });
   var vis = ids.filter(function (id) {
     return map.getLayoutProperty(id, 'visibility') !== 'none';
   });
-  // Vector tiles hold only what has been fetched for the current view, so this
-  // is the features on screen, not the whole dataset -- for parcels that is a
-  // few hundred out of millions. Said plainly in the dialog rather than implied.
-  var feats = vis.length ? map.queryRenderedFeatures({ layers: vis }) : [];
+  var srcIds = LAYER_SRC[key] || [];
+  var geo = srcIds.filter(function (sid) {
+    var s = map.getSource(sid);
+    return s && s.type === 'geojson';
+  });
 
-  // One feature can be split across several tiles and come back once per tile.
-  // The duplicates are not simply dropped: each piece carries its own slice of
-  // the geometry, so their envelopes are merged, and a parcel straddling a tile
-  // seam gets its whole footprint rather than whichever half arrived first.
-  var byKey = {}, rows = [];
-  feats.forEach(function (f) {
-    var k = f.id != null ? 'i' + f.id : 'p' + JSON.stringify(f.properties || {});
-    var b = geomBBox(f.geometry);
-    if (byKey[k]) {
-      byKey[k].bbox = unionBBox(byKey[k].bbox, b);
-      if (f.geometry) byKey[k].geoms.push(f.geometry);
+  if (srcIds.length && geo.length === srcIds.length) {
+    var acc = [], left = geo.length;
+    geo.forEach(function (sid) {
+      sourceGeoJSON(sid, function (fc) {
+        if (fc && fc.features) acc = acc.concat(fc.features);
+        if (--left) return;
+        cb({ feats: acc, complete: true, geojson: true, ids: ids, vis: vis });
+      });
+    });
+    return;
+  }
+
+  var out = [];
+  ids.forEach(function (lid) {
+    var l = map.getLayer(lid);
+    if (!l) return;
+    try {
+      // The layer's own filter goes with the query, or the census blocks would
+      // list the Texas rows the map deliberately does not draw.
+      var opt = { sourceLayer: l.sourceLayer };
+      var flt = map.getFilter(lid);
+      if (flt) opt.filter = flt;
+      out = out.concat(map.querySourceFeatures(l.source, opt));
+    } catch (e) { /* a layer whose source has no tiles loaded */ }
+  });
+  cb({ feats: out, complete: false, geojson: false, ids: ids, vis: vis });
+}
+
+function showLayerTable(key) {
+  var name = LAYER_NAMES[key] || key;
+  tableFeatures(key, function (res) {
+    var feats = res.feats.slice(0, TABLE_MAX);
+    var dropped = res.feats.length - feats.length;
+
+    // De-duplication is a tile artefact and must not be applied to GeoJSON: two
+    // contour segments at the same level carry identical properties and are
+    // still two records, so keying on properties there would silently merge them.
+    var rows = [];
+    if (res.geojson) {
+      feats.forEach(function (f) {
+        rows.push({ props: f.properties || {}, bbox: geomBBox(f.geometry),
+                    geoms: f.geometry ? [f.geometry] : [] });
+      });
+    } else {
+      var byKey = {};
+      feats.forEach(function (f) {
+        var k = f.id != null ? 'i' + f.id : 'p' + JSON.stringify(f.properties || {});
+        var b = geomBBox(f.geometry);
+        if (byKey[k]) {
+          byKey[k].bbox = unionBBox(byKey[k].bbox, b);
+          if (f.geometry) byKey[k].geoms.push(f.geometry);
+          return;
+        }
+        byKey[k] = { props: f.properties || {}, bbox: b,
+                     geoms: f.geometry ? [f.geometry] : [] };
+        rows.push(byKey[k]);
+      });
+    }
+
+    var why = '';
+    if (!rows.length) {
+      var mz = layerMinZoom(key);
+      why = !res.ids.length ? 'This entry draws nothing that can be tabulated.'
+          : !res.vis.length ? 'The layer is switched off. Tick it in the layer list first.'
+          : (mz != null && map.getZoom() < mz)
+            ? 'It does not draw below zoom ' + mz + ', and the map is at zoom ' +
+              (Math.round(map.getZoom() * 10) / 10) +
+              ', so no tiles for it have been loaded. Zoom in and try again.'
+          : 'Nothing from this layer has been loaded yet.';
+    }
+
+    var freq = {}, order = [], idx = {};
+    rows.forEach(function (r) {
+      Object.keys(r.props).forEach(function (k) {
+        if (freq[k] === undefined) { freq[k] = 0; idx[k] = order.length; order.push(k); }
+        freq[k]++;
+      });
+    });
+    order.sort(function (a, b) { return freq[b] - freq[a] || idx[a] - idx[b]; });
+
+    LT_ROWS = rows;
+    LT_COLS = order.slice(0, 8);
+    LT_PAGE = 0;
+
+    openDlg('<h2>' + esc(name) + ' — ' +
+      (res.complete ? 'all records' : 'loaded records') + '</h2><div class="bd">' +
+      '<div class="fld" style="margin-bottom:0">' +
+        '<label id="lt-count"></label>' +
+        '<div class="dwrap" id="lt-out"></div>' +
+        '<div id="lt-pager" class="ltpager" hidden></div>' +
+        '<div class="hint">' +
+        (res.complete
+          ? 'Every record in the layer, read from the source data rather than from what is on screen.'
+          : 'This layer is served as tiles, so only what the browser has fetched is ' +
+            'here — wider than the current view, since it includes tiles already ' +
+            'panned over, but not the whole tileset. Pan and zoom to load more.') +
+        (dropped > 0 ? ' Collection stopped at ' + TABLE_MAX.toLocaleString() +
+                       '; ' + dropped.toLocaleString() + ' more were available.' : '') +
+        (order.length > LT_COLS.length
+          ? ' Fields are ordered by how many records carry them; ' +
+            (order.length - LT_COLS.length) + ' rarer ones are not shown.' : '') +
+        (rows.length ? ' Right-click a row to zoom to that record.' : '') +
+        '</div></div></div>' +
+      '<div class="ft"><button class="cx" id="lt-close">Close</button></div>', 'xwide');
+    document.getElementById('lt-close').addEventListener('click', closeDlg);
+
+    if (!rows.length) {
+      document.getElementById('lt-count').textContent = 'No records';
+      document.getElementById('lt-out').innerHTML = '<div class="dempty">' + esc(why) + '</div>';
       return;
     }
-    // The geometry is kept by reference, not copied -- these objects already
-    // exist from the query, and the highlight needs the shape itself, which a
-    // bounding box cannot give back.
-    byKey[k] = { props: f.properties || {}, bbox: b,
-                 geoms: f.geometry ? [f.geometry] : [] };
-    rows.push(byKey[k]);
-  });
+    ltRenderPage(0);
 
-  var why = '';
-  if (!rows.length) {
-    var minz = null;
-    ids.forEach(function (id) {
-      var l = map.getLayer(id);
-      if (l && l.minzoom != null) minz = minz == null ? l.minzoom : Math.min(minz, l.minzoom);
+    document.getElementById('lt-out').addEventListener('contextmenu', function (e) {
+      var tr = e.target.closest ? e.target.closest('tr[data-row]') : null;
+      if (!tr) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var i = +tr.getAttribute('data-row');
+      openCtxMenu(ltRecordLabel(i), [
+        { label: 'Zoom to record', run: function () { zoomToRecord(i); } }
+      ], e.clientX, e.clientY);
     });
-    why = !ids.length ? 'This entry draws nothing that can be tabulated.'
-        : !vis.length ? 'The layer is switched off. Tick it in the layer list first.'
-        : (minz != null && map.getZoom() < minz)
-          ? 'It does not draw below zoom ' + minz + ', and the map is at zoom ' +
-            (Math.round(map.getZoom() * 10) / 10) + '. Zoom in and try again.'
-        : 'Nothing from this layer is in the current view.';
-  }
-
-  // Columns ordered by how many rows carry them, so the fields that describe
-  // every feature come first and sparse ones fall off the end.
-  var freq = {}, order = [], idx = {};
-  rows.forEach(function (r) {
-    Object.keys(r.props).forEach(function (k) {
-      if (freq[k] === undefined) { freq[k] = 0; idx[k] = order.length; order.push(k); }
-      freq[k]++;
-    });
-  });
-  order.sort(function (a, b) { return freq[b] - freq[a] || idx[a] - idx[b]; });
-  var cols = order.slice(0, 8);
-  var shown = rows.slice(0, TABLE_CAP);
-
-  var body;
-  if (!rows.length) {
-    body = '<div class="dempty">' + esc(why) + '</div>';
-  } else {
-    body = '<table class="dtab"><thead><tr>' +
-      cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') +
-      '</tr></thead><tbody>' +
-      shown.map(function (r, i) {
-        // data-row indexes LT_ROWS. shown is a prefix of rows, so the index is
-        // the same in both and the cap cannot misalign them.
-        return '<tr data-row="' + i + '"' + (r.bbox ? '' : ' class="nogeom"') + '>' +
-          cols.map(function (c) {
-            var v = r.props[c];
-            return '<td' + (typeof v === 'number' ? ' class="n"' : '') + '>' +
-                   (v == null || v === '' ? '<span style="opacity:.4">—</span>' : esc(v)) +
-                   '</td>';
-          }).join('') + '</tr>';
-      }).join('') + '</tbody></table>';
-  }
-
-  openDlg('<h2>' + esc(name) + ' — features in view</h2><div class="bd">' +
-    '<div class="fld" style="margin-bottom:0"><label>' +
-      rows.length.toLocaleString() + ' feature' + (rows.length === 1 ? '' : 's') +
-      (rows.length > TABLE_CAP ? ' · showing the first ' + TABLE_CAP : '') +
-      (order.length > cols.length ? ' · ' + cols.length + ' of ' + order.length + ' fields' : '') +
-    '</label>' +
-    '<div class="dwrap" id="lt-out">' + body + '</div>' +
-    '<div class="hint">What is drawn in the current view, not the whole layer — ' +
-    'pan or zoom and open it again for a different set.' +
-    (rows.length > TABLE_CAP
-      ? ' ' + (rows.length - TABLE_CAP).toLocaleString() + ' further features are in view but not listed.'
-      : '') +
-    (order.length > cols.length
-      ? ' Fields are ordered by how many features carry them; ' +
-        (order.length - cols.length) + ' rarer ones are not shown.'
-      : '') +
-    (rows.length ? ' Right-click a row to zoom to that record.' : '') +
-    '</div></div></div>' +
-    '<div class="ft"><button class="cx" id="lt-close">Close</button></div>', 'xwide');
-  document.getElementById('lt-close').addEventListener('click', closeDlg);
-
-  LT_ROWS = rows;
-  LT_COLS = cols;
-  var out = document.getElementById('lt-out');
-  out.addEventListener('contextmenu', function (e) {
-    var tr = e.target.closest ? e.target.closest('tr[data-row]') : null;
-    if (!tr) return;
-    e.preventDefault();
-    e.stopPropagation();
-    var i = +tr.getAttribute('data-row');
-    openCtxMenu(ltRecordLabel(i), [
-      { label: 'Zoom to record', run: function () { zoomToRecord(i); } }
-    ], e.clientX, e.clientY);
   });
 }
 
-var LT_ROWS = [], LT_COLS = [];
+function ltRenderPage(p) {
+  var pages = Math.max(1, Math.ceil(LT_ROWS.length / TABLE_PAGE));
+  LT_PAGE = Math.max(0, Math.min(pages - 1, p));
+  var from = LT_PAGE * TABLE_PAGE;
+  var to = Math.min(LT_ROWS.length, from + TABLE_PAGE);
+
+  document.getElementById('lt-count').textContent =
+    LT_ROWS.length.toLocaleString() + ' record' + (LT_ROWS.length === 1 ? '' : 's') +
+    (pages > 1 ? ' · showing ' + (from + 1).toLocaleString() + '–' + to.toLocaleString() : '');
+
+  var html = '<table class="dtab"><thead><tr>' +
+    LT_COLS.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+  for (var i = from; i < to; i++) {
+    var r = LT_ROWS[i];
+    // data-row is the absolute index, so zoom-to-record is right on every page.
+    html += '<tr data-row="' + i + '"' + (r.bbox ? '' : ' class="nogeom"') + '>' +
+      LT_COLS.map(function (c) {
+        var v = r.props[c];
+        return '<td' + (typeof v === 'number' ? ' class="n"' : '') + '>' +
+               (v == null || v === '' ? '<span style="opacity:.4">—</span>' : esc(v)) +
+               '</td>';
+      }).join('') + '</tr>';
+  }
+  document.getElementById('lt-out').innerHTML = html + '</tbody></table>';
+  document.getElementById('lt-out').scrollTop = 0;
+
+  var pager = document.getElementById('lt-pager');
+  if (pages < 2) { pager.hidden = true; pager.innerHTML = ''; return; }
+  pager.hidden = false;
+  pager.innerHTML =
+    '<button type="button" id="lt-prev"' + (LT_PAGE === 0 ? ' disabled' : '') + '>‹ Previous</button>' +
+    '<span>Page ' + (LT_PAGE + 1) + ' of ' + pages + '</span>' +
+    '<button type="button" id="lt-next"' + (LT_PAGE >= pages - 1 ? ' disabled' : '') + '>Next ›</button>';
+  document.getElementById('lt-prev').addEventListener('click', function () { ltRenderPage(LT_PAGE - 1); });
+  document.getElementById('lt-next').addEventListener('click', function () { ltRenderPage(LT_PAGE + 1); });
+}
+
+var LT_ROWS = [], LT_COLS = [], LT_PAGE = 0;
 
 // Names the record by its first column, which is the field most features carry
 // and so the one most likely to identify it. Falls back to the row number.
