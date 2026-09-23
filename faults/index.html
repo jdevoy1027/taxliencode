@@ -385,6 +385,9 @@
   .dtab tbody tr.nogeom{cursor:default;color:#85857e}
   /* Right-aligned and tabular so the decimal points line up down the column. */
   .dtab .n{text-align:right;font-variant-numeric:tabular-nums}
+  /* Record number: recessive, so it orients without competing with the data. */
+  .dtab .rn{text-align:right;font-variant-numeric:tabular-nums;color:#9a9a92;
+            width:1%;white-space:nowrap;padding-right:13px}
   .dempty{padding:20px;text-align:center;color:#85857e;font-size:12.5px;line-height:1.5}
   .ltpager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:8px}
   .ltpager button{font:inherit;font-size:12.5px;font-weight:560;padding:5px 12px;
@@ -3066,7 +3069,7 @@ var LAYER_TABLE = { contours: ['contour-line'] };
 // putting a hundred thousand cells on the page at once stalls the browser for
 // no benefit -- nothing past the first screen can be read until it is scrolled
 // to anyway.
-var TABLE_PAGE = 2000;
+var TABLE_PAGE = 500;
 // A ceiling on collection, not on display. Only the tile-backed layers can
 // reach it, and only when a lot of tiles are loaded at once.
 var TABLE_MAX = 50000;
@@ -3247,13 +3250,18 @@ function ltRenderPage(p) {
     LT_ROWS.length.toLocaleString() + ' record' + (LT_ROWS.length === 1 ? '' : 's') +
     (pages > 1 ? ' · showing ' + (from + 1).toLocaleString() + '–' + to.toLocaleString() : '');
 
-  var html = '<table class="dtab"><thead><tr>' +
+  // A record number ahead of the fields. It counts through the whole layer
+  // rather than restarting each page -- record 501 is the first row of the
+  // second page, not row 1 again -- so a row can be referred to by a number
+  // that means the same thing wherever you are in the table.
+  var html = '<table class="dtab"><thead><tr><th class="rn">#</th>' +
     LT_COLS.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') +
     '</tr></thead><tbody>';
   for (var i = from; i < to; i++) {
     var r = LT_ROWS[i];
     // data-row is the absolute index, so zoom-to-record is right on every page.
     html += '<tr data-row="' + i + '"' + (r.bbox ? '' : ' class="nogeom"') + '>' +
+      '<td class="rn">' + (i + 1).toLocaleString() + '</td>' +
       LT_COLS.map(function (c) {
         var v = r.props[c];
         return '<td' + (typeof v === 'number' ? ' class="n"' : '') + '>' +
@@ -3267,10 +3275,20 @@ function ltRenderPage(p) {
   var pager = document.getElementById('lt-pager');
   if (pages < 2) { pager.hidden = true; pager.innerHTML = ''; return; }
   pager.hidden = false;
+  // The buttons say how many records they will actually show, not just 'next'.
+  // The last step is usually a short one -- 13,137 boreholes end on a page of
+  // 137 -- and promising 500 there would be wrong.
+  var ahead = Math.min(TABLE_PAGE, Math.max(LT_ROWS.length - to, 0));
+  var behind = Math.min(TABLE_PAGE, from);
+  // At either end the count is zero, and a disabled 'Show next 0' reads as a
+  // bug rather than as the end of the list.
   pager.innerHTML =
-    '<button type="button" id="lt-prev"' + (LT_PAGE === 0 ? ' disabled' : '') + '>‹ Previous</button>' +
-    '<span>Page ' + (LT_PAGE + 1) + ' of ' + pages + '</span>' +
-    '<button type="button" id="lt-next"' + (LT_PAGE >= pages - 1 ? ' disabled' : '') + '>Next ›</button>';
+    '<button type="button" id="lt-prev"' + (behind ? '' : ' disabled') + '>‹ Previous' +
+      (behind ? ' ' + behind.toLocaleString() : '') + '</button>' +
+    '<span>' + (from + 1).toLocaleString() + '–' + to.toLocaleString() +
+      ' of ' + LT_ROWS.length.toLocaleString() + '</span>' +
+    '<button type="button" id="lt-next"' + (ahead ? '' : ' disabled') + '>' +
+      (ahead ? 'Show next ' + ahead.toLocaleString() + ' ›' : 'End of records') + '</button>';
   document.getElementById('lt-prev').addEventListener('click', function () { ltRenderPage(LT_PAGE - 1); });
   document.getElementById('lt-next').addEventListener('click', function () { ltRenderPage(LT_PAGE + 1); });
 }
