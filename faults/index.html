@@ -379,6 +379,10 @@
   .dtab td{padding:5px 9px;border-bottom:1px solid #f2f2ec;white-space:nowrap}
   .dtab tbody tr:last-child td{border-bottom:0}
   .dtab tbody tr:hover{background:#f6f6f1}
+  /* Rows carry a right-click command, so they get the menu cursor. A row whose
+     feature arrived without geometry has nothing to zoom to and says so. */
+  .dtab tbody tr[data-row]{cursor:context-menu}
+  .dtab tbody tr.nogeom{cursor:default;color:#85857e}
   /* Right-aligned and tabular so the decimal points line up down the column. */
   .dtab .n{text-align:right;font-variant-numeric:tabular-nums}
   .dempty{padding:20px;text-align:center;color:#85857e;font-size:12.5px;line-height:1.5}
@@ -2836,20 +2840,34 @@ var SRC_URL = {
 // contour or Synergy tools run, so the envelope is recomputed each time.
 var EXTENT_CACHE = {};
 
+// Grows b in place over any nesting depth of GeoJSON coordinates, so one walker
+// serves a point, a multipolygon, and a whole collection alike.
+function growBBox(b, c) {
+  if (typeof c[0] === 'number') {
+    if (c[0] < b[0]) b[0] = c[0];
+    if (c[1] < b[1]) b[1] = c[1];
+    if (c[0] > b[2]) b[2] = c[0];
+    if (c[1] > b[3]) b[3] = c[1];
+    return;
+  }
+  for (var i = 0; i < c.length; i++) growBBox(b, c[i]);
+}
+function unionBBox(a, b) {
+  if (!a) return b ? b.slice() : null;
+  if (!b) return a;
+  return [Math.min(a[0], b[0]), Math.min(a[1], b[1]),
+          Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+}
+function geomBBox(g) {
+  if (!g || !g.coordinates) return null;
+  var b = [Infinity, Infinity, -Infinity, -Infinity];
+  growBBox(b, g.coordinates);
+  return isFinite(b[0]) ? b : null;
+}
 function fcBBox(j) {
   var b = [Infinity, Infinity, -Infinity, -Infinity];
-  function walk(c) {
-    if (typeof c[0] === 'number') {
-      if (c[0] < b[0]) b[0] = c[0];
-      if (c[1] < b[1]) b[1] = c[1];
-      if (c[0] > b[2]) b[2] = c[0];
-      if (c[1] > b[3]) b[3] = c[1];
-      return;
-    }
-    for (var i = 0; i < c.length; i++) walk(c[i]);
-  }
   (j && j.features || []).forEach(function (f) {
-    if (f.geometry && f.geometry.coordinates) walk(f.geometry.coordinates);
+    if (f.geometry && f.geometry.coordinates) growBBox(b, f.geometry.coordinates);
   });
   return isFinite(b[0]) ? b : null;
 }
@@ -2965,12 +2983,16 @@ function showLayerTable(key) {
   var feats = vis.length ? map.queryRenderedFeatures({ layers: vis }) : [];
 
   // One feature can be split across several tiles and come back once per tile.
-  var seen = {}, rows = [];
+  // The duplicates are not simply dropped: each piece carries its own slice of
+  // the geometry, so their envelopes are merged, and a parcel straddling a tile
+  // seam gets its whole footprint rather than whichever half arrived first.
+  var byKey = {}, rows = [];
   feats.forEach(function (f) {
     var k = f.id != null ? 'i' + f.id : 'p' + JSON.stringify(f.properties || {});
-    if (seen[k]) return;
-    seen[k] = 1;
-    rows.push(f.properties || {});
+    var b = geomBBox(f.geometry);
+    if (byKey[k]) { byKey[k].bbox = unionBBox(byKey[k].bbox, b); return; }
+    byKey[k] = { props: f.properties || {}, bbox: b };
+    rows.push(byKey[k]);
   });
 
   var why = '';
@@ -2991,8 +3013,8 @@ function showLayerTable(key) {
   // Columns ordered by how many rows carry them, so the fields that describe
   // every feature come first and sparse ones fall off the end.
   var freq = {}, order = [], idx = {};
-  rows.forEach(function (p) {
-    Object.keys(p).forEach(function (k) {
+  rows.forEach(function (r) {
+    Object.keys(r.props).forEach(function (k) {
       if (freq[k] === undefined) { freq[k] = 0; idx[k] = order.length; order.push(k); }
       freq[k]++;
     });
@@ -3008,13 +3030,16 @@ function showLayerTable(key) {
     body = '<table class="dtab"><thead><tr>' +
       cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') +
       '</tr></thead><tbody>' +
-      shown.map(function (p) {
-        return '<tr>' + cols.map(function (c) {
-          var v = p[c];
-          return '<td' + (typeof v === 'number' ? ' class="n"' : '') + '>' +
-                 (v == null || v === '' ? '<span style="opacity:.4">—</span>' : esc(v)) +
-                 '</td>';
-        }).join('') + '</tr>';
+      shown.map(function (r, i) {
+        // data-row indexes LT_ROWS. shown is a prefix of rows, so the index is
+        // the same in both and the cap cannot misalign them.
+        return '<tr data-row="' + i + '"' + (r.bbox ? '' : ' class="nogeom"') + '>' +
+          cols.map(function (c) {
+            var v = r.props[c];
+            return '<td' + (typeof v === 'number' ? ' class="n"' : '') + '>' +
+                   (v == null || v === '' ? '<span style="opacity:.4">—</span>' : esc(v)) +
+                   '</td>';
+          }).join('') + '</tr>';
       }).join('') + '</tbody></table>';
   }
 
@@ -3034,9 +3059,56 @@ function showLayerTable(key) {
       ? ' Fields are ordered by how many features carry them; ' +
         (order.length - cols.length) + ' rarer ones are not shown.'
       : '') +
+    (rows.length ? ' Right-click a row to zoom to that record.' : '') +
     '</div></div></div>' +
     '<div class="ft"><button class="cx" id="lt-close">Close</button></div>', 'xwide');
   document.getElementById('lt-close').addEventListener('click', closeDlg);
+
+  LT_ROWS = rows;
+  LT_COLS = cols;
+  var out = document.getElementById('lt-out');
+  out.addEventListener('contextmenu', function (e) {
+    var tr = e.target.closest ? e.target.closest('tr[data-row]') : null;
+    if (!tr) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var i = +tr.getAttribute('data-row');
+    openCtxMenu(ltRecordLabel(i), [
+      { label: 'Zoom to record', run: function () { zoomToRecord(i); } }
+    ], e.clientX, e.clientY);
+  });
+}
+
+var LT_ROWS = [], LT_COLS = [];
+
+// Names the record by its first column, which is the field most features carry
+// and so the one most likely to identify it. Falls back to the row number.
+function ltRecordLabel(i) {
+  var r = LT_ROWS[i];
+  if (r && LT_COLS.length) {
+    var v = r.props[LT_COLS[0]];
+    if (v != null && v !== '') return LT_COLS[0] + ': ' + v;
+  }
+  return 'Record ' + (i + 1);
+}
+
+function zoomToRecord(i) {
+  var r = LT_ROWS[i];
+  if (!r || !r.bbox) {
+    showToast('That record has no geometry to zoom to.', 'Dismiss', function () {});
+    return;
+  }
+  var b = r.bbox;
+  // Closed first: the table is modal, and zooming behind it would be invisible.
+  closeDlg();
+  if (b[0] === b[2] && b[1] === b[3]) {
+    // A point has no extent to fit, so move to it and close in instead.
+    map.easeTo({ center: [b[0], b[1]], zoom: Math.max(map.getZoom(), 17), duration: 800 });
+  } else {
+    map.fitBounds([[b[0], b[1]], [b[2], b[3]]],
+                  { padding: 60, maxZoom: 19, duration: 800 });
+  }
+  showToast('Zoomed to ' + esc(ltRecordLabel(i)) + '.', 'Dismiss', function () {});
 }
 
 var lmenu = null;
@@ -3048,26 +3120,36 @@ document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') closeLayerMenu();
 });
 
-function openLayerMenu(key, x, y) {
+// One popup for every right-click menu on the page. Its z-index clears the
+// dialog backdrop, so it works over the feature table as well as the layer list.
+function openCtxMenu(header, items, x, y) {
   closeLayerMenu();
   var d = document.createElement('div');
   d.className = 'lmenu';
-  d.innerHTML = '<div class="lmenu-h">' + esc(LAYER_NAMES[key] || key) + '</div>' +
-    '<button type="button" data-cmd="zoom">Zoom to extent of layer</button>' +
-    '<button type="button" data-cmd="table">Show table for layer</button>';
+  d.innerHTML = '<div class="lmenu-h">' + esc(header) + '</div>' +
+    items.map(function (it, i) {
+      return '<button type="button" data-i="' + i + '">' + esc(it.label) + '</button>';
+    }).join('');
   document.body.appendChild(d);
-  // Placed after it is in the document, so its measured size can keep it on
+  // Positioned after it is in the document, so its measured size can keep it on
   // screen when the click lands near an edge.
   d.style.left = Math.max(6, Math.min(x, window.innerWidth - d.offsetWidth - 8)) + 'px';
   d.style.top = Math.max(6, Math.min(y, window.innerHeight - d.offsetHeight - 8)) + 'px';
   lmenu = d;
   d.addEventListener('click', function (e) {
-    var b = e.target.closest ? e.target.closest('button[data-cmd]') : null;
+    var b = e.target.closest ? e.target.closest('button[data-i]') : null;
     if (!b) return;
-    var cmd = b.getAttribute('data-cmd');
+    var it = items[+b.getAttribute('data-i')];
     closeLayerMenu();
-    if (cmd === 'zoom') zoomToLayer(key); else showLayerTable(key);
+    if (it) it.run();
   });
+}
+
+function openLayerMenu(key, x, y) {
+  openCtxMenu(LAYER_NAMES[key] || key, [
+    { label: 'Zoom to extent of layer', run: function () { zoomToLayer(key); } },
+    { label: 'Show table for layer', run: function () { showLayerTable(key); } }
+  ], x, y);
 }
 
 function setActiveLayer(key) {
@@ -3151,7 +3233,10 @@ document.addEventListener('click', function (e) {
 function closeDlg() { BACKDROP.hidden = true; BACKDROP.innerHTML = ''; }
 BACKDROP.addEventListener('click', function (e) { if (e.target === BACKDROP) closeDlg(); });
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape' && !BACKDROP.hidden) closeDlg();
+  // A right-click menu open over the dialog takes Escape first. Without this
+  // guard one press would dismiss the menu and throw away the table it was
+  // opened from.
+  if (e.key === 'Escape' && !lmenu && !BACKDROP.hidden) closeDlg();
 });
 function openDlg(html, cls) {
   BACKDROP.innerHTML = '<div class="dlg' + (cls ? ' ' + cls : '') + '">' + html + '</div>';
