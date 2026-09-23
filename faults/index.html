@@ -1270,6 +1270,20 @@ function faultFilter() {
   return ['in', ['get', 'FLT_AGE'], ['literal', on]];
 }
 
+// The census tileset is the national block set -- blocks really are in it for
+// Texas and Alaska, confirmed by tilequery -- so the layer is filtered to
+// California.
+//
+// Filtered on GEOID, not on the STUSPS field that looks made for the job.
+// STUSPS is wrong at state lines: around Yuma three blocks whose GEOID is
+// unambiguously Arizona (FIPS 04) carry STUSPS 'CA'. GEOID is the census block
+// identifier and its first two digits are the state FIPS code, 06 for
+// California, which is definitional rather than a joined attribute.
+//
+// to-string guards the slice: a feature with no GEOID yields '' rather than
+// throwing, and '' is not '06', so it is excluded.
+var CA_BLOCKS = ['==', ['slice', ['to-string', ['get', 'GEOID']], 0, 2], '06'];
+
 function addLayers() {
   try {
   // Satellite is a raster layer rather than a setStyle() swap: setStyle wipes every
@@ -1342,13 +1356,14 @@ function addLayers() {
   if (!map.getLayer('cb-fill')) {
     map.addLayer({
       id: 'cb-fill', type: 'fill', source: 'blocks', 'source-layer': 'blocks',
+      filter: CA_BLOCKS,
       paint: { 'fill-color': cbColorExpr(), 'fill-opacity': blockOpacity }
     });
   }
   if (!map.getLayer('cb-line')) {
     map.addLayer({
       id: 'cb-line', type: 'line', source: 'blocks', 'source-layer': 'blocks',
-      minzoom: 11,
+      minzoom: 11, filter: CA_BLOCKS,
       paint: { 'line-color': 'rgba(30,45,70,.35)',
                'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.2, 15, 0.7] }
     });
@@ -2840,6 +2855,15 @@ var SRC_URL = {
 // contour or Synergy tools run, so the envelope is recomputed each time.
 var EXTENT_CACHE = {};
 
+// Where a layer's real extent is not the extent of its tileset. The census
+// tileset is national, so its TileJSON envelope spans Alaska to Puerto Rico,
+// but the layer draws only the California blocks -- framing the tileset would
+// zoom out to a continent of data the map never shows. California's envelope,
+// to the hundredth of a degree.
+var EXTENT_OVERRIDE = {
+  blocks: [-124.48, 32.53, -114.13, 42.01]
+};
+
 // Grows b in place over any nesting depth of GeoJSON coordinates, so one walker
 // serves a point, a multipolygon, and a whole collection alike.
 function growBBox(b, c) {
@@ -2972,6 +2996,7 @@ function setLayerVisible(key) {
 function zoomToLayer(key) {
   var ids = LAYER_SRC[key] || [];
   var name = LAYER_NAMES[key] || key;
+  if (EXTENT_OVERRIDE[key]) { fitLayerExtent(key, EXTENT_OVERRIDE[key].slice()); return; }
   if (!ids.length) {
     showToast('No extent available for ' + esc(name) + '.', 'Dismiss', function () {});
     return;
@@ -2989,37 +3014,42 @@ function zoomToLayer(key) {
                   'Dismiss', function () {});
         return;
       }
-      var bounds = [[acc[0], acc[1]], [acc[2], acc[3]]];
-      // Switched on before the camera moves, so the tiles for the new view are
-      // requested with the layer already live rather than a frame later.
-      var turnedOn = setLayerVisible(key);
-
-      // Where the fit would land, asked before moving. Framing an extent means
-      // zooming out, and a layer whose data starts deeper than that would draw
-      // nothing at all -- the command would do exactly as asked and show an
-      // empty map, which is not what anyone means by it.
-      var cam = null;
-      try { cam = map.cameraForBounds(bounds, { padding: 40 }); } catch (e) { cam = null; }
-      var minz = layerMinZoom(key);
-
-      var f = function (v) { return (Math.round(v * 1000) / 1000).toFixed(3); };
-      var note = turnedOn ? ' · switched the layer on' : '';
-
-      if (cam && minz != null && cam.zoom < minz) {
-        // Hold at the shallowest zoom the data exists at, centred on the
-        // extent. Showing the features slightly cropped beats framing the
-        // extent perfectly with nothing in it.
-        map.easeTo({ center: cam.center, zoom: minz, duration: 900 });
-        note += ' · held at zoom ' + minz + ' so the features draw — their tiles ' +
-                'start there, and the whole extent would need zoom ' +
-                (Math.round(cam.zoom * 10) / 10);
-      } else {
-        map.fitBounds(bounds, { padding: 40, duration: 900 });
-      }
-      showToast(esc(name) + ' extent · ' + f(acc[0]) + ', ' + f(acc[1]) + ' to ' +
-                f(acc[2]) + ', ' + f(acc[3]) + note, 'Dismiss', function () {});
+      fitLayerExtent(key, acc);
     });
   });
+}
+
+function fitLayerExtent(key, acc) {
+  var name = LAYER_NAMES[key] || key;
+  var bounds = [[acc[0], acc[1]], [acc[2], acc[3]]];
+  // Switched on before the camera moves, so the tiles for the new view are
+  // requested with the layer already live rather than a frame later.
+  var turnedOn = setLayerVisible(key);
+
+  // Where the fit would land, asked before moving. Framing an extent means
+  // zooming out, and a layer whose data starts deeper than that would draw
+  // nothing at all -- the command would do exactly as asked and show an empty
+  // map, which is not what anyone means by it.
+  var cam = null;
+  try { cam = map.cameraForBounds(bounds, { padding: 40 }); } catch (e) { cam = null; }
+  var minz = layerMinZoom(key);
+
+  var f = function (v) { return (Math.round(v * 1000) / 1000).toFixed(3); };
+  var note = turnedOn ? ' · switched the layer on' : '';
+
+  if (cam && minz != null && cam.zoom < minz) {
+    // Hold at the shallowest zoom the data exists at, centred on the extent.
+    // Showing the features slightly cropped beats framing the extent perfectly
+    // with nothing in it.
+    map.easeTo({ center: cam.center, zoom: minz, duration: 900 });
+    note += ' · held at zoom ' + minz + ' so the features draw — their tiles ' +
+            'start there, and the whole extent would need zoom ' +
+            (Math.round(cam.zoom * 10) / 10);
+  } else {
+    map.fitBounds(bounds, { padding: 40, duration: 900 });
+  }
+  showToast(esc(name) + ' extent · ' + f(acc[0]) + ', ' + f(acc[1]) + ' to ' +
+            f(acc[2]) + ', ' + f(acc[3]) + note, 'Dismiss', function () {});
 }
 
 // Contours report on no layer when clicked, so LAYER_HITS has nothing for them,
