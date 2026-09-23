@@ -367,6 +367,21 @@
   .dlg .ft .cx{border:1px solid #d0d0ca;background:#fff;color:#3a3a35}
   .dlg .err{margin-top:11px;font-size:12px;color:#8a2b1c;background:#fdeeeb;
             border:1px solid #f3cfc8;border-radius:7px;padding:8px 10px}
+  /* Wider variant, for dialogs whose content is a table rather than a form. */
+  .dlg.wide{width:min(560px,100%)}
+  /* Scroll the rows, not the dialog, so the filters above stay put while a
+     wide-open selection of 500 results is read. */
+  .dwrap{max-height:46vh;overflow:auto;border:1px solid #e6e6e0;border-radius:8px}
+  .dtab{width:100%;border-collapse:collapse;font-size:12.5px}
+  .dtab th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;
+           text-transform:uppercase;color:#85857e;padding:7px 9px 6px;
+           border-bottom:1px solid #d0d0ca;background:#fff;position:sticky;top:0}
+  .dtab td{padding:5px 9px;border-bottom:1px solid #f2f2ec;white-space:nowrap}
+  .dtab tbody tr:last-child td{border-bottom:0}
+  .dtab tbody tr:hover{background:#f6f6f1}
+  /* Right-aligned and tabular so the decimal points line up down the column. */
+  .dtab .n{text-align:right;font-variant-numeric:tabular-nums}
+  .dempty{padding:20px;text-align:center;color:#85857e;font-size:12.5px}
 
   .toast{position:absolute;z-index:9;left:50%;transform:translateX(-50%);bottom:22px;
          background:rgba(20,20,20,.9);color:#fff;padding:9px 14px;border-radius:22px;
@@ -454,6 +469,7 @@
         <button id="m-toolbar">Graphic Tools</button>
         <div class="mh">Analysis</div>
         <button id="m-syn">Synergy results…</button>
+        <button id="m-syndata">Synergy data…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -2847,8 +2863,8 @@ BACKDROP.addEventListener('click', function (e) { if (e.target === BACKDROP) clo
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && !BACKDROP.hidden) closeDlg();
 });
-function openDlg(html) {
-  BACKDROP.innerHTML = '<div class="dlg">' + html + '</div>';
+function openDlg(html, cls) {
+  BACKDROP.innerHTML = '<div class="dlg' + (cls ? ' ' + cls : '') + '">' + html + '</div>';
   BACKDROP.hidden = false;
 }
 function showToast(msg, btnLabel, onBtn) {
@@ -3186,6 +3202,97 @@ function synLegend() {
     ({ latest: 'latest result', mean: 'mean of results', max: 'maximum result' }[synSel.stat]) +
     '<br>' + n + ' of ' + SYN.sites.length + ' sites with data' +
     (n < 3 ? ' — too few to contour' : '');
+}
+
+// ================= Synergy data table =================
+// The results behind the map, read straight rather than aggregated. The results
+// tool reduces each site to one number for a window; this one shows every
+// individual analysis, so a site with thirteen samples for a chemical reads as
+// thirteen rows and not as a single 'latest'.
+
+function synDataRows(chem, site) {
+  var out = [];
+  SYN.rows.forEach(function (r) {
+    var c = SYN.chemicals[r[1]], s = SYN.sites[r[0]];
+    // An empty filter means every value, so the table opens showing everything
+    // rather than an arbitrary first chemical.
+    if (chem && c !== chem) return;
+    if (site && s !== site) return;
+    out.push({ chem: c, site: s, val: r[3], date: r[2] });
+  });
+  // Newest first. Dates are YYYY-MM-DD, so lexical order is date order.
+  // Chemical then site break ties, which keeps the order stable and readable
+  // when both filters are wide open and a single day carries many analyses.
+  out.sort(function (a, b) {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    if (a.chem !== b.chem) return a.chem < b.chem ? -1 : 1;
+    return a.site < b.site ? -1 : 1;
+  });
+  return out;
+}
+
+function renderSynData() {
+  var chem = document.getElementById('sd-chem').value;
+  var site = document.getElementById('sd-site').value;
+  var rows = synDataRows(chem, site);
+  var host = document.getElementById('sd-out');
+  document.getElementById('sd-count').textContent =
+    rows.length + ' result' + (rows.length === 1 ? '' : 's');
+  if (!rows.length) {
+    host.innerHTML = '<div class="dempty">No results for that combination.</div>';
+    return;
+  }
+  host.innerHTML =
+    '<table class="dtab"><thead><tr><th>Chemical</th><th>Site</th>' +
+    '<th class="n">µg/L</th><th>Date</th></tr></thead><tbody>' +
+    rows.map(function (r) {
+      // Source is mg/L; the map, legend and labels all read in µg/L, so the
+      // table matches them. x1000 with one decimal is exact here -- the source
+      // carries at most four decimal places.
+      return '<tr><td>' + esc(r.chem) + '</td><td>' + esc(r.site) + '</td>' +
+             '<td class="n">' + (r.val * 1000).toFixed(1) + '</td>' +
+             '<td>' + esc(r.date) + '</td></tr>';
+    }).join('') +
+    '</tbody></table>';
+}
+
+function openSynDataDlg() {
+  loadSyn(function () {
+    // Carry the chemical over from the results tool if one is showing, so
+    // opening this next to a map already coloured for benzene lands on benzene.
+    var chem0 = (synSel && synSel.chem) || '';
+    function opts(list, sel) {
+      return list.map(function (v) {
+        return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') +
+               '>' + esc(v) + '</option>';
+      }).join('');
+    }
+    openDlg(
+      '<h2>Synergy data</h2><div class="bd">' +
+      '<div style="display:flex;gap:9px">' +
+        '<div class="fld" style="flex:1;margin-bottom:0"><label>Chemical</label>' +
+        '<select id="sd-chem"><option value="">All chemicals</option>' +
+          opts(SYN.chemicals, chem0) + '</select></div>' +
+        '<div class="fld" style="flex:0 0 132px;margin-bottom:0"><label>Site ID</label>' +
+        '<select id="sd-site"><option value="">All sites</option>' +
+          opts(SYN.sites, '') + '</select></div>' +
+      '</div>' +
+      '<div class="fld" style="margin-top:13px;margin-bottom:0">' +
+        '<label id="sd-count"></label>' +
+        '<div class="dwrap" id="sd-out"></div>' +
+        '<div class="hint">Every individual analysis, newest first. ' +
+        'Concentrations are converted from the source mg/L to µg/L, the unit the ' +
+        'map and its legend use.</div>' +
+      '</div></div>' +
+      '<div class="ft"><button class="cx" id="sd-close">Close</button></div>', 'wide');
+
+    document.getElementById('sd-close').addEventListener('click', closeDlg);
+    // Redrawn on change rather than behind a Show button: the whole table is
+    // 500 rows and already in memory, so there is nothing to wait for.
+    document.getElementById('sd-chem').addEventListener('change', renderSynData);
+    document.getElementById('sd-site').addEventListener('change', renderSynData);
+    renderSynData();
+  });
 }
 
 function openSynDlg() {
@@ -4056,6 +4163,11 @@ window.addEventListener('afterprint', function () { map.resize(); });
 document.getElementById('m-syn').addEventListener('click', function () {
   MENU.hidden = true;
   openSynDlg();
+});
+
+document.getElementById('m-syndata').addEventListener('click', function () {
+  MENU.hidden = true;
+  openSynDataDlg();
 });
 
 document.getElementById('m-gwdepth').addEventListener('click', function () {
