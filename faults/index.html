@@ -3023,8 +3023,16 @@ function showLayerTable(key) {
   feats.forEach(function (f) {
     var k = f.id != null ? 'i' + f.id : 'p' + JSON.stringify(f.properties || {});
     var b = geomBBox(f.geometry);
-    if (byKey[k]) { byKey[k].bbox = unionBBox(byKey[k].bbox, b); return; }
-    byKey[k] = { props: f.properties || {}, bbox: b };
+    if (byKey[k]) {
+      byKey[k].bbox = unionBBox(byKey[k].bbox, b);
+      if (f.geometry) byKey[k].geoms.push(f.geometry);
+      return;
+    }
+    // The geometry is kept by reference, not copied -- these objects already
+    // exist from the query, and the highlight needs the shape itself, which a
+    // bounding box cannot give back.
+    byKey[k] = { props: f.properties || {}, bbox: b,
+                 geoms: f.geometry ? [f.geometry] : [] };
     rows.push(byKey[k]);
   });
 
@@ -3125,6 +3133,54 @@ function ltRecordLabel(i) {
   return 'Record ' + (i + 1);
 }
 
+// Highlight for the record zoomed to. One source carrying whatever geometry the
+// record has, and a layer per kind: a fill gives a large polygon a body so it
+// reads as picked rather than merely outlined, the line pair outlines polygons
+// and draws linework, and the circle pair rings a point.
+//
+// White over a dark casing, the same treatment the parcel search uses, and for
+// the same reason: a bare white outline vanishes against pale roofs, concrete
+// and dry ground, all common on the aerial basemap. Nothing filters by geometry
+// type -- a fill layer ignores a point and a circle layer ignores a polygon, so
+// each kind draws only what it can.
+function ensureHilite() {
+  if (!map.getSource('rec-hl')) {
+    map.addSource('rec-hl', { type: 'geojson',
+                              data: { type: 'FeatureCollection', features: [] } });
+  }
+  var zw = function (a, b) {
+    return ['interpolate', ['linear'], ['zoom'], 10, a, 17, b];
+  };
+  [['rec-hl-fill', 'fill', { 'fill-color': '#ffffff', 'fill-opacity': 0.22 }],
+   ['rec-hl-casing', 'line', { 'line-color': '#14202b', 'line-width': zw(5, 9),
+                               'line-opacity': 0.85 }],
+   ['rec-hl-line', 'line', { 'line-color': '#ffffff', 'line-width': zw(2.2, 4.5) }],
+   ['rec-hl-dotc', 'circle', { 'circle-radius': zw(8, 14), 'circle-color': 'rgba(0,0,0,0)',
+                               'circle-stroke-color': '#14202b', 'circle-stroke-width': 6,
+                               'circle-stroke-opacity': 0.85 }],
+   ['rec-hl-dot', 'circle', { 'circle-radius': zw(8, 14), 'circle-color': 'rgba(0,0,0,0)',
+                              'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 }]
+  ].forEach(function (d) {
+    if (map.getLayer(d[0])) return;
+    var o = { id: d[0], type: d[1], source: 'rec-hl', paint: d[2] };
+    if (d[1] === 'line') o.layout = { 'line-join': 'round', 'line-cap': 'round' };
+    map.addLayer(o);                      // no beforeId: on top of everything
+  });
+}
+
+function setHilite(geoms) {
+  ensureHilite();
+  var src = map.getSource('rec-hl');
+  if (!src) return;
+  src.setData({
+    type: 'FeatureCollection',
+    features: (geoms || []).map(function (g) {
+      return { type: 'Feature', properties: {}, geometry: g };
+    })
+  });
+}
+function clearHilite() { setHilite([]); }
+
 function zoomToRecord(i) {
   var r = LT_ROWS[i];
   if (!r || !r.bbox) {
@@ -3134,6 +3190,9 @@ function zoomToRecord(i) {
   var b = r.bbox;
   // Closed first: the table is modal, and zooming behind it would be invisible.
   closeDlg();
+  // A feature split across tiles highlights as each of its pieces, which abut,
+  // so it reads as one shape.
+  setHilite(r.geoms);
   if (b[0] === b[2] && b[1] === b[3]) {
     // A point has no extent to fit, so move to it and close in instead.
     map.easeTo({ center: [b[0], b[1]], zoom: Math.max(map.getZoom(), 17), duration: 800 });
@@ -3141,7 +3200,9 @@ function zoomToRecord(i) {
     map.fitBounds([[b[0], b[1]], [b[2], b[3]]],
                   { padding: 60, maxZoom: 19, duration: 800 });
   }
-  showToast('Zoomed to ' + esc(ltRecordLabel(i)) + '.', 'Dismiss', function () {});
+  // The highlight stays until it is dismissed, so it survives panning around
+  // the record. The toast button is what takes it off again.
+  showToast('Zoomed to ' + esc(ltRecordLabel(i)) + '.', 'Clear highlight', clearHilite);
 }
 
 var lmenu = null;
