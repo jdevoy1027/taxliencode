@@ -385,6 +385,12 @@
   .dtab tbody tr.nogeom{cursor:default;color:#85857e}
   /* Right-aligned and tabular so the decimal points line up down the column. */
   .dtab .n{text-align:right;font-variant-numeric:tabular-nums}
+  /* Attribute inspector: one feature, so values wrap instead of scrolling off.
+     Some of these carry sentences, and a census block carries 72 of them. */
+  .dtab.attrs td{white-space:normal;word-break:break-word;vertical-align:top}
+  .dtab.attrs .fk{white-space:nowrap;width:1%;padding-right:14px;
+                  color:#55554f;font-weight:560}
+  .dtab.attrs .n{white-space:nowrap}
   /* Record number: recessive, so it orients without competing with the data. */
   .dtab .rn{text-align:right;font-variant-numeric:tabular-nums;color:#9a9a92;
             width:1%;white-space:nowrap;padding-right:13px}
@@ -2021,6 +2027,15 @@ map.on('load', function () {
     }
   }
 
+  // Right-click reports every attribute of one feature, where left-click gives
+  // the curated popup. Same layer pool, so an active layer confines this the
+  // way it confines a left-click.
+  map.on('contextmenu', function (e) {
+    if (e.originalEvent && e.originalEvent.preventDefault) e.originalEvent.preventDefault();
+    closeLayerMenu();
+    showFeatureAttrs(e.point);
+  });
+
   map.on('click', function (e) {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
@@ -3321,6 +3336,92 @@ function ltRenderPage(p) {
       (ahead ? 'Show next ' + ahead.toLocaleString() + ' ›' : 'End of records') + '</button>';
   document.getElementById('lt-prev').addEventListener('click', function () { ltRenderPage(LT_PAGE - 1); });
   document.getElementById('lt-next').addEventListener('click', function () { ltRenderPage(LT_PAGE + 1); });
+}
+
+// Which table-of-contents entry a rendered layer belongs to, so a hit can be
+// named by the entry in the layer list rather than by its internal layer id.
+function tocKeyForLayer(lid) {
+  var keys = Object.keys(LAYER_HITS), i, j;
+  for (i = 0; i < keys.length; i++) {
+    var ids = LAYER_HITS[keys[i]] || [];
+    for (j = 0; j < ids.length; j++) if (ids[j] === lid) return keys[i];
+  }
+  for (i = 0; i < keys.length; i++) {
+    var t = LAYER_TABLE[keys[i]] || [];
+    for (j = 0; j < t.length; j++) if (t[j] === lid) return keys[i];
+  }
+  return null;
+}
+
+function showFeatureAttrs(pt) {
+  var layers = clickableLayers();
+  if (!layers.length) {
+    showToast(activeLayer
+      ? 'The active layer is switched off, so there is nothing to report.'
+      : 'No layers are on that report on click.', 'Dismiss', function () {});
+    return;
+  }
+  // A few pixels of tolerance rather than the exact point. Hitting a contour or
+  // a pipeline dead on is hard, and this costs nothing where features are large.
+  var box = [[pt.x - 4, pt.y - 4], [pt.x + 4, pt.y + 4]];
+  var hits = map.queryRenderedFeatures(box, { layers: layers });
+  if (!hits.length) {
+    showToast(activeLayer
+      ? 'Nothing from ' + esc(LAYER_NAMES[activeLayer] || activeLayer) + ' at that point.'
+      : 'No feature at that point.', 'Dismiss', function () {});
+    return;
+  }
+
+  // Topmost hit. With an active layer set that is a feature of that layer;
+  // without one it is whatever draws highest, and the title names it either way
+  // so there is no guessing which layer answered.
+  var f = hits[0];
+  var key = tocKeyForLayer(f.layer.id);
+  var name = (key && LAYER_NAMES[key]) || f.layer.id;
+  var props = f.properties || {};
+  // Alphabetical. A census block carries 72 attributes and source order is
+  // whatever the tileset happened to store, so finding a named field matters
+  // more here than preserving an order that means nothing.
+  var fields = Object.keys(props).sort(function (a, b) {
+    return a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : 0;
+  });
+
+  // Highlighted while it is being read, so which feature answered is never in
+  // doubt where several overlap.
+  setHilite(f.geometry ? [f.geometry] : []);
+
+  var body = fields.length
+    ? '<table class="dtab attrs"><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>' +
+      fields.map(function (k) {
+        var v = props[k];
+        return '<tr><td class="fk">' + esc(k) + '</td>' +
+               '<td' + (typeof v === 'number' ? ' class="n"' : '') + '>' +
+               (v == null || v === '' ? '<span style="opacity:.4">—</span>' : esc(v)) +
+               '</td></tr>';
+      }).join('') + '</tbody></table>'
+    : '<div class="dempty">This feature carries no attributes.</div>';
+
+  openDlg('<h2>' + esc(name) + ' — all attributes</h2><div class="bd">' +
+    '<div class="fld" style="margin-bottom:0">' +
+      '<label>' + fields.length + ' field' + (fields.length === 1 ? '' : 's') +
+      (f.geometry ? ' · ' + esc(f.geometry.type) : '') +
+      (hits.length > 1 ? ' · ' + (hits.length - 1) + ' more feature' +
+                         (hits.length === 2 ? '' : 's') + ' under the cursor' : '') +
+      '</label>' +
+      '<div class="dwrap">' + body + '</div>' +
+      '<div class="hint">Every attribute the feature carries, in alphabetical order. ' +
+      (activeLayer
+        ? 'Confined to the active layer.'
+        : 'No active layer is set, so this is the topmost feature of any layer — ' +
+          'click a layer name to confine it.') +
+      '</div></div></div>' +
+    '<div class="ft"><button class="cx" id="fa-clear">Clear highlight</button>' +
+    '<button class="cx" id="fa-close">Close</button></div>', 'wide');
+
+  document.getElementById('fa-close').addEventListener('click', closeDlg);
+  document.getElementById('fa-clear').addEventListener('click', function () {
+    clearHilite(); closeDlg();
+  });
 }
 
 var LT_ROWS = [], LT_COLS = [], LT_PAGE = 0;
