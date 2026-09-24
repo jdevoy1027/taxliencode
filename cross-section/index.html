@@ -268,16 +268,16 @@ Promise.all([
 });
 
 // ---------- page geometry ----------
-// A landscape section is drawn nine inches wide and centred: 11in paper less one
-// inch of white either side. Portrait keeps 4.5in, since nine inches does not
-// fit across 8.5in paper at all.
+// Drawing width per orientation, in inches: nine on 11in landscape paper, seven
+// on 8.5in portrait. Each leaves a symmetric margin -- 1in and 0.75in.
 //
 // The side space is padding on the printed content, not an @page margin.
 // Browsers let the print dialog override @page margins -- that is how the left
 // space disappeared once before -- and padding survives whatever the dialog is
 // set to. Both sides are computed from one number, so the drawing cannot drift
-// off centre: side = (paper - drawing) / 2, by construction.
-var DRAW_IN = { landscape: 9, portrait: 4.5 };
+// off centre: side = (paper - drawing) / 2, by construction. Changing a width
+// here is the whole change; the margins follow.
+var DRAW_IN = { landscape: 9, portrait: 7 };
 var MARGIN = { top: 1, bottom: 0.35 };
 function pageBoxPx() {
   var portrait = document.getElementById('c-orient') &&
