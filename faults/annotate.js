@@ -20,7 +20,8 @@ window.initAnnotate = function (map) {
     text: '<text x="8" y="13" font-size="14" font-weight="700" text-anchor="middle" fill="currentColor" font-family="Arial,Helvetica,sans-serif">A</text>',
     erase: '<path d="M2.5 10.5l5-5 6 6-2.5 2.5H5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><line x1="5" y1="14" x2="14" y2="14" stroke="currentColor" stroke-width="1.4"/>',
     bucket: '<path d="M7 2l5.5 5.5-4.5 4.5a1.6 1.6 0 0 1-2.3 0L2.5 8.5a1.6 1.6 0 0 1 0-2.3z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M13 10c.9 1 1.4 1.9 1.4 2.6a1.4 1.4 0 1 1-2.8 0c0-.7.5-1.6 1.4-2.6z" fill="currentColor"/>',
-    pick: '<path d="M10.5 2.2l3.3 3.3-1.4 1.4-3.3-3.3z" fill="currentColor"/><path d="M8.7 5.4l-5.2 5.2L2.4 14l3.4-1.1 5.2-5.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>'
+    pick: '<path d="M10.5 2.2l3.3 3.3-1.4 1.4-3.3-3.3z" fill="currentColor"/><path d="M8.7 5.4l-5.2 5.2L2.4 14l3.4-1.1 5.2-5.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
+    move: '<path d="M8 1.5l2 2H6zM8 14.5l-2-2h4zM1.5 8l2-2v4zM14.5 8l-2 2V6zM8 4v8M4 8h8" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>'
   };
   const svg = (k) => `<svg viewBox="0 0 16 16" width="17" height="17">${ICON[k]}</svg>`;
   const PALETTE = ['#000000', '#7f7f7f', '#880015', '#ed1c24', '#ff7f27', '#fff200', '#22b14c', '#00a2e8', '#3f48cc', '#a349a4',
@@ -62,7 +63,7 @@ window.initAnnotate = function (map) {
   #tfont .row{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px}
   #tfont .row button{flex:1 0 48px;height:25px;background:#fff;border:1px solid #aaa;border-radius:3px;cursor:pointer;font:600 11px inherit;color:#222}
   #tfont .row button.active{background:#2d6cdf;border-color:#2d6cdf;color:#fff}
-  #tfont .fonts button{flex:1 0 100%;height:27px;text-align:left;padding:0 9px;font-size:13px}
+  #tfont .fonts select{flex:1 0 100%;height:27px;font:12px inherit;color:#222;background:#fff;border:1px solid #aaa;border-radius:3px;padding:0 4px}
   #tfont .done{width:100%;height:25px;background:#2d6cdf;color:#fff;border:0;border-radius:3px;cursor:pointer;font:700 11px inherit}
   #annot-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:5;display:none;
     background:rgba(26,26,46,.92);color:#fff;padding:4px 10px;border-radius:5px;font:12px Tahoma,Helvetica,Arial,sans-serif}`;
@@ -72,7 +73,8 @@ window.initAnnotate = function (map) {
   const box = document.createElement('div'); box.id = 'pbox';
   const TOOLS = [['pencil', 'Pencil (freehand)'], ['line', 'Line'], ['arrow', 'Arrow'], ['rect', 'Rectangle'],
     ['circle', 'Ellipse'], ['polygon', 'Polygon'], ['text', 'Text'], ['erase', 'Eraser (click a shape)'],
-    ['bucket', 'Fill bucket (recolor a shape)'], ['pick', 'Eyedropper (pick a color)']];
+    ['bucket', 'Fill bucket (recolor a shape)'], ['pick', 'Eyedropper (pick a color)'],
+    ['move', 'Move (drag a shape)']];
   box.innerHTML =
     '<div class="hd">✎ Graphic Tools<button class="hx" id="p-close" title="Close Graphic Tools">&times;</button></div>' +
     '<div class="sec"><div class="lbl">Tools</div><div class="grid" id="p-tools"></div></div>' +
@@ -95,17 +97,25 @@ window.initAnnotate = function (map) {
   // does not draw -- so an unverified name silently loses the annotation.
   // Second entry in each stack is the fallback for glyphs the first lacks.
   const FONTS = [
-    ['bold',    'Bold',      ['DIN Pro Bold', 'Arial Unicode MS Bold'],           'font-weight:700'],
-    ['regular', 'Regular',   ['DIN Pro Regular', 'Arial Unicode MS Regular'],     'font-weight:400'],
-    ['italic',  'Italic',    ['DIN Pro Italic', 'Arial Unicode MS Regular'],      'font-style:italic'],
-    ['mono',    'Mono',      ['Roboto Mono Regular', 'Arial Unicode MS Regular'], 'font-family:ui-monospace,Menlo,Consolas,monospace'],
-    ['open',    'Open Sans', ['Open Sans Bold', 'Arial Unicode MS Bold'],         'font-weight:700;font-family:\'Open Sans\',Segoe UI,sans-serif'],
+    ['bold',      'DIN Bold',          ['DIN Pro Bold', 'Arial Unicode MS Bold']],
+    ['medium',    'DIN Medium',        ['DIN Pro Medium', 'Arial Unicode MS Regular']],
+    ['regular',   'DIN Regular',       ['DIN Pro Regular', 'Arial Unicode MS Regular']],
+    ['italic',    'DIN Italic',        ['DIN Pro Italic', 'Arial Unicode MS Regular']],
+    ['openb',     'Open Sans Bold',    ['Open Sans Bold', 'Arial Unicode MS Bold']],
+    ['openr',     'Open Sans',         ['Open Sans Regular', 'Arial Unicode MS Regular']],
+    ['openi',     'Open Sans Italic',  ['Open Sans Italic', 'Arial Unicode MS Regular']],
+    ['robotob',   'Roboto Bold',       ['Roboto Bold', 'Arial Unicode MS Bold']],
+    ['robotor',   'Roboto',            ['Roboto Regular', 'Arial Unicode MS Regular']],
+    ['mono',      'Roboto Mono',       ['Roboto Mono Regular', 'Arial Unicode MS Regular']],
+    ['source',    'Source Sans Pro',   ['Source Sans Pro Regular', 'Arial Unicode MS Regular']],
+    ['ubuntu',    'Ubuntu',            ['Ubuntu Regular', 'Arial Unicode MS Regular']],
+    ['arial',     'Arial Unicode',     ['Arial Unicode MS Bold', 'Arial Unicode MS Regular']],
   ];
   const TSIZES = [12, 16, 20, 26, 34, 44];
   const cur = { tool: null, color: '#ed1c24', width: 3, fill: false, dash: false, cap: 'round', tsize: 16, tfont: 'bold' };
   const HINTS = { pencil: 'Drag to draw freehand', line: 'Drag for one segment, or click points · double-click to finish', arrow: 'Drag, or click start then end',
     rect: 'Drag, or click two opposite corners', circle: 'Drag from center, or click center then edge', polygon: 'Click vertices · double-click to finish',
-    text: 'Click to place text · hold the Text button for size and font', erase: 'Click a shape to delete it', bucket: 'Click a shape to recolor it', pick: 'Click a shape to pick its color' };
+    text: 'Click to place text · hold the Text button for size and font', erase: 'Click a shape to delete it', bucket: 'Click a shape to recolor it', pick: 'Click a shape to pick its color', move: 'Drag any shape or label to move it' };
 
   const toolEls = {}; const tg = box.querySelector('#p-tools');
   TOOLS.forEach(([k, title]) => { const b = document.createElement('div'); b.className = 'tool'; b.title = title; b.innerHTML = svg(k); b.onclick = () => setTool(k); tg.appendChild(b); toolEls[k] = b; });
@@ -140,10 +150,12 @@ window.initAnnotate = function (map) {
       if (n === cur.tsize) b.classList.add('active');
       b.onclick = () => { cur.tsize = n; pick(szr, b); }; szr.appendChild(b); });
     const ftr = d.querySelector('#tf-ft');
-    FONTS.forEach(([k, label, stack, css]) => { const b = document.createElement('button'); b.textContent = label;
-      b.setAttribute('style', css);
-      if (k === cur.tfont) b.classList.add('active');
-      b.onclick = () => { cur.tfont = k; pick(ftr, b); }; ftr.appendChild(b); });
+    // A dropdown rather than a button per face: thirteen buttons would be taller
+    // than the palette they hang off, and the list can grow without redesigning.
+    const sel = document.createElement('select');
+    FONTS.forEach(([k, label]) => { const o = document.createElement('option'); o.value = k; o.textContent = label; if (k === cur.tfont) o.selected = true; sel.appendChild(o); });
+    sel.onchange = () => { cur.tfont = sel.value; };
+    ftr.appendChild(sel);
     d.querySelector('#tf-done').onclick = closeFontPanel;
     // Placed after it is in the document so its measured size keeps it on screen.
     const r = textBtn.getBoundingClientRect();
@@ -249,9 +261,18 @@ window.initAnnotate = function (map) {
   // ── actions ────────────────────────────────────────────────────────────────
   let aid = 0;
   function feat(geometry, atype, forceFill) { return { type: 'Feature', properties: { atype, color: cur.color, width: cur.width, fill: !!(forceFill || cur.fill), dash: cur.dash, cap: cur.cap }, geometry }; }
-  function commit(features) { aid++; features.forEach((f) => { f.properties.aid = aid; fc.features.push(f); }); refresh(); }
-  function undo() { if (!fc.features.length) return; const last = Math.max.apply(null, fc.features.map((f) => f.properties.aid)); fc.features = fc.features.filter((f) => f.properties.aid !== last); refresh(); }
-  function clearAll() { if (fc.features.length && confirm('Clear all annotations?')) { fc.features = []; refresh(); } }
+  function commit(features) { aid++; const id = aid; features.forEach((f) => { f.properties.aid = id; fc.features.push(f); });
+    pushHist(() => { fc.features = fc.features.filter((f) => f.properties.aid !== id); }); refresh(); }
+  // An action stack rather than "drop the highest aid". A move changes no aid,
+  // so the old rule would have answered a move by deleting the last shape drawn
+  // -- and erase and recolour were never undoable at all.
+  const HIST = [];
+  function pushHist(fn) { HIST.push(fn); if (HIST.length > 60) HIST.shift(); }
+  function undo() { const fn = HIST.pop(); if (!fn) return; fn(); refresh(); }
+  function clearAll() { if (fc.features.length && confirm('Clear all annotations?')) { const keep = fc.features.slice(); pushHist(() => { fc.features = keep; }); fc.features = []; refresh(); } }
+  const cloneGeom = (g) => JSON.parse(JSON.stringify(g));
+  function shiftCoords(c, dx, dy) { return typeof c[0] === 'number' ? [c[0] + dx, c[1] + dy] : c.map((x) => shiftCoords(x, dx, dy)); }
+  const shiftGeom = (g, dx, dy) => ({ type: g.type, coordinates: shiftCoords(g.coordinates, dx, dy) });
   const pvFeat = (geometry) => ({ type: 'Feature', properties: { color: cur.color, width: cur.width, fill: cur.fill }, geometry });
 
   function save() {
@@ -277,7 +298,8 @@ window.initAnnotate = function (map) {
 
   // ── tool selection ──────────────────────────────────────────────────────────
   function setTool(t) {
-    cur.tool = (cur.tool === t) ? null : t; pts = []; free = null; down = null; dragged = false; swallowClick = false; setPv([]);
+    cur.tool = (cur.tool === t) ? null : t; pts = []; free = null; down = null; dragged = false; swallowClick = false; moving = null; setPv([]);
+    ov.style.cursor = cur.tool === 'move' ? 'move' : 'crosshair';
     Object.values(toolEls).forEach((b) => b.classList.remove('active'));
     if (cur.tool && toolEls[cur.tool]) toolEls[cur.tool].classList.add('active');
     ov.style.display = cur.tool ? 'block' : 'none';
@@ -286,7 +308,7 @@ window.initAnnotate = function (map) {
   }
 
   // ── interaction (overlay) ────────────────────────────────────────────────────
-  let pts = [], free = null, lastPx = null, down = null, dragged = false, swallowClick = false;
+  let pts = [], free = null, lastPx = null, down = null, dragged = false, swallowClick = false, moving = null;
   const ptOf = (e) => { const r = ov.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   const llOf = (e) => { const u = map.unproject(ptOf(e)); return [u.lng, u.lat]; };
   const hitAid = (e) => { const f = map.queryRenderedFeatures(ptOf(e), { layers: HIT })[0]; return f || null; };
@@ -326,6 +348,16 @@ window.initAnnotate = function (map) {
   }
 
   ov.addEventListener('mousedown', (e) => {
+    if (cur.tool === 'move') {
+      const f = hitAid(e);
+      if (!f) return;
+      const a = f.properties.aid;
+      // Everything sharing the aid moves together, so an arrow keeps its head.
+      const parts = fc.features.filter((x) => x.properties.aid == a);
+      if (!parts.length) return;
+      moving = { start: llOf(e), parts: parts.map((x) => ({ f: x, geom: cloneGeom(x.geometry) })) };
+      return;
+    }
     if (cur.tool === 'pencil') { free = [llOf(e)]; lastPx = ptOf(e); return; }
     // Press-drag-release for the two-point shapes, so one gesture draws one
     // shape. Only when no click-click is already under way, or the press would
@@ -334,6 +366,16 @@ window.initAnnotate = function (map) {
     if (DRAGGABLE[cur.tool] && !pts.length) { down = { px: ptOf(e), ll: llOf(e) }; dragged = false; }
   });
   ov.addEventListener('mousemove', (e) => {
+    if (moving) {
+      // Translated by the lng/lat the pointer has travelled, applied to the
+      // geometry as it was when the drag began rather than to the last frame,
+      // so rounding cannot accumulate over a long drag.
+      const c = llOf(e), dx = c[0] - moving.start[0], dy = c[1] - moving.start[1];
+      moving.parts.forEach((p) => { p.f.geometry = shiftGeom(p.geom, dx, dy); });
+      moving.moved = Math.abs(dx) > 0 || Math.abs(dy) > 0;
+      refresh();
+      return;
+    }
     if (cur.tool === 'pencil' && free) { const p = ptOf(e); if (Math.hypot(p[0] - lastPx[0], p[1] - lastPx[1]) >= 2.5) { free.push(llOf(e)); lastPx = p; setPv([pvFeat({ type: 'LineString', coordinates: free })]); } return; }
     if (down) {
       const p = ptOf(e);
@@ -350,6 +392,11 @@ window.initAnnotate = function (map) {
     previewTo(llOf(e));
   });
   ov.addEventListener('mouseup', (e) => {
+    if (moving) {
+      if (moving.moved) { const parts = moving.parts; pushHist(() => { parts.forEach((p) => { p.f.geometry = p.geom; }); }); }
+      moving = null;
+      return;
+    }
     if (cur.tool === 'pencil' && free) { if (free.length >= 2) commit([feat({ type: 'LineString', coordinates: free }, 'pencil')]); free = null; setPv([]); return; }
     if (down && dragged) {
       commitTwoPoint(down.ll, llOf(e));
@@ -364,9 +411,12 @@ window.initAnnotate = function (map) {
     if (swallowClick) { swallowClick = false; return; }
     if (cur.tool === 'pencil') return;
     const c = llOf(e);
-    if (cur.tool === 'erase') { const f = hitAid(e); if (f) { const a = f.properties.aid; fc.features = fc.features.filter((x) => x.properties.aid != a); refresh(); } return; }
+    if (cur.tool === 'erase') { const f = hitAid(e); if (f) { const a = f.properties.aid; const gone = fc.features.filter((x) => x.properties.aid == a); pushHist(() => { fc.features = fc.features.concat(gone); }); fc.features = fc.features.filter((x) => x.properties.aid != a); refresh(); } return; }
     if (cur.tool === 'pick') { const f = hitAid(e); if (f && f.properties.color) setColor(f.properties.color); return; }
-    if (cur.tool === 'bucket') { const f = hitAid(e); if (f) { const a = f.properties.aid; fc.features.forEach((x) => { if (x.properties.aid == a) { x.properties.color = cur.color; x.properties.width = cur.width; x.properties.dash = cur.dash; x.properties.cap = cur.cap; x.properties.fill = x.properties.atype === 'arrowhead' ? true : cur.fill; if (x.properties.atype === 'arrowhead') x.properties.dash = false; if (x.properties.atype === 'text') { x.properties.tsize = cur.tsize; x.properties.tfont = cur.tfont; } } }); refresh(); } return; }
+    if (cur.tool === 'bucket') { const f = hitAid(e); if (f) { const a = f.properties.aid;
+      const before = fc.features.filter((x) => x.properties.aid == a).map((x) => ({ x, p: Object.assign({}, x.properties) }));
+      pushHist(() => { before.forEach((r) => { r.x.properties = r.p; }); });
+      fc.features.forEach((x) => { if (x.properties.aid == a) { x.properties.color = cur.color; x.properties.width = cur.width; x.properties.dash = cur.dash; x.properties.cap = cur.cap; x.properties.fill = x.properties.atype === 'arrowhead' ? true : cur.fill; if (x.properties.atype === 'arrowhead') x.properties.dash = false; if (x.properties.atype === 'text') { x.properties.tsize = cur.tsize; x.properties.tfont = cur.tfont; } } }); refresh(); } return; }
     if (cur.tool === 'text') { const t = prompt('Annotation text:'); if (t) { const f = feat({ type: 'Point', coordinates: c }, 'text'); f.properties.text = t; f.properties.tsize = cur.tsize; f.properties.tfont = cur.tfont; commit([f]); } return; }
     if (TWO_POINT[cur.tool]) { pts.push(c); if (pts.length === 2) commitTwoPoint(pts[0], pts[1]); else previewTo(null); return; }
     // previewTo(null) on every placed point: the vertex appears the instant it
@@ -381,7 +431,11 @@ window.initAnnotate = function (map) {
     pts = []; setPv([]);
   }
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { pts = []; free = null; down = null; dragged = false; setPv([]); }
+    if (e.key === 'Escape') {
+      // A move in progress is put back rather than left half-dragged.
+      if (moving) { moving.parts.forEach((p) => { p.f.geometry = p.geom; }); moving = null; refresh(); }
+      pts = []; free = null; down = null; dragged = false; setPv([]);
+    }
     else if (e.key === 'Enter' && (cur.tool === 'line' || cur.tool === 'polygon')) finishMulti();
   });
 };
