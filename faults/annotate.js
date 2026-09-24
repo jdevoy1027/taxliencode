@@ -89,7 +89,7 @@ window.initAnnotate = function (map) {
     '<div class="act"><button id="p-undo">Undo</button><button id="p-clear">Clear</button></div>' +
     '<div class="act"><button id="p-save">Save</button><button id="p-load">Load</button></div>' +
     '<div style="padding:6px"><button class="done" id="p-done">▣ Done</button></div>' +
-    '<input type="file" id="p-loadinput" accept=".geojson,.json" hidden>';
+    '<input type="file" id="p-loadinput" accept=".geojson,.json,.zip,.shp" hidden>';
   document.body.appendChild(box);
   const ov = document.createElement('div'); ov.id = 'annot-ov'; map.getContainer().appendChild(ov);
   const hint = document.createElement('div'); hint.id = 'annot-hint'; document.body.appendChild(hint);
@@ -223,7 +223,9 @@ window.initAnnotate = function (map) {
   box.querySelector('#p-clear').onclick = clearAll;
   box.querySelector('#p-save').onclick = save;
   const loadInput = box.querySelector('#p-loadinput');
-  box.querySelector('#p-load').onclick = () => loadInput.click();
+  const loadBtn = box.querySelector('#p-load');
+  loadBtn.title = 'Load GeoJSON, or a zipped ESRI shapefile (.shp/.shx/.dbf/.prj)';
+  loadBtn.onclick = () => loadInput.click();
   loadInput.onchange = () => { if (loadInput.files[0]) loadFile(loadInput.files[0]); loadInput.value = ''; };
   box.querySelector('#p-done').onclick = () => setTool(null);
   // Closing leaves draw mode first. The drawing overlay sits above the map and
@@ -326,17 +328,105 @@ window.initAnnotate = function (map) {
     a.href = URL.createObjectURL(new Blob([JSON.stringify(out)], { type: 'application/geo+json' }));
     a.download = 'annotations.geojson'; a.click(); URL.revokeObjectURL(a.href);
   }
+  // Annotations are re-rendered whole on every edit, so a shapefile of any real
+  // size would make the tool unusable rather than merely slow. Refused with the
+  // count rather than silently truncated.
+  const LOAD_MAX = 20000;
+
+  // shpjs is 98KB and most sessions never load a shapefile, so it is fetched the
+  // first time one is picked rather than on every page load. Vendored next to
+  // this file rather than pulled from a CDN: a drawing tool should not stop
+  // working because someone else's host is down.
+  let shpLib = null;
+  function loadShpLib() {
+    if (shpLib) return shpLib;
+    shpLib = new Promise((resolve, reject) => {
+      if (window.shp) return resolve(window.shp);
+      const t = document.createElement('script');
+      t.src = './shp.min.js';
+      t.onload = () => window.shp ? resolve(window.shp) : reject(new Error('shp.min.js loaded but exported nothing'));
+      t.onerror = () => reject(new Error('could not load ./shp.min.js'));
+      document.head.appendChild(t);
+    });
+    return shpLib;
+  }
+
+  // One entry point for both formats. Everything arriving here is GeoJSON;
+  // shapefiles have already been converted.
+  function ingest(feats, label) {
+    if (!feats.length) throw new Error('No features found.');
+    if (feats.length > LOAD_MAX) {
+      throw new Error(feats.length.toLocaleString() + ' features is beyond what the ' +
+        'drawing layer can carry (limit ' + LOAD_MAX.toLocaleString() + '). ' +
+        'This tool holds annotations, which are redrawn on every edit.');
+    }
+    const added = [];
+    feats.forEach((ft) => {
+      if (!ft || !ft.geometry) return;
+      aid++;
+      const p = ft.properties || (ft.properties = {});
+      p.aid = aid;
+      p.atype = p.atype || (ft.geometry.type === 'Point' && p.text ? 'text' : 'shape');
+      p.color = p.color || cur.color; p.width = p.width || cur.width;
+      p.fill = !!p.fill; p.dash = !!p.dash; p.cap = p.cap || 'round';
+      fc.features.push(ft);
+      added.push(ft);
+    });
+    if (!added.length) throw new Error('No features had geometry.');
+    // One undo for the whole file. Without this the load would push nothing and
+    // Undo would reach past it to the previous action, leaving the import behind.
+    pushHist(() => { fc.features = fc.features.filter((f) => added.indexOf(f) === -1); });
+    refresh();
+    return added.length;
+  }
+
   function loadFile(file) {
+    const name = (file.name || '').toLowerCase();
+    const isZip = /\.zip$/.test(name);
+    const isShp = /\.shp$/.test(name);
+
+    if (isZip || isShp) {
+      const r = new FileReader();
+      r.onload = () => {
+        loadShpLib().then((shp) => {
+          // A zip carries .prj with it, so the coordinates can be brought to
+          // lon/lat. A bare .shp carries neither projection nor attributes --
+          // it is read, but said so plainly, because a State Plane file taken
+          // as lon/lat lands off the coast of Africa rather than failing.
+          if (isShp) return Promise.resolve(shp.parseShp(r.result)).then((geoms) => ({
+            bare: true,
+            feats: geoms.map((g) => ({ type: 'Feature', properties: {}, geometry: g }))
+          }));
+          return Promise.resolve(shp(r.result)).then((out) => {
+            const fcs = Array.isArray(out) ? out : [out];
+            let feats = [];
+            fcs.forEach((c) => { feats = feats.concat(c.features || []); });
+            return { bare: false, feats: feats, layers: fcs.length,
+                     names: fcs.map((c) => c.fileName).filter(Boolean) };
+          });
+        }).then((res) => {
+          const n = ingest(res.feats, file.name);
+          let msg = n.toLocaleString() + ' feature' + (n === 1 ? '' : 's') + ' loaded';
+          if (res.layers > 1) msg += ' from ' + res.layers + ' layers (' + res.names.join(', ') + ')';
+          if (res.bare) {
+            msg += '.\n\nThis was a bare .shp: no .prj, so the coordinates were taken as ' +
+                   'longitude/latitude, and no .dbf, so there are no attributes. If the ' +
+                   'shapes are not where you expect, zip the .shp, .shx, .dbf and .prj ' +
+                   'together and load that instead.';
+          }
+          alert(msg);
+        }).catch((e) => alert('Shapefile load failed: ' + e.message));
+      };
+      r.onerror = () => alert('Could not read ' + file.name);
+      r.readAsArrayBuffer(file);
+      return;
+    }
+
     const r = new FileReader();
     r.onload = () => { try {
       const g = JSON.parse(r.result);
       const feats = g.type === 'FeatureCollection' ? g.features : g.type === 'Feature' ? [g] : [];
-      if (!feats.length) throw new Error('No features found.');
-      feats.forEach((ft) => { aid++; const p = ft.properties || (ft.properties = {});
-        p.aid = aid; p.atype = p.atype || (ft.geometry && ft.geometry.type === 'Point' && p.text ? 'text' : 'shape');
-        p.color = p.color || '#ed1c24'; p.width = p.width || 3; p.fill = !!p.fill; p.dash = !!p.dash; p.cap = p.cap || 'round';
-        fc.features.push(ft); });
-      refresh();
+      ingest(feats, file.name);
     } catch (e) { alert('Load failed: ' + e.message); } };
     r.readAsText(file);
   }
