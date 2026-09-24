@@ -1983,14 +1983,30 @@ function hideNamedLabels() {
 }
 
 function styleLabels() {
-  (map.getStyle().layers || []).forEach(function (l) {
+  var light = baseMap === 'light';
+  // restoreState() runs setBase() at the end of the script, which can be before
+  // the style has finished loading; getStyle() throws there. The load handler
+  // calls this again once the layers exist, so returning early costs nothing.
+  var layers;
+  try { layers = (map.getStyle() || {}).layers || []; } catch (e) { return; }
+  layers.forEach(function (l) {
     if (l.type !== 'symbol' || LABEL_KEEP[l.id]) return;
     if (!('text-field' in (l.layout || {}))) return;
     try {
+      // White on a thin black halo was picked for the aerial, where the ground
+      // is dark and busy. On the light base map there is no imagery underneath
+      // and the same treatment is white type on near-white paper, held together
+      // by a 0.7px halo. Basemap labels there go black on a white halo instead.
+      //
+      // Only the basemap's own labels follow the base map. Ours are read against
+      // our own fills -- a parcel, a geology unit, the band shading -- which do
+      // not change when the imagery is switched off, so they keep one treatment
+      // and stay predictable.
+      var dark = light && l.source === 'composite';
       map.setLayoutProperty(l.id, 'text-font', ['DIN Pro Bold', 'Arial Unicode MS Bold']);
-      map.setPaintProperty(l.id, 'text-color', '#ffffff');
-      map.setPaintProperty(l.id, 'text-halo-color', '#000000');
-      map.setPaintProperty(l.id, 'text-halo-width', 0.7);
+      map.setPaintProperty(l.id, 'text-color', dark ? '#111111' : '#ffffff');
+      map.setPaintProperty(l.id, 'text-halo-color', dark ? '#ffffff' : '#000000');
+      map.setPaintProperty(l.id, 'text-halo-width', dark ? 1.4 : 0.7);
       map.setPaintProperty(l.id, 'text-halo-blur', 0);
     } catch (err) { /* a symbol layer with no text paint slot is skipped */ }
   });
@@ -5550,6 +5566,9 @@ function setBase(mode) {
   });
   var note = document.getElementById('base-note');
   if (note) note.innerHTML = esc(BASE_NOTE[baseMap] || '');
+  // Basemap label colour follows the base map, so it has to be re-applied here
+  // rather than only at load.
+  styleLabels();
   applyState();
 }
 Object.keys(BASE_BTN).forEach(function (k) {
