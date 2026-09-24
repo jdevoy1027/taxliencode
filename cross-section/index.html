@@ -7,8 +7,8 @@
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
 <!-- Overwritten by setPageSize() on load; kept in step with it so a print fired
      before the script runs does not use different margins. -->
-<style id="pagecss">@page{size:11in 8.5in;margin:.5in 0 .35in 0}
-@media print{body{padding-left:1in;padding-right:1in}}</style>
+<style id="pagecss">@page{size:11in 8.5in;margin:0}
+@media print{body{padding:.5in 1in .35in 1in}}</style>
 <style>
   :root{
     --bg:#fbfbfa; --panel:#fff; --fg:#1a1a18; --muted:#6b6b66;
@@ -109,8 +109,9 @@
        printed size, so type stays at its designed pt size. The drawing is
        9in wide in landscape and sits in a body padded equally on both sides. */
     html,body{background:#fff;height:100%}
-    /* The side padding is injected by setPageSize() so it always matches the
-       drawing width; hardcoding it here would let the two drift apart. */
+    /* All four paddings are injected by setPageSize() so they always match the
+       drawing size; hardcoding any here would let the two drift apart.
+       box-sizing keeps them inside the 100% height rather than adding to it. */
     body{display:flex;flex-direction:column;box-sizing:border-box}
     header .ctrls,.back{display:none}
     header{padding:0 0 8px;border-bottom:1px solid #ccc;flex:none}
@@ -273,12 +274,16 @@ Promise.all([
 // Drawing width per orientation, in inches: nine on 11in landscape paper, seven
 // on 8.5in portrait. Each leaves a symmetric margin -- 1in and 0.75in.
 //
-// The side space is padding on the printed content, not an @page margin.
-// Browsers let the print dialog override @page margins -- that is how the left
-// space disappeared once before -- and padding survives whatever the dialog is
-// set to. Both sides are computed from one number, so the drawing cannot drift
-// off centre: side = (paper - drawing) / 2, by construction. Changing a width
-// here is the whole change; the margins follow.
+// Every margin is padding on the printed content, not an @page margin. Browsers
+// let the print dialog override @page margins, and "Margins: None" -- which the
+// side margins need, since they are what stops the dialog adding its own on top
+// -- zeroes them outright. That is why the top space kept vanishing while it was
+// an @page margin: the setting that makes the sides work is the setting that
+// kills an @page top. Padding is inside the page box and survives all of it.
+//
+// The sides are computed from one number, so the drawing cannot drift off
+// centre: side = (paper - drawing) / 2, by construction. Changing a width here
+// is the whole change; the margins follow.
 var DRAW_IN = { landscape: 9, portrait: 7 };
 // Top and bottom apply to both orientations. Half an inch at the top on both,
 // which is where the title sits; the extra half inch reclaimed from the old 1in
@@ -294,10 +299,12 @@ function pageBoxPx() {
 }
 function setPageSize() {
   var p = pageBoxPx();
+  // @page carries the paper size and nothing else. Every margin is padding
+  // below, where the print dialog cannot reach it.
   document.getElementById('pagecss').textContent =
-    '@page{size:' + (p.portrait ? '8.5in 11in' : '11in 8.5in') +
-    ';margin:' + MARGIN.top + 'in 0 ' + MARGIN.bottom + 'in 0}' +
-    '@media print{body{padding-left:' + p.side + 'in;padding-right:' + p.side + 'in}}';
+    '@page{size:' + (p.portrait ? '8.5in 11in' : '11in 8.5in') + ';margin:0}' +
+    '@media print{body{padding:' + MARGIN.top + 'in ' + p.side + 'in ' +
+    MARGIN.bottom + 'in ' + p.side + 'in}}';
 }
 // Printing used to CSS-zoom the whole sheet to fit, which shrank the axis text to
 // about 3.5pt. Instead, re-render the SVG at the printable size so type stays at
