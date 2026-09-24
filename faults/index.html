@@ -3252,7 +3252,12 @@ function tableFeatures(key, cb) {
     try {
       // The layer's own filter goes with the query, or the census blocks would
       // list the Texas rows the map deliberately does not draw.
-      var opt = { sourceLayer: l.sourceLayer };
+      // getLayer() returns the SERIALISED layer, which uses the style-spec key
+      // 'source-layer'. There is no .sourceLayer on it, and querySourceFeatures
+      // given sourceLayer: undefined returns nothing at all rather than
+      // complaining -- which is how the table came up empty for every
+      // tile-backed layer while the map was plainly drawing them.
+      var opt = { sourceLayer: l['source-layer'] || l.sourceLayer };
       var flt = map.getFilter(lid);
       if (flt) opt.filter = flt;
       out = out.concat(map.querySourceFeatures(l.source, opt));
