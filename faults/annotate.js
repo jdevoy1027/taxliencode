@@ -58,7 +58,9 @@ window.initAnnotate = function (map) {
   #pbox .done{width:100%;height:26px;margin-top:0;background:#2d6cdf;color:#fff;border:none;border-radius:3px;cursor:pointer;font:700 11px inherit}
   #annot-ov{position:absolute;inset:0;z-index:2;display:none;cursor:crosshair}
   #tfont{position:fixed;z-index:10001;background:#e9e9e9;border:1px solid #888;border-radius:5px;
-    box-shadow:0 8px 24px rgba(0,0,0,.32);padding:8px;width:194px;font:12px Tahoma,Helvetica,Arial,sans-serif}
+    box-shadow:0 8px 24px rgba(0,0,0,.32);padding:8px;width:246px;font:12px Tahoma,Helvetica,Arial,sans-serif}
+  #tfont .tg{width:100%;height:25px;margin-bottom:9px;background:#fff;border:1px solid #aaa;border-radius:3px;cursor:pointer;font:700 11px inherit;color:#222}
+  #tfont .tg.active{background:#2d6cdf;border-color:#2d6cdf;color:#fff}
   #tfont .lbl{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#555;margin:0 0 4px}
   #tfont .row{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:9px}
   #tfont .row button{flex:1 0 48px;height:25px;background:#fff;border:1px solid #aaa;border-radius:3px;cursor:pointer;font:600 11px inherit;color:#222}
@@ -96,23 +98,50 @@ window.initAnnotate = function (map) {
   // offered. A font Mapbox cannot serve does not fall back -- the label simply
   // does not draw -- so an unverified name silently loses the annotation.
   // Second entry in each stack is the fallback for glyphs the first lacks.
+  // The requested faces -- Arial, Century Schoolbook, Times New Roman, Tahoma,
+  // Arial Black, Helvetica, Verdana Pro -- are licensed Microsoft, Monotype and
+  // Linotype fonts. Mapbox serves none of them, and neither the obvious name
+  // variants nor the metric-compatible clones (Arimo, Tinos, Liberation) are
+  // available either; every one was checked against the glyph API and returned
+  // 404.
+  //
+  // So each maps to the nearest face Mapbox does serve, and the label says so.
+  // Naming an option 'Times New Roman' while drawing something else would put
+  // the wrong typeface name in a report; the '~' states what is actually drawn.
+  // Arial needs no qualifier -- Arial Unicode MS is Arial with extended glyph
+  // coverage, the same design.
+  //
+  // Weight is a separate toggle rather than its own entries, so each face
+  // carries a regular and a bold stack. Both were verified servable.
   const FONTS = [
-    ['bold',      'DIN Bold',          ['DIN Pro Bold', 'Arial Unicode MS Bold']],
-    ['medium',    'DIN Medium',        ['DIN Pro Medium', 'Arial Unicode MS Regular']],
-    ['regular',   'DIN Regular',       ['DIN Pro Regular', 'Arial Unicode MS Regular']],
-    ['italic',    'DIN Italic',        ['DIN Pro Italic', 'Arial Unicode MS Regular']],
-    ['openb',     'Open Sans Bold',    ['Open Sans Bold', 'Arial Unicode MS Bold']],
-    ['openr',     'Open Sans',         ['Open Sans Regular', 'Arial Unicode MS Regular']],
-    ['openi',     'Open Sans Italic',  ['Open Sans Italic', 'Arial Unicode MS Regular']],
-    ['robotob',   'Roboto Bold',       ['Roboto Bold', 'Arial Unicode MS Bold']],
-    ['robotor',   'Roboto',            ['Roboto Regular', 'Arial Unicode MS Regular']],
-    ['mono',      'Roboto Mono',       ['Roboto Mono Regular', 'Arial Unicode MS Regular']],
-    ['source',    'Source Sans Pro',   ['Source Sans Pro Regular', 'Arial Unicode MS Regular']],
-    ['ubuntu',    'Ubuntu',            ['Ubuntu Regular', 'Arial Unicode MS Regular']],
-    ['arial',     'Arial Unicode',     ['Arial Unicode MS Bold', 'Arial Unicode MS Regular']],
+    ['ar',   'Arial',                             ['Arial Unicode MS Regular', 'Arial Unicode MS Bold'], ['Arial Unicode MS Bold', 'Arial Unicode MS Regular']],
+    ['arbk', 'Arial Black ~ Roboto Black',        ['Roboto Black', 'Arial Unicode MS Bold'],             ['Roboto Black', 'Arial Unicode MS Bold']],
+    ['hv',   'Helvetica ~ Roboto',                ['Roboto Regular', 'Arial Unicode MS Regular'],        ['Roboto Bold', 'Arial Unicode MS Bold']],
+    ['tnr',  'Times New Roman ~ PT Serif',        ['PT Serif Regular', 'Arial Unicode MS Regular'],      ['PT Serif Bold', 'Arial Unicode MS Bold']],
+    ['csb',  'Century Schoolbook ~ Merriweather', ['Merriweather Regular', 'Arial Unicode MS Regular'],  ['Merriweather Bold', 'Arial Unicode MS Bold']],
+    ['th',   'Tahoma ~ PT Sans',                  ['PT Sans Regular', 'Arial Unicode MS Regular'],       ['PT Sans Bold', 'Arial Unicode MS Bold']],
+    ['vd',   'Verdana Pro ~ Open Sans',           ['Open Sans Regular', 'Arial Unicode MS Regular'],     ['Open Sans Bold', 'Arial Unicode MS Bold']],
+  ];
+  // Not offered in the picker, but still resolved by the layer, so annotations
+  // saved with the previous font list keep the face they were given instead of
+  // silently reverting to the default.
+  const LEGACY_FONTS = [
+    ['bold',    ['DIN Pro Bold', 'Arial Unicode MS Bold']],
+    ['medium',  ['DIN Pro Medium', 'Arial Unicode MS Regular']],
+    ['regular', ['DIN Pro Regular', 'Arial Unicode MS Regular']],
+    ['italic',  ['DIN Pro Italic', 'Arial Unicode MS Regular']],
+    ['openb',   ['Open Sans Bold', 'Arial Unicode MS Bold']],
+    ['openr',   ['Open Sans Regular', 'Arial Unicode MS Regular']],
+    ['openi',   ['Open Sans Italic', 'Arial Unicode MS Regular']],
+    ['robotob', ['Roboto Bold', 'Arial Unicode MS Bold']],
+    ['robotor', ['Roboto Regular', 'Arial Unicode MS Regular']],
+    ['mono',    ['Roboto Mono Regular', 'Arial Unicode MS Regular']],
+    ['source',  ['Source Sans Pro Regular', 'Arial Unicode MS Regular']],
+    ['ubuntu',  ['Ubuntu Regular', 'Arial Unicode MS Regular']],
+    ['arial',   ['Arial Unicode MS Bold', 'Arial Unicode MS Regular']],
   ];
   const TSIZES = [12, 16, 20, 26, 34, 44];
-  const cur = { tool: null, color: '#ed1c24', width: 3, fill: false, dash: false, cap: 'round', tsize: 16, tfont: 'bold' };
+  const cur = { tool: null, color: '#ed1c24', width: 3, fill: false, dash: false, cap: 'round', tsize: 16, tfont: 'ar', tbold: false };
   const HINTS = { pencil: 'Drag to draw freehand', line: 'Drag for one segment, or click points · double-click to finish', arrow: 'Drag, or click start then end',
     rect: 'Drag, or click two opposite corners', circle: 'Drag from center, or click center then edge', polygon: 'Click vertices · double-click to finish',
     text: 'Click to place text · hold the Text button for size and font', erase: 'Click a shape to delete it', bucket: 'Click a shape to recolor it', pick: 'Click a shape to pick its color', move: 'Drag any shape or label to move it' };
@@ -142,6 +171,7 @@ window.initAnnotate = function (map) {
     const d = document.createElement('div'); d.id = 'tfont';
     d.innerHTML = '<div class="lbl">Text size</div><div class="row" id="tf-sz"></div>' +
                   '<div class="lbl">Font</div><div class="row fonts" id="tf-ft"></div>' +
+                  '<button class="tg" id="tf-bold">Bold: Off</button>' +
                   '<button class="done" id="tf-done">Done</button>';
     document.body.appendChild(d);
     const pick = (host, b) => { host.querySelectorAll('button').forEach((x) => x.classList.remove('active')); b.classList.add('active'); };
@@ -156,6 +186,13 @@ window.initAnnotate = function (map) {
     FONTS.forEach(([k, label]) => { const o = document.createElement('option'); o.value = k; o.textContent = label; if (k === cur.tfont) o.selected = true; sel.appendChild(o); });
     sel.onchange = () => { cur.tfont = sel.value; };
     ftr.appendChild(sel);
+    // Weight as a toggle rather than a second entry per face: with seven faces
+    // that would be fourteen rows to scroll, and 'Arial Bold' is the same choice
+    // of typeface as 'Arial'.
+    const bb = d.querySelector('#tf-bold');
+    const paintBold = () => { bb.textContent = 'Bold: ' + (cur.tbold ? 'On' : 'Off'); bb.classList.toggle('active', cur.tbold); };
+    paintBold();
+    bb.onclick = () => { cur.tbold = !cur.tbold; paintBold(); };
     d.querySelector('#tf-done').onclick = closeFontPanel;
     // Placed after it is in the document so its measured size keeps it on screen.
     const r = textBtn.getBoundingClientRect();
@@ -230,9 +267,17 @@ window.initAnnotate = function (map) {
   // key rather than a get of the stack itself. Both fall back for annotations
   // saved before these existed -- tsize to the old width-derived size, tfont to
   // the match's default.
-  const TFONT = ['match', ['get', 'tfont']];
-  FONTS.forEach(([k, , stack]) => { if (k !== 'bold') TFONT.push(k, ['literal', stack]); });
-  TFONT.push(['literal', FONTS[0][2]]);
+  const DEFAULT_STACK = ['DIN Pro Bold', 'Arial Unicode MS Bold'];
+  function fontMatch(bold) {
+    const m = ['match', ['get', 'tfont']];
+    FONTS.forEach((f) => m.push(f[0], ['literal', bold ? f[3] : f[2]]));
+    LEGACY_FONTS.forEach(([k, stack]) => m.push(k, ['literal', stack]));
+    // Default arm: what a feature with no tfont draws. Left as DIN Pro Bold,
+    // the face every annotation used before any of this existed.
+    m.push(['literal', DEFAULT_STACK]);
+    return m;
+  }
+  const TFONT = ['case', ['==', ['get', 'tbold'], true], fontMatch(true), fontMatch(false)];
   map.addLayer({ id: 'annot-text', type: 'symbol', source: 'annot', filter: ['==', ['get', 'atype'], 'text'],
     layout: { 'text-field': ['get', 'text'], 'text-size': ['coalesce', ['get', 'tsize'], ['+', 11, ['*', ['get', 'width'], 1.8]]], 'text-font': TFONT, 'text-allow-overlap': true },
     paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#ffffff', 'text-halo-width': 1.6 } }); HIT.push('annot-text');
@@ -416,8 +461,8 @@ window.initAnnotate = function (map) {
     if (cur.tool === 'bucket') { const f = hitAid(e); if (f) { const a = f.properties.aid;
       const before = fc.features.filter((x) => x.properties.aid == a).map((x) => ({ x, p: Object.assign({}, x.properties) }));
       pushHist(() => { before.forEach((r) => { r.x.properties = r.p; }); });
-      fc.features.forEach((x) => { if (x.properties.aid == a) { x.properties.color = cur.color; x.properties.width = cur.width; x.properties.dash = cur.dash; x.properties.cap = cur.cap; x.properties.fill = x.properties.atype === 'arrowhead' ? true : cur.fill; if (x.properties.atype === 'arrowhead') x.properties.dash = false; if (x.properties.atype === 'text') { x.properties.tsize = cur.tsize; x.properties.tfont = cur.tfont; } } }); refresh(); } return; }
-    if (cur.tool === 'text') { const t = prompt('Annotation text:'); if (t) { const f = feat({ type: 'Point', coordinates: c }, 'text'); f.properties.text = t; f.properties.tsize = cur.tsize; f.properties.tfont = cur.tfont; commit([f]); } return; }
+      fc.features.forEach((x) => { if (x.properties.aid == a) { x.properties.color = cur.color; x.properties.width = cur.width; x.properties.dash = cur.dash; x.properties.cap = cur.cap; x.properties.fill = x.properties.atype === 'arrowhead' ? true : cur.fill; if (x.properties.atype === 'arrowhead') x.properties.dash = false; if (x.properties.atype === 'text') { x.properties.tsize = cur.tsize; x.properties.tfont = cur.tfont; x.properties.tbold = cur.tbold; } } }); refresh(); } return; }
+    if (cur.tool === 'text') { const t = prompt('Annotation text:'); if (t) { const f = feat({ type: 'Point', coordinates: c }, 'text'); f.properties.text = t; f.properties.tsize = cur.tsize; f.properties.tfont = cur.tfont; f.properties.tbold = cur.tbold; commit([f]); } return; }
     if (TWO_POINT[cur.tool]) { pts.push(c); if (pts.length === 2) commitTwoPoint(pts[0], pts[1]); else previewTo(null); return; }
     // previewTo(null) on every placed point: the vertex appears the instant it
     // is clicked, rather than waiting for the pointer to move.
