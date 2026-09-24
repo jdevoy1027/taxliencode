@@ -1993,8 +1993,23 @@ function hideNamedLabels() {
   });
 }
 
+// The borehole dot is a dark navy core inside a white ring. The ring is what
+// lifts it off dark imagery, and at the zooms where the symbol is smallest it is
+// a good share of what you see -- at z8 a 2.2px radius carries a 0.6px stroke.
+// On the light base map that ring is white on near-white: it does nothing, and
+// the dot reads as a pale smudge rather than a mark. Dark ring there, so the
+// whole symbol is one solid dark dot.
+function styleBoreDot() {
+  if (!map.getLayer('bore-dot')) return;
+  try {
+    map.setPaintProperty('bore-dot', 'circle-stroke-color',
+      baseMap === 'light' ? '#10233f' : '#ffffff');
+  } catch (e) { /* layer gone */ }
+}
+
 function styleLabels() {
   var light = baseMap === 'light';
+  styleBoreDot();
   // restoreState() runs setBase() at the end of the script, which can be before
   // the style has finished loading; getStyle() throws there. The load handler
   // calls this again once the layers exist, so returning early costs nothing.
