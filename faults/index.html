@@ -3568,16 +3568,30 @@ function ltRecordLabel(i) {
   return 'Record ' + (i + 1);
 }
 
+// Turquoise, over the dark casing that stays. White was chosen to read against
+// the aerial, but it is also the commonest colour on a map -- roofs, concrete,
+// road fill, the light base map itself -- so a white selection had to be
+// inferred from its shape. Turquoise occurs almost nowhere in imagery or in the
+// layer palettes, so a selected feature is obvious without looking for it.
+//
+// The casing is not recoloured: it is what makes any bright line readable over
+// varied ground, and it does the same job for turquoise as it did for white.
+var SELECT_COLOR = '#40e0d0';
+var PT_ONLY = ['==', ['geometry-type'], 'Point'];
+
 // Highlight for the record zoomed to. One source carrying whatever geometry the
 // record has, and a layer per kind: a fill gives a large polygon a body so it
 // reads as picked rather than merely outlined, the line pair outlines polygons
 // and draws linework, and the circle pair rings a point.
 //
-// White over a dark casing, the same treatment the parcel search uses, and for
-// the same reason: a bare white outline vanishes against pale roofs, concrete
-// and dry ground, all common on the aerial basemap. Nothing filters by geometry
-// type -- a fill layer ignores a point and a circle layer ignores a polygon, so
-// each kind draws only what it can.
+// Over a dark casing, the same construction the parcel search uses, and for the
+// same reason: a bare bright outline vanishes against pale roofs, concrete and
+// dry ground, all common on the aerial basemap.
+//
+// Only the circle pair is filtered, to points. A fill layer really does ignore a
+// point and a line layer a point -- but a circle layer draws one circle PER
+// COORDINATE, so unfiltered it ringed every vertex of a selected polygon. That
+// is what the selection looked like: an outline beaded with circles.
 function ensureHilite() {
   if (!map.getSource('rec-hl')) {
     map.addSource('rec-hl', { type: 'geojson',
@@ -3586,18 +3600,19 @@ function ensureHilite() {
   var zw = function (a, b) {
     return ['interpolate', ['linear'], ['zoom'], 10, a, 17, b];
   };
-  [['rec-hl-fill', 'fill', { 'fill-color': '#ffffff', 'fill-opacity': 0.22 }],
+  [['rec-hl-fill', 'fill', { 'fill-color': SELECT_COLOR, 'fill-opacity': 0.22 }],
    ['rec-hl-casing', 'line', { 'line-color': '#14202b', 'line-width': zw(5, 9),
                                'line-opacity': 0.85 }],
-   ['rec-hl-line', 'line', { 'line-color': '#ffffff', 'line-width': zw(2.2, 4.5) }],
+   ['rec-hl-line', 'line', { 'line-color': SELECT_COLOR, 'line-width': zw(2.2, 4.5) }],
    ['rec-hl-dotc', 'circle', { 'circle-radius': zw(8, 14), 'circle-color': 'rgba(0,0,0,0)',
                                'circle-stroke-color': '#14202b', 'circle-stroke-width': 6,
-                               'circle-stroke-opacity': 0.85 }],
+                               'circle-stroke-opacity': 0.85 }, PT_ONLY],
    ['rec-hl-dot', 'circle', { 'circle-radius': zw(8, 14), 'circle-color': 'rgba(0,0,0,0)',
-                              'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 }]
+                              'circle-stroke-color': SELECT_COLOR, 'circle-stroke-width': 2.5 }, PT_ONLY]
   ].forEach(function (d) {
     if (map.getLayer(d[0])) return;
     var o = { id: d[0], type: d[1], source: 'rec-hl', paint: d[2] };
+    if (d[3]) o.filter = d[3];
     if (d[1] === 'line') o.layout = { 'line-join': 'round', 'line-cap': 'round' };
     map.addLayer(o);                      // no beforeId: on top of everything
   });
