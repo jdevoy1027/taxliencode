@@ -1953,6 +1953,17 @@ function applyState() {
 //                   It wears a heavier black halo than everything else because it
 //                   is read against the band shading rather than the basemap.
 var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1, 'syn-label': 1 };
+
+// Our own labels that follow the base map alongside the basemap's own. These
+// two are read against pale fills -- a geology unit, open ground around a
+// borehole -- so on the light base map white type has nothing to sit against,
+// the same problem the street names had. Both declared a dark colour when they
+// were written; the house treatment had been overriding it.
+//
+// Not every label of ours belongs here. The parcel year and the sample-site
+// labels sit on the band shading, which is unchanged by the base map, so they
+// keep one treatment in all three modes.
+var DARK_ON_LIGHT = { 'bore-label': 1, 'geo-label': 1 };
 // Basemap place names to suppress. Matched as a substring against the label
 // text, so 'Los Cerritos' catches both the neighbourhood and Los Cerritos
 // Wetlands, whichever layer Mapbox happens to put them in.
@@ -1998,11 +2009,8 @@ function styleLabels() {
       // and the same treatment is white type on near-white paper, held together
       // by a 0.7px halo. Basemap labels there go black on a white halo instead.
       //
-      // Only the basemap's own labels follow the base map. Ours are read against
-      // our own fills -- a parcel, a geology unit, the band shading -- which do
-      // not change when the imagery is switched off, so they keep one treatment
-      // and stay predictable.
-      var dark = light && l.source === 'composite';
+      // The basemap's labels, plus the few of ours listed in DARK_ON_LIGHT.
+      var dark = light && (l.source === 'composite' || DARK_ON_LIGHT[l.id]);
       map.setLayoutProperty(l.id, 'text-font', ['DIN Pro Bold', 'Arial Unicode MS Bold']);
       map.setPaintProperty(l.id, 'text-color', dark ? '#111111' : '#ffffff');
       map.setPaintProperty(l.id, 'text-halo-color', dark ? '#ffffff' : '#000000');
