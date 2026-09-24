@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Borehole Cross-Section — Geonomics</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
-<style id="pagecss">@page{size:11in 8.5in;margin:1in 2in .35in 0}</style>
+<style id="pagecss">@page{size:11in 8.5in;margin:1in 0 .35in 0}
+@media print{body{padding-left:1in;padding-right:1in}}</style>
 <style>
   :root{
     --bg:#fbfbfa; --panel:#fff; --fg:#1a1a18; --muted:#6b6b66;
@@ -102,20 +103,20 @@
     border:1px solid #f0dfc0;border-radius:8px;padding:9px 12px
   }
   @media print{
-    /* A section can be far wider than a page, so #xs-wrap is scaled to fit by
-       fitForPrint() before the dialog opens. Printable area at .35in margins on
-       11x8.5 paper is 10.3 x 7.8in. `zoom` shrinks the layout box (unlike
-       transform), so ordinary flex centring puts the scaled sheet in the middle
-       of the page both ways. */
+    /* Nothing is scaled at print time any more: the SVG is re-rendered at the
+       printed size, so type stays at its designed pt size. The drawing is
+       9in wide in landscape and sits in a body padded equally on both sides. */
     html,body{background:#fff;height:100%}
-    body{display:flex;flex-direction:column;padding-left:2in;box-sizing:border-box}
+    /* The side padding is injected by setPageSize() so it always matches the
+       drawing width; hardcoding it here would let the two drift apart. */
+    body{display:flex;flex-direction:column;box-sizing:border-box}
     header .ctrls,.back{display:none}
     header{padding:0 0 8px;border-bottom:1px solid #ccc;flex:none}
     .leghead,.legend{margin-left:0}
     /* flex-start, not center: with align-items:center an over-tall sheet
        overflows upward and prints on top of the title */
     main{padding:0;overflow:visible;flex:1;min-height:0;
-         display:flex;align-items:flex-start;justify-content:flex-start}
+         display:flex;align-items:flex-start;justify-content:center}
     .wrap{border:0;padding:0;background:#fff;min-height:0}
     .strip{border:1px solid #bbb}
     #xs-wrap{margin:0;zoom:1}
@@ -266,26 +267,32 @@ Promise.all([
     '<div class="empty"><h2>Could not load data</h2><p>' + esc(e.message) + '</p></div>';
 });
 
-// ---------- fit the whole sheet onto one 11 x 8.5 page ----------
-// 1in binding margin at the top and left; the trailing edges stay tight.
-// LEFT_GUTTER is real padding on the printed content, not an @page margin:
-// browsers let the print dialog override @page margins, which is how the left
-// space disappeared. Padding survives whatever the dialog is set to.
-var LEFT_GUTTER = 2;
-var MARGIN = { top: 1, right: 2, bottom: 0.35, left: 0 };
+// ---------- page geometry ----------
+// A landscape section is drawn nine inches wide and centred: 11in paper less one
+// inch of white either side. Portrait keeps 4.5in, since nine inches does not
+// fit across 8.5in paper at all.
+//
+// The side space is padding on the printed content, not an @page margin.
+// Browsers let the print dialog override @page margins -- that is how the left
+// space disappeared once before -- and padding survives whatever the dialog is
+// set to. Both sides are computed from one number, so the drawing cannot drift
+// off centre: side = (paper - drawing) / 2, by construction.
+var DRAW_IN = { landscape: 9, portrait: 4.5 };
+var MARGIN = { top: 1, bottom: 0.35 };
 function pageBoxPx() {
   var portrait = document.getElementById('c-orient') &&
                  document.getElementById('c-orient').value === 'portrait';
-  var w = (portrait ? 8.5 : 11) - MARGIN.left - MARGIN.right - LEFT_GUTTER;
-  var h = (portrait ? 11 : 8.5) - MARGIN.top - MARGIN.bottom;
-  return { w: w * 96, h: h * 96, portrait: portrait };
+  var paperW = portrait ? 8.5 : 11, paperH = portrait ? 11 : 8.5;
+  var draw = portrait ? DRAW_IN.portrait : DRAW_IN.landscape;
+  return { w: draw * 96, h: (paperH - MARGIN.top - MARGIN.bottom) * 96,
+           portrait: portrait, draw: draw, side: (paperW - draw) / 2 };
 }
 function setPageSize() {
   var p = pageBoxPx();
   document.getElementById('pagecss').textContent =
     '@page{size:' + (p.portrait ? '8.5in 11in' : '11in 8.5in') +
-    ';margin:' + MARGIN.top + 'in ' + MARGIN.right + 'in ' +
-    MARGIN.bottom + 'in ' + MARGIN.left + '}';
+    ';margin:' + MARGIN.top + 'in 0 ' + MARGIN.bottom + 'in 0}' +
+    '@media print{body{padding-left:' + p.side + 'in;padding-right:' + p.side + 'in}}';
 }
 // Printing used to CSS-zoom the whole sheet to fit, which shrank the axis text to
 // about 3.5pt. Instead, re-render the SVG at the printable size so type stays at
