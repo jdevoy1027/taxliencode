@@ -3183,6 +3183,30 @@ function fitLayerExtent(key, acc) {
 // Contours report on no layer when clicked, so LAYER_HITS has nothing for them,
 // but they are drawn and can be tabulated.
 var LAYER_TABLE = { contours: ['contour-line'] };
+
+// A parcel's address arrives in four fields. Ordering columns by how many
+// features carry them -- a fair default for a layer nobody has described --
+// splits those four across the eight-column cut, because the street, city and
+// zip are blank on some records while the house number is not. The table ended
+// up showing a house number with no street in LA, and a city with no street in
+// Orange. So they are combined into one column, and the fields that identify a
+// parcel lead regardless of how common they are.
+function parcelAddress(p) {
+  // situs_no is 0, not blank, on records with no street number.
+  var no = (p.situs_no && +p.situs_no !== 0) ? String(p.situs_no) : '';
+  var line = [no, p.situs_street].filter(Boolean).join(' ').trim();
+  var city = [p.situs_city, p.situs_zip].filter(Boolean).join(' ').trim();
+  return [line, city].filter(Boolean).join(', ');
+}
+var LAYER_COLS = {
+  parcels: {
+    derive: { address: parcelAddress },
+    lead: ['ain', 'owner', 'address', 'use_code'],
+    // The parts are redundant once address exists, and would eat half the
+    // columns repeating what it already says.
+    hide: ['situs_no', 'situs_street', 'situs_city', 'situs_zip']
+  }
+};
 // Rendered a page at a time. Every record is reachable; they are simply not all
 // in the DOM at once, because a layer like the boreholes is 13,137 rows and
 // putting a hundred thousand cells on the page at once stalls the browser for
@@ -3309,14 +3333,31 @@ function showLayerTable(key) {
           : 'Nothing from this layer has been loaded yet.';
     }
 
+    var spec = LAYER_COLS[key];
+    if (spec && spec.derive) {
+      rows.forEach(function (r) {
+        Object.keys(spec.derive).forEach(function (k) {
+          var v = spec.derive[k](r.props);
+          if (v) r.props[k] = v;
+        });
+      });
+    }
+
     var freq = {}, order = [], idx = {};
     rows.forEach(function (r) {
       Object.keys(r.props).forEach(function (k) {
+        if (spec && spec.hide && spec.hide.indexOf(k) !== -1) return;
         if (freq[k] === undefined) { freq[k] = 0; idx[k] = order.length; order.push(k); }
         freq[k]++;
       });
     });
     order.sort(function (a, b) { return freq[b] - freq[a] || idx[a] - idx[b]; });
+    if (spec && spec.lead) {
+      // Only the lead fields that something actually carries, so a layer missing
+      // one does not spend a column on an empty header.
+      var lead = spec.lead.filter(function (k) { return freq[k]; });
+      order = lead.concat(order.filter(function (k) { return lead.indexOf(k) === -1; }));
+    }
 
     LT_ROWS = rows;
     LT_COLS = order.slice(0, 8);
