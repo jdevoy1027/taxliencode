@@ -3204,7 +3204,10 @@ var LAYER_COLS = {
     lead: ['ain', 'owner', 'address', 'use_code'],
     // The parts are redundant once address exists, and would eat half the
     // columns repeating what it already says.
-    hide: ['situs_no', 'situs_street', 'situs_city', 'situs_zip']
+    // tra is the tax rate area code, which identifies a taxing district rather
+    // than the parcel, and it was taking the last column ahead of anything
+    // describing the property.
+    hide: ['situs_no', 'situs_street', 'situs_city', 'situs_zip', 'tra']
   }
 };
 // Rendered a page at a time. Every record is reachable; they are simply not all
@@ -3362,6 +3365,7 @@ function showLayerTable(key) {
     LT_ROWS = rows;
     LT_COLS = order.slice(0, 8);
     LT_PAGE = 0;
+    LT_COMPLETE = !!res.complete;
 
     openDlg('<h2>' + esc(name) + ' — ' +
       (res.complete ? 'all records' : 'loaded records') + '</h2><div class="bd">' +
@@ -3411,9 +3415,14 @@ function ltRenderPage(p) {
   var from = LT_PAGE * TABLE_PAGE;
   var to = Math.min(LT_ROWS.length, from + TABLE_PAGE);
 
+  // With one page there is no pager, and silence there reads as a truncated
+  // table with a missing Next button. Say which of the two it is.
+  var tail = pages > 1
+    ? ' · showing ' + (from + 1).toLocaleString() + '–' + to.toLocaleString()
+    : LT_COMPLETE ? ' · all of them shown'
+                  : ' · all that are loaded — pan or zoom to load more';
   document.getElementById('lt-count').textContent =
-    LT_ROWS.length.toLocaleString() + ' record' + (LT_ROWS.length === 1 ? '' : 's') +
-    (pages > 1 ? ' · showing ' + (from + 1).toLocaleString() + '–' + to.toLocaleString() : '');
+    LT_ROWS.length.toLocaleString() + ' record' + (LT_ROWS.length === 1 ? '' : 's') + tail;
 
   // A record number ahead of the fields. It counts through the whole layer
   // rather than restarting each page -- record 501 is the first row of the
@@ -3546,7 +3555,7 @@ function showFeatureAttrs(pt) {
   });
 }
 
-var LT_ROWS = [], LT_COLS = [], LT_PAGE = 0;
+var LT_ROWS = [], LT_COLS = [], LT_PAGE = 0, LT_COMPLETE = false;
 
 // Names the record by its first column, which is the field most features carry
 // and so the one most likely to identify it. Falls back to the row number.
