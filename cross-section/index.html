@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Borehole Cross-Section — Geonomics</title>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet">
-<style id="pagecss">@page{size:11in 8.5in;margin:1in 0 .35in 0}
+<!-- Overwritten by setPageSize() on load; kept in step with it so a print fired
+     before the script runs does not use different margins. -->
+<style id="pagecss">@page{size:11in 8.5in;margin:.5in 0 .35in 0}
 @media print{body{padding-left:1in;padding-right:1in}}</style>
 <style>
   :root{
@@ -278,7 +280,10 @@ Promise.all([
 // off centre: side = (paper - drawing) / 2, by construction. Changing a width
 // here is the whole change; the margins follow.
 var DRAW_IN = { landscape: 9, portrait: 7 };
-var MARGIN = { top: 1, bottom: 0.35 };
+// Top and bottom apply to both orientations. Half an inch at the top on both,
+// which is where the title sits; the extra half inch reclaimed from the old 1in
+// goes to the drawing, since the height box is paper less these two.
+var MARGIN = { top: 0.5, bottom: 0.35 };
 function pageBoxPx() {
   var portrait = document.getElementById('c-orient') &&
                  document.getElementById('c-orient').value === 'portrait';
