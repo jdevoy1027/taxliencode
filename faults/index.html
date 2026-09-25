@@ -395,6 +395,15 @@
   .dtab .rn{text-align:right;font-variant-numeric:tabular-nums;color:#9a9a92;
             width:1%;white-space:nowrap;padding-right:13px}
   .dempty{padding:20px;text-align:center;color:#85857e;font-size:12.5px;line-height:1.5}
+  /* .fld label sets uppercase for field captions; these rows are labels too and
+     must not inherit it -- geology unit codes are case-sensitive, Qoa not QOA. */
+  .dlg .symrow{display:flex;align-items:center;gap:10px;padding:3px 0;font-size:12.5px;cursor:pointer;
+          text-transform:none;letter-spacing:normal;font-weight:400;color:#1a1a18;margin-bottom:0}
+  .dlg .symrow input[type=color]{width:32px;height:22px;padding:0;border:1px solid #c7c7c0;
+                            border-radius:4px;background:#fff;cursor:pointer;flex:none}
+  .symgrp{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+          color:#85857e;margin:10px 0 3px}
+  .symgrp:first-child{margin-top:0}
   .ltpager{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:8px}
   .ltpager button{font:inherit;font-size:12.5px;font-weight:560;padding:5px 12px;
                   border:1px solid #d0d0ca;background:#fff;color:#3a3a35;
@@ -607,8 +616,7 @@
           <span class="cnt">13,137</span>
         </div>
         <div class="sym" id="sym-bores" hidden>
-          <div class="ctrow"><span class="sw"><i class="dot" style="background:#10233f"></i></span>
-            <span>Geotechnical borehole</span></div>
+          <div id="bore-legend"></div>
           <div class="sub">
             <input type="checkbox" id="t-bore-labels" checked>
             <label class="lbl" for="t-bore-labels">Well names</label>
@@ -642,11 +650,7 @@
           <span class="cnt">1,463</span>
         </div>
         <div class="sym" id="sym-ap" hidden>
-          <div class="ctrow">
-            <span class="sw"><i style="height:13px;background:#756bb1;opacity:.55;
-              border:1px dashed #54278f"></i></span>
-            <span>Earthquake fault zone</span>
-          </div>
+          <div id="ap-legend"></div>
           <div class="ctmeta">State-regulated zones around active fault traces.<br>
             1,463 zones · CGS · released 1974–2025</div>
         </div>
@@ -661,11 +665,7 @@
           <span class="cnt">2,031</span>
         </div>
         <div class="sym" id="sym-liq" hidden>
-          <div class="ctrow">
-            <span class="sw"><i style="height:13px;background:#1f9e8c;opacity:.5;
-              border:1px dashed #11685c"></i></span>
-            <span>Liquefaction hazard zone</span>
-          </div>
+          <div id="liq-legend"></div>
           <div class="ctmeta">Areas required to be investigated for liquefaction
             before development.<br>2,031 zones · CGS Seismic Hazard Zones ·
             released 1997–2006<br>Click a zone for its quadrangle map and report.</div>
@@ -898,6 +898,20 @@ var showPipe = false;
 var showSyn = true;   // small site layer, on by default
 var SYN_FEATURES = null;   // pristine site features, kept so values can be re-applied
 var SYN_COLOR = '#e6007e';
+// Layers whose colour was written straight into the paint. Variables now, so
+// the symbology editor has something to change. The zone outlines are derived
+// from their fill rather than stored separately, so recolouring a zone cannot
+// leave it with a clashing edge.
+var BORE_COLOR = '#10233f';
+var AP_COLOR = '#756bb1';
+var LIQ_COLOR = '#1f9e8c';
+var CT_COLOR = '#8a6a4a';
+function darken(hex, f) {
+  var n = parseInt(hex.slice(1), 16);
+  var r = Math.round(((n >> 16) & 255) * f), g = Math.round(((n >> 8) & 255) * f),
+      b = Math.round((n & 255) * f);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
 
 // NPMS commodity classes. 'Blank' is half the California extract -- the 2001
 // release simply did not carry a commodity for those segments -- so it gets a
@@ -1107,21 +1121,143 @@ function wellColorExpr() {
 // arrays are the same objects the paint expressions are rebuilt from, so a write
 // followed by applyState() is all it takes -- there is no second copy of the
 // colours to keep in step.
-var LEGEND_PAL = {
-  parcel: { arr: function () { return PARCEL_CLASS; }, at: 2,
-            redraw: function () { applyState(); parcelLegend(); } },
-  pval:   { arr: function () { return PARCEL_VALUE; }, at: 1,
-            redraw: function () { applyState(); parcelLegend(); } },
-  well:   { arr: function () { return WELL_STATUS; }, at: 2,
-            redraw: function () { applyState(); wellsLegend(); } },
-  wuse:   { arr: function () { return WATER_USE; }, at: 1,
-            redraw: function () { applyState(); waterLegend(); } },
-  wdepth: { arr: function () { return WATER_DEPTH; }, at: 1,
-            redraw: function () { applyState(); waterLegend(); } },
-  wtrend: { arr: function () { return WATER_TREND; }, at: 1,
-            redraw: function () { applyState(); waterLegend(); } },
-  pipe:   { arr: function () { return PIPE_CMD; }, at: 1,
-            redraw: function () { applyState(); pipeLegend(); } }
+// Census-block classification. Up here with the other palettes because the
+// registry below captures every default colour the moment it is built, and a
+// var declared further down would still be undefined at that point.
+// Census blocks, served as a Mapbox vector tileset (jdevoy.uscensusblocks, z6-14)
+// rather than a GeoJSON download — the source is 3.15 GB.
+// Vintage confirmed from the data: Diff_25_30 == AVGVAL_FY - AVGVAL_CY on 100% of
+// sampled features, so CY = 2025 and FY = 2030. (RE_ASSESS_2022_2027 is a text
+// category, not a delta, so its name is not evidence of vintage.)
+// Median net worth. Breaks are quantile-based (p20/p40/p60/p80 of the source):
+// the field runs 0 to a capped 2,000,001 and is heavily skewed, so even breaks
+// would put almost every block in one class. Ramp is ColorBrewer YlOrRd,
+// monotonic in lightness (L* 0.984 -> 0.395).
+var CB_FIELD = 'wealth_mednw_cy';
+var CB_BREAKS = [0, 50000, 125000, 250000, 550000];
+var CB_COLORS = ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026'];
+var CB_NULL = '#d9d9d9';
+
+// ================= Palettes =================
+// Every colour the map can be recoloured by, in one registry. They live in
+// several shapes -- a lone variable, rows of arrays, rows of objects, bare
+// strings, a keyed lookup -- so each is wrapped in the same four calls and
+// nothing downstream has to know which shape it got.
+//
+// redraw() is the layer's own repaint. Expression-driven layers must have the
+// expression rebuilt: setPaintProperty with the old one would put the previous
+// colours straight back.
+function symOne(get, set, label) {
+  return { n: function () { return 1; }, get: get, set: function (i, c) { set(c); },
+           name: function () { return label; } };
+}
+function symRows(arr, at, nameAt) {
+  return { n: function () { return arr().length; },
+           get: function (i) { return arr()[i][at]; },
+           set: function (i, c) { arr()[i][at] = c; },
+           name: function (i) { return String(arr()[i][nameAt]); } };
+}
+function withRedraw(a, redraw) { a.redraw = redraw; return a; }
+
+var GEO_FLAT = [];
+GEO_LEGEND.forEach(function (grp) {
+  grp.items.forEach(function (it) { GEO_FLAT.push({ grp: grp.label, it: it }); });
+});
+
+// Keys are also the data-pal values already in the legend markup, so the
+// existing click-a-swatch editor keeps working off the same definitions.
+var PALETTES = {
+  parcel: withRedraw(symRows(function () { return PARCEL_CLASS; }, 2, 1),
+    function () { applyState(); parcelLegend(); }),
+  pval: withRedraw(symRows(function () { return PARCEL_VALUE; }, 1, 0),
+    function () { applyState(); parcelLegend(); }),
+  well: withRedraw(symRows(function () { return WELL_STATUS; }, 2, 1),
+    function () { applyState(); wellsLegend(); }),
+  wuse: withRedraw(symRows(function () { return WATER_USE; }, 1, 0),
+    function () { applyState(); waterLegend(); }),
+  wdepth: withRedraw(symRows(function () { return WATER_DEPTH; }, 1, 0),
+    function () { applyState(); waterLegend(); }),
+  wtrend: withRedraw(symRows(function () { return WATER_TREND; }, 1, 0),
+    function () { applyState(); waterLegend(); }),
+  pipe: withRedraw(symRows(function () { return PIPE_CMD; }, 1, 0),
+    function () { applyState(); pipeLegend(); }),
+  syn: withRedraw(symOne(function () { return SYN_COLOR; },
+    function (c) { SYN_COLOR = c; }, 'Sample site'), function () {
+      if (map.getLayer('syn-dot')) map.setPaintProperty('syn-dot', 'circle-color', synColorExpr());
+      synLegend();
+    }),
+  bores: withRedraw(symOne(function () { return BORE_COLOR; },
+    function (c) { BORE_COLOR = c; }, 'Borehole'), function () {
+      if (map.getLayer('bore-dot')) map.setPaintProperty('bore-dot', 'circle-color', BORE_COLOR);
+      boresLegend();
+    }),
+  faults: withRedraw(symRows(function () { return AGES; }, 'color', 'label'),
+    function () { applyState(); faultLegend(); }),
+  ap: withRedraw(symOne(function () { return AP_COLOR; },
+    function (c) { AP_COLOR = c; }, 'Fault zone'), function () {
+      if (map.getLayer('ap-fill')) map.setPaintProperty('ap-fill', 'fill-color', AP_COLOR);
+      if (map.getLayer('ap-line')) map.setPaintProperty('ap-line', 'line-color', darken(AP_COLOR, 0.62));
+      apLegend();
+    }),
+  liq: withRedraw(symOne(function () { return LIQ_COLOR; },
+    function (c) { LIQ_COLOR = c; }, 'Hazard zone'), function () {
+      if (map.getLayer('liq-fill')) map.setPaintProperty('liq-fill', 'fill-color', LIQ_COLOR);
+      if (map.getLayer('liq-line')) map.setPaintProperty('liq-line', 'line-color', darken(LIQ_COLOR, 0.62));
+      liqLegend();
+    }),
+  blocks: withRedraw({
+    n: function () { return CB_COLORS.length; },
+    get: function (i) { return CB_COLORS[i]; },
+    set: function (i, c) { CB_COLORS[i] = c; },
+    name: function (i) {
+      var hi = CB_BREAKS[i + 1];
+      return hi ? usd(CB_BREAKS[i]) + ' – ' + usd(hi) : usd(CB_BREAKS[i]) + '+';
+    } }, function () {
+      if (map.getLayer('cb-fill')) map.setPaintProperty('cb-fill', 'fill-color', cbColorExpr());
+      cbLegend();
+    }),
+  soils: withRedraw(symRows(function () { return SOILS; }, 'color', 'code'), function () {
+      if (map.getLayer('soil-fill')) map.setPaintProperty('soil-fill', 'fill-color', soilColorExpr());
+      soilLegend();
+    }),
+  geo: withRedraw({
+    n: function () { return GEO_FLAT.length; },
+    get: function (i) { return GEO_FLAT[i].it.color; },
+    // The chip and the lookup the paint expression is built from are two copies
+    // of one colour; both move together or the legend and the map disagree.
+    set: function (i, c) { GEO_FLAT[i].it.color = c; GEO_COLORS[GEO_FLAT[i].it.code] = c; },
+    name: function (i) { return GEO_FLAT[i].it.code; },
+    group: function (i) { return GEO_FLAT[i].grp; } }, function () {
+      if (map.getLayer('geo-fill')) map.setPaintProperty('geo-fill', 'fill-color', geoColorExpr());
+      geoLegend();
+    }),
+  contours: withRedraw(symOne(function () { return CT_COLOR; },
+    function (c) { CT_COLOR = c; if (ctInfo) ctInfo.color = c; }, 'Contour line'), function () {
+      if (map.getLayer('contour-line')) map.setPaintProperty('contour-line', 'line-color', CT_COLOR);
+      renderContourLegend();
+    })
+};
+
+// Which palette a table-of-contents entry is currently showing. Two of them
+// have a colour-by control, so the answer depends on what it is set to -- and
+// each mode is saved under its own key, so switching modes cannot drop one
+// mode's colours onto another's rows.
+var LAYER_SYM = {
+  syn: { title: 'Synergy sites', pal: function () { return 'syn'; } },
+  wells: { title: 'Oil & gas wells — by status', pal: function () { return 'well'; } },
+  water: { title: 'Groundwater wells', pal: function () {
+    return waterColorBy === 'dtw' ? 'wdepth' : waterColorBy === 'trend' ? 'wtrend' : 'wuse'; } },
+  bores: { title: 'Boreholes', pal: function () { return 'bores'; } },
+  faults: { title: 'CGS Faults — by age of last movement', pal: function () { return 'faults'; } },
+  ap: { title: 'Alquist-Priolo zones', pal: function () { return 'ap'; } },
+  liq: { title: 'Liquefaction zones', pal: function () { return 'liq'; } },
+  pipe: { title: 'Pipelines — by commodity', pal: function () { return 'pipe'; } },
+  parcels: { title: 'Parcels', pal: function () {
+    return parcelColorBy === 'value' ? 'pval' : 'parcel'; } },
+  blocks: { title: 'Census blocks — median net worth', pal: function () { return 'blocks'; } },
+  soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
+  geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
+  contours: { title: 'Contours', pal: function () { return 'contours'; } }
 };
 
 var SWATCH_COLORS = [
@@ -1129,14 +1265,23 @@ var SWATCH_COLORS = [
   '#ffffff','#c3c3c3','#b97a57','#ffaec9','#ffc90e','#efe4b0','#b5e61d','#99d9ea','#7092be','#c8bfe7'
 ];
 
-// Survives a reload. Keyed by palette and index, so adding a class later does
+// Captured before anything saved is applied, so Reset returns to what the map
+// shipped with rather than to whatever was stored last.
+var SYM_DEFAULTS = {};
+Object.keys(PALETTES).forEach(function (k) {
+  var d = PALETTES[k], a = [];
+  for (var i = 0; i < d.n(); i++) a.push(d.get(i));
+  SYM_DEFAULTS[k] = a;
+});
+
+// Survives a reload. Keyed by palette and slot, so adding a class later does
 // not silently shift saved colours onto the wrong rows.
 var COLOR_KEY = 'tlc.legendColors.v1';
 function saveLegendColors() {
   var out = {};
-  Object.keys(LEGEND_PAL).forEach(function (k) {
-    var d = LEGEND_PAL[k];
-    d.arr().forEach(function (row, i) { out[k + ':' + i] = row[d.at]; });
+  Object.keys(PALETTES).forEach(function (k) {
+    var d = PALETTES[k];
+    for (var i = 0; i < d.n(); i++) out[k + ':' + i] = d.get(i);
   });
   try { localStorage.setItem(COLOR_KEY, JSON.stringify(out)); } catch (e) {}
 }
@@ -1146,12 +1291,54 @@ function loadLegendColors() {
   if (!raw) return;
   var saved;
   try { saved = JSON.parse(raw); } catch (e) { return; }
-  Object.keys(LEGEND_PAL).forEach(function (k) {
-    var d = LEGEND_PAL[k];
-    d.arr().forEach(function (row, i) {
+  Object.keys(PALETTES).forEach(function (k) {
+    var d = PALETTES[k];
+    for (var i = 0; i < d.n(); i++) {
       var c = saved[k + ':' + i];
-      if (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) row[d.at] = c;
+      if (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) d.set(i, c);
+    }
+  });
+}
+
+function openSymDlg(key) {
+  var L = LAYER_SYM[key];
+  var d = L && PALETTES[L.pal()];
+  if (!d) { showToast('That layer has no colours to change.', 'Dismiss', function () {}); return; }
+  var total = d.n(), rows = '', lastGrp = null;
+  for (var i = 0; i < total; i++) {
+    if (d.group) {
+      var g = d.group(i);
+      if (g !== lastGrp) { rows += '<div class="symgrp">' + esc(g) + '</div>'; lastGrp = g; }
+    }
+    rows += '<label class="symrow"><input type="color" data-i="' + i + '" value="' +
+            esc(d.get(i)) + '"><span>' + esc(d.name(i)) + '</span></label>';
+  }
+  openDlg('<h2>' + esc(L.title) + '</h2><div class="bd">' +
+    '<div class="fld" style="margin-bottom:0">' +
+      '<label>' + total + ' colour' + (total === 1 ? '' : 's') + '</label>' +
+      '<div class="dwrap" style="padding:8px 11px">' + rows + '</div>' +
+      '<div class="hint">The map updates as you pick, and the colours are kept for ' +
+      'next time. Zone outlines are derived from their fill, so they follow it.' +
+      (L.pal() === 'parcel' || L.pal() === 'pval' || String(L.pal()).charAt(0) === 'w'
+        ? ' This is the palette for the colour-by setting currently chosen; the others keep their own.'
+        : '') +
+      '</div>' +
+    '</div></div>' +
+    '<div class="ft"><button class="cx" id="sym-reset">Reset this layer</button>' +
+    '<button class="cx" id="sym-close">Close</button></div>', 'wide');
+
+  BACKDROP.querySelectorAll('input[type=color]').forEach(function (inp) {
+    inp.addEventListener('input', function () {
+      d.set(+inp.getAttribute('data-i'), inp.value);
+      d.redraw(); saveLegendColors();
     });
+  });
+  document.getElementById('sym-close').addEventListener('click', closeDlg);
+  document.getElementById('sym-reset').addEventListener('click', function () {
+    var def = SYM_DEFAULTS[L.pal()] || [];
+    for (var j = 0; j < total; j++) if (def[j]) d.set(j, def[j]);
+    d.redraw(); saveLegendColors(); closeDlg();
+    showToast('Reset ' + esc(L.title) + ' to its original colours.', 'Dismiss', function () {});
   });
 }
 
@@ -1163,9 +1350,9 @@ function closeSwatchPop() {
 function openSwatchPop(el) {
   closeSwatchPop();
   var pal = el.getAttribute('data-pal'), idx = +el.getAttribute('data-idx');
-  var def = LEGEND_PAL[pal];
+  var def = PALETTES[pal];
   if (!def) return;
-  var cur = def.arr()[idx][def.at];
+  var cur = def.get(idx);
 
   var pop = document.createElement('div');
   pop.className = 'swpop';
@@ -1186,7 +1373,7 @@ function openSwatchPop(el) {
   pop.style.top = Math.min(window.innerHeight - pop.offsetHeight - 8, r.bottom + 6) + 'px';
 
   function commit(c) {
-    def.arr()[idx][def.at] = c;
+    def.set(idx, c);
     saveLegendColors();
     def.redraw();
     closeSwatchPop();
@@ -1599,13 +1786,13 @@ function addLayers() {
   if (!map.getLayer('liq-fill')) {
     map.addLayer({
       id: 'liq-fill', type: 'fill', source: 'liqzones', 'source-layer': 'liq',
-      paint: { 'fill-color': '#1f9e8c', 'fill-opacity': 0.26 }
+      paint: { 'fill-color': LIQ_COLOR, 'fill-opacity': 0.26 }
     });
   }
   if (!map.getLayer('liq-line')) {
     map.addLayer({
       id: 'liq-line', type: 'line', source: 'liqzones', 'source-layer': 'liq',
-      paint: { 'line-color': '#11685c', 'line-width': 0.9, 'line-dasharray': [3, 1.6] }
+      paint: { 'line-color': darken(LIQ_COLOR, 0.62), 'line-width': 0.9, 'line-dasharray': [3, 1.6] }
     });
   }
   if (!map.getSource('apzones')) {
@@ -1614,7 +1801,7 @@ function addLayers() {
   if (!map.getLayer('ap-fill')) {
     map.addLayer({
       id: 'ap-fill', type: 'fill', source: 'apzones',
-      paint: { 'fill-color': '#756bb1', 'fill-opacity': 0.28 }
+      paint: { 'fill-color': AP_COLOR, 'fill-opacity': 0.28 }
     });
   }
   if (!map.getLayer('ap-line')) {
@@ -1622,7 +1809,7 @@ function addLayers() {
       id: 'ap-line', type: 'line', source: 'apzones',
       layout: { 'line-join': 'round' },
       paint: {
-        'line-color': '#54278f',
+        'line-color': darken(AP_COLOR, 0.62),
         'line-dasharray': [3, 2],
         'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 11, 1.4, 15, 2.2]
       }
@@ -1636,7 +1823,7 @@ function addLayers() {
       id: 'contour-line', type: 'line', source: 'contours',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#8a6a4a',
+        'line-color': CT_COLOR,
         'line-opacity': 0.85,
         // zoom must stay outermost; the index/intermediate choice rides inside each stop
         // Widened about 40%. The index/intermediate ratio is held at roughly
@@ -1732,7 +1919,7 @@ function addLayers() {
       id: 'bore-dot', type: 'circle', source: 'bores',
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2.2, 12, 4, 16, 7],
-        'circle-color': '#10233f',
+        'circle-color': BORE_COLOR,
         'circle-stroke-color': '#ffffff',
         'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1.2, 16, 1.8],
         'circle-opacity': 0.95
@@ -2321,43 +2508,80 @@ function esc(s) {
 }
 
 // ---- Fault age legend (toggles) ----
-var fl = document.getElementById('fault-legend');
-AGES.forEach(function (a) {
-  var row = document.createElement('label');
-  row.className = 'row';
-  row.innerHTML =
-    '<input type="checkbox"' + (visibleAge[a.code] === false ? '' : ' checked') + '>' +
-    '<span class="swatch" style="background:' + a.color + '"></span>' +
-    '<span class="lbl">' + a.label + '</span>';
-  row.querySelector('input').addEventListener('change', function () {
-    visibleAge[a.code] = this.checked;
-    row.classList.toggle('off', !this.checked);
-    applyState();
+// These four were built once at startup. They are functions now because the
+// symbology editor has to be able to repaint them after a colour changes.
+function faultLegend() {
+  var fl = document.getElementById('fault-legend');
+  if (!fl) return;
+  fl.innerHTML = '';
+  AGES.forEach(function (a) {
+    var row = document.createElement('label');
+    row.className = 'row' + (visibleAge[a.code] === false ? ' off' : '');
+    row.innerHTML =
+      '<input type="checkbox"' + (visibleAge[a.code] === false ? '' : ' checked') + '>' +
+      '<span class="swatch" style="background:' + a.color + '"></span>' +
+      '<span class="lbl">' + a.label + '</span>';
+    row.querySelector('input').addEventListener('change', function () {
+      visibleAge[a.code] = this.checked;
+      row.classList.toggle('off', !this.checked);
+      applyState();
+    });
+    fl.appendChild(row);
   });
-  fl.appendChild(row);
-});
+}
+faultLegend();
 
 // ---- Geology legend: one chip per PTYPE, grouped by age family ----
-var gl = document.getElementById('geo-legend');
-GEO_LEGEND.forEach(function (grp) {
-  var d = document.createElement('div');
-  d.className = 'fam';
-  var chips = grp.items.map(function (it) {
-    return '<span class="chip"><i style="background:' + it.color + '"></i>' + esc(it.code) + '</span>';
-  }).join('');
-  d.innerHTML = '<div class="fam-h">' + esc(grp.label) + '</div><div class="chips">' + chips + '</div>';
-  gl.appendChild(d);
-});
+function geoLegend() {
+  var gl = document.getElementById('geo-legend');
+  if (!gl) return;
+  gl.innerHTML = '';
+  GEO_LEGEND.forEach(function (grp) {
+    var d = document.createElement('div');
+    d.className = 'fam';
+    var chips = grp.items.map(function (it) {
+      return '<span class="chip"><i style="background:' + it.color + '"></i>' + esc(it.code) + '</span>';
+    }).join('');
+    d.innerHTML = '<div class="fam-h">' + esc(grp.label) + '</div><div class="chips">' + chips + '</div>';
+    gl.appendChild(d);
+  });
+}
+geoLegend();
 
 // ---- Soil order legend ----
-var sl = document.getElementById('soil-legend');
-SOILS.forEach(function (x) {
-  var row = document.createElement('div');
-  row.className = 'row';
-  row.innerHTML = '<span class="swatch" style="height:11px;width:15px;border-radius:3px;background:' +
-                  x.color + '"></span><span class="lbl">' + esc(x.code) + '</span>';
-  sl.appendChild(row);
-});
+function soilLegend() {
+  var sl = document.getElementById('soil-legend');
+  if (!sl) return;
+  sl.innerHTML = '';
+  SOILS.forEach(function (x) {
+    var row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<span class="swatch" style="height:11px;width:15px;border-radius:3px;background:' +
+                    x.color + '"></span><span class="lbl">' + esc(x.code) + '</span>';
+    sl.appendChild(row);
+  });
+}
+soilLegend();
+
+// ---- Boreholes, Alquist-Priolo and liquefaction: one colour each ----
+function boresLegend() {
+  var h = document.getElementById('bore-legend');
+  if (h) h.innerHTML = '<div class="ctrow"><span class="sw"><i class="dot" style="background:' +
+    BORE_COLOR + '"></i></span><span>Geotechnical borehole</span></div>';
+}
+function apLegend() {
+  var h = document.getElementById('ap-legend');
+  if (h) h.innerHTML = '<div class="ctrow"><span class="sw"><i style="height:13px;background:' +
+    AP_COLOR + ';opacity:.55;border:1px dashed ' + darken(AP_COLOR, 0.62) +
+    '"></i></span><span>Earthquake fault zone</span></div>';
+}
+function liqLegend() {
+  var h = document.getElementById('liq-legend');
+  if (h) h.innerHTML = '<div class="ctrow"><span class="sw"><i style="height:13px;background:' +
+    LIQ_COLOR + ';opacity:.5;border:1px dashed ' + darken(LIQ_COLOR, 0.62) +
+    '"></i></span><span>Liquefaction hazard zone</span></div>';
+}
+boresLegend(); apLegend(); liqLegend();
 
 // ---- Layer toggles ----
 document.getElementById('t-geo').addEventListener('change', function () {
@@ -2435,19 +2659,6 @@ op.addEventListener('input', function () {
 });
 
 
-// Census blocks, served as a Mapbox vector tileset (jdevoy.uscensusblocks, z6-14)
-// rather than a GeoJSON download — the source is 3.15 GB.
-// Vintage confirmed from the data: Diff_25_30 == AVGVAL_FY - AVGVAL_CY on 100% of
-// sampled features, so CY = 2025 and FY = 2030. (RE_ASSESS_2022_2027 is a text
-// category, not a delta, so its name is not evidence of vintage.)
-// Median net worth. Breaks are quantile-based (p20/p40/p60/p80 of the source):
-// the field runs 0 to a capped 2,000,001 and is heavily skewed, so even breaks
-// would put almost every block in one class. Ramp is ColorBrewer YlOrRd,
-// monotonic in lightness (L* 0.984 -> 0.395).
-var CB_FIELD = 'wealth_mednw_cy';
-var CB_BREAKS = [0, 50000, 125000, 250000, 550000];
-var CB_COLORS = ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026'];
-var CB_NULL = '#d9d9d9';
 function cbColorExpr() {
   var e = ['step', ['coalesce', ['get', CB_FIELD], -1], CB_NULL];
   CB_BREAKS.forEach(function (b, i) { e.push(b, CB_COLORS[i]); });
@@ -2554,7 +2765,7 @@ function initContourLegend() {
 initContourLegend();
 
 // ---- census block legend ----
-(function () {
+function cbLegend() {
   var host = document.getElementById('cb-legend');
   var rows = '';
   CB_BREAKS.forEach(function (b, i) {
@@ -2566,7 +2777,8 @@ initContourLegend();
   rows += '<div class="ctrow"><span class="sw"><i style="height:12px;background:' + CB_NULL +
           ';border:1px solid rgba(0,0,0,.18)"></i></span><span>No data</span></div>';
   host.innerHTML = rows;
-})();
+}
+cbLegend();
 
 var cbOp = document.getElementById('cb-op'), cbOpV = document.getElementById('cb-op-v');
 document.getElementById('t-blocks').addEventListener('change', function () {
@@ -3697,6 +3909,8 @@ function openLayerMenu(key, x, y) {
   openCtxMenu(LAYER_NAMES[key] || key, [
     { label: 'Zoom to extent of layer', run: function () { zoomToLayer(key); } },
     { label: 'Show table for layer', run: function () { showLayerTable(key); } },
+    { label: 'Change symbology…', disabled: !LAYER_SYM[key],
+      run: function () { openSymDlg(key); } },
     // Shown even with nothing to go back to, greyed rather than hidden, so the
     // command is discoverable before it is ever usable and the menu does not
     // change shape under the cursor. On a fresh load that greyed state is the
