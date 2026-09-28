@@ -609,6 +609,30 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-exide">
+          <button class="tw" type="button" data-sym="sym-exide" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="exide" tabindex="0" role="button">Exide soil lead (DTSC)</span>
+          <span class="cnt">10,300</span>
+        </div>
+        <div class="sym" id="sym-exide" hidden>
+          <div class="symh">Representative soil lead, ppm</div>
+          <div id="ex-legend"></div>
+          <div class="ctmeta">
+            DTSC residential sampling around the former Exide Technologies
+            battery smelter in Vernon. One point per property, carrying the
+            representative concentration DTSC computed from that property's
+            samples &mdash; a 95% upper confidence limit for most, the maximum
+            for the rest.<br>
+            <b>80&nbsp;ppm</b> is California's residential screening level for
+            soil lead. <b>96.6%</b> of these properties are above it.<br>
+            414,883 analyses at 10,331 properties, 2014&ndash;2025.
+          </div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-bores" checked>
           <button class="tw" type="button" data-sym="sym-bores" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -890,6 +914,9 @@ AGES.forEach(function (a) {
 var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
 var showBores = true, showBoreLabels = true;
+// Off by default: 10,300 points over a few square miles, which would bury the
+// rest of the map for anyone not looking for them.
+var showExide = false;
 var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
 var showContours = false;
 var showAP = false;
@@ -1133,6 +1160,29 @@ function wellColorExpr() {
 // the field runs 0 to a capped 2,000,001 and is heavily skewed, so even breaks
 // would put almost every block in one class. Ramp is ColorBrewer YlOrRd,
 // monotonic in lightness (L* 0.984 -> 0.395).
+// DTSC's Exide residential sampling: one point per property, carrying the
+// representative soil lead concentration DTSC itself computed (95UCL of the
+// property's samples, or the maximum where noted).
+//
+// 80 ppm is California's residential screening level for soil lead, so it is the
+// first break rather than a quantile -- the question a reader has is "is this
+// above the standard", not "which quintile is this in". Everything above it runs
+// a ColorBrewer YlOrRd ramp; below it takes a muted green that is not a shade of
+// that ramp, so meeting the standard does not read as a mild exceedance.
+var EX_BREAKS = [80, 200, 400, 1000];
+var EX_COLORS = ['#8fbf9f', '#ffffb2', '#fecc5c', '#f03b20', '#bd0026'];
+var EX_NULL = '#b9b9b2';
+function exColorExpr() {
+  // step takes: default, then (stop, output) pairs with STRICTLY ascending
+  // stops. The default covers everything below the first stop, which here is
+  // the -1 a property with no representative value coalesces to; 0 is the first
+  // real stop, so the below-standard colour starts there. There are five
+  // colours and four breaks, so the stops are 0 plus the four breaks.
+  var e = ['step', ['coalesce', ['get', 'pb'], -1], EX_NULL, 0, EX_COLORS[0]];
+  EX_BREAKS.forEach(function (b, i) { e.push(b, EX_COLORS[i + 1]); });
+  return e;
+}
+
 var CB_FIELD = 'wealth_mednw_cy';
 var CB_BREAKS = [0, 50000, 125000, 250000, 550000];
 var CB_COLORS = ['#ffffb2', '#fecc5c', '#fd8d3c', '#f03b20', '#bd0026'];
@@ -1205,6 +1255,19 @@ var PALETTES = {
       if (map.getLayer('liq-line')) map.setPaintProperty('liq-line', 'line-color', darken(LIQ_COLOR, 0.62));
       liqLegend();
     }),
+  exide: withRedraw({
+    n: function () { return EX_COLORS.length; },
+    get: function (i) { return EX_COLORS[i]; },
+    set: function (i, c) { EX_COLORS[i] = c; },
+    name: function (i) {
+      var lo = i === 0 ? null : EX_BREAKS[i - 1], hi = EX_BREAKS[i];
+      return lo === null ? 'Below ' + EX_BREAKS[0] + ' ppm'
+           : hi ? lo.toLocaleString() + ' – ' + hi.toLocaleString() + ' ppm'
+                : lo.toLocaleString() + '+ ppm';
+    } }, function () {
+      if (map.getLayer('exide-dot')) map.setPaintProperty('exide-dot', 'circle-color', exColorExpr());
+      exLegend();
+    }),
   blocks: withRedraw({
     n: function () { return CB_COLORS.length; },
     get: function (i) { return CB_COLORS[i]; },
@@ -1255,6 +1318,7 @@ var LAYER_SYM = {
   parcels: { title: 'Parcels', pal: function () {
     return parcelColorBy === 'value' ? 'pval' : 'parcel'; } },
   blocks: { title: 'Census blocks — median net worth', pal: function () { return 'blocks'; } },
+  exide: { title: 'Exide soil lead — by concentration', pal: function () { return 'exide'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
   contours: { title: 'Contours', pal: function () { return 'contours'; } }
@@ -1732,6 +1796,21 @@ function addLayers() {
       });
     }
   });
+  if (!map.getSource('exide')) {
+    map.addSource('exide', { type: 'geojson', data: './exide.geojson' });
+  }
+  if (!map.getLayer('exide-dot')) {
+    map.addLayer({
+      id: 'exide-dot', type: 'circle', source: 'exide',
+      paint: {
+        'circle-color': exColorExpr(),
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2.4, 14, 4.5, 18, 9],
+        'circle-stroke-color': 'rgba(20,20,20,.55)',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 0.7, 18, 1.2],
+        'circle-opacity': 0.92
+      }
+    });
+  }
   if (!map.getSource('wells')) {
     map.addSource('wells', { type: 'vector', url: 'mapbox://jdevoy.doggr-wells' });
   }
@@ -2107,6 +2186,9 @@ function applyState() {
     map.setLayoutProperty('sat', 'visibility',
       (baseMap === 'sat' || baseMap === 'naip') ? 'visible' : 'none');
   }
+  if (map.getLayer('exide-dot')) {
+    map.setLayoutProperty('exide-dot', 'visibility', showExide ? 'visible' : 'none');
+  }
   if (map.getLayer('bore-dot')) {
     map.setLayoutProperty('bore-dot', 'visibility', showBores ? 'visible' : 'none');
   }
@@ -2267,7 +2349,7 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
@@ -2277,14 +2359,55 @@ map.on('load', function () {
       if (h.layer.id === 'pipe-line' && !pipe) pipe = h.properties;
       if (h.layer.id === 'syn-dot' && !syn) syn = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
+      if (h.layer.id === 'exide-dot' && !exide) exide = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide) return;
 
     var html = '';
+    if (exide && showExide) {
+      var ec = EX_NULL, eb = 'No representative value';
+      if (exide.pb != null) {
+        var k = 0;
+        while (k < EX_BREAKS.length && exide.pb >= EX_BREAKS[k]) k++;
+        ec = EX_COLORS[k];
+        eb = exide.pb.toLocaleString() + ' ppm';
+      }
+      html += '<div class="pop-name">' + esc(exide.addr || exide.id) + '</div>';
+      html += '<div class="pop-row">' + esc(exide.city || '') +
+              (exide.apn ? ' · APN ' + esc(exide.apn) : '') + '</div>';
+      html += '<div class="pop-row pop-unit"><i style="background:' + ec + '"></i>' +
+              '<b>' + esc(eb) + '</b> representative soil lead' +
+              (exide.std ? ' (' + esc(exide.std === '95UCL' ? '95% UCL' : exide.std) + ')' : '') +
+              '</div>';
+      // The screening level is the whole point of the number, so it is stated
+      // rather than left to be inferred from the colour.
+      if (exide.pb != null) {
+        html += '<div class="pop-row">' +
+                (exide.pb > 80
+                  ? '<b>' + (exide.pb / 80).toFixed(1) + '×</b> the 80 ppm residential screening level'
+                  : 'Below the 80 ppm residential screening level') + '</div>';
+      }
+      if (exide.smax != null) {
+        html += '<div class="pop-row">Highest single soil sample <b>' +
+                exide.smax.toLocaleString() + '</b> ppm' +
+                (exide.sn ? ' of ' + exide.sn + ' analyses' : '') + '</div>';
+      }
+      // Paint is mg/cm2, a surface loading -- deliberately not folded in with
+      // the soil numbers above, which are mg/kg.
+      if (exide.pmax != null) {
+        html += '<div class="pop-row">Highest lead paint <b>' + exide.pmax +
+                '</b> mg/cm² of ' + (exide.pn || 0) + ' chips</div>';
+      }
+      if (exide.yrs) html += '<div class="pop-row">Sampled ' + esc(exide.yrs) + '</div>';
+      if (exide.clean) html += '<div class="pop-row">Cleanup ' + esc(exide.clean) + '</div>';
+      else if (exide.phase) html += '<div class="pop-row">' + esc(exide.phase) + '</div>';
+      html += '<div class="pop-row" style="opacity:.62;font-size:11.5px">' +
+              'DTSC Exide residential sampling</div>';
+    }
     if (water && showWater) {
       var wu = (WATER_USE.filter(function (w) { return w[0] === water.use; })[0]
                 || ['Unknown', '#dcdcdc']);
@@ -2469,7 +2592,7 @@ map.on('load', function () {
 
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
-var CLICK_LAYERS = ['bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
+var CLICK_LAYERS = ['exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
 
@@ -2479,6 +2602,7 @@ var LAYER_HITS = {
   wells:    ['well-dot'],
   water:    ['water-dot'],
   bores:    ['bore-dot'],
+  exide:    ['exide-dot'],
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
   liq:      ['liq-fill'],
@@ -2637,6 +2761,9 @@ document.getElementById('t-pipe').addEventListener('change', function () {
 document.getElementById('t-liq').addEventListener('change', function () {
   showLiq = this.checked; applyState();
 });
+document.getElementById('t-exide').addEventListener('change', function () {
+  showExide = this.checked; applyState(); saveState();
+});
 document.getElementById('t-ap').addEventListener('change', function () {
   showAP = this.checked; applyState();
 });
@@ -2763,6 +2890,27 @@ function initContourLegend() {
   }).catch(function () { /* legend simply stays empty */ });
 }
 initContourLegend();
+
+// ---- Exide soil lead legend ----
+function exLegend() {
+  var host = document.getElementById('ex-legend');
+  if (!host) return;
+  var rows = '';
+  for (var i = 0; i < EX_COLORS.length; i++) {
+    var lo = i === 0 ? null : EX_BREAKS[i - 1], hi = EX_BREAKS[i];
+    var lab = lo === null ? 'Below ' + EX_BREAKS[0]
+            : hi ? lo.toLocaleString() + ' – ' + hi.toLocaleString()
+                 : lo.toLocaleString() + '+';
+    rows += '<div class="ctrow"><span class="sw"><i class="dot sw-edit" data-pal="exide" ' +
+            'data-idx="' + i + '" style="background:' + EX_COLORS[i] +
+            '"></i></span><span>' + lab + (i === 0 ? ' <b>(meets the standard)</b>' : '') +
+            '</span></div>';
+  }
+  rows += '<div class="ctrow"><span class="sw"><i class="dot" style="background:' + EX_NULL +
+          '"></i></span><span>No representative value</span></div>';
+  host.innerHTML = rows;
+}
+exLegend();
 
 // ---- census block legend ----
 function cbLegend() {
@@ -3153,13 +3301,13 @@ var LAYER_SRC = {
   wells: ['wells'], water: ['waterwells'], bores: ['bores'], faults: ['faults'],
   ap: ['apzones'], liq: ['liqzones'], pipe: ['pipelines'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
-  geo: ['geology'], syn: ['synergy'], contours: ['contours']
+  geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide']
 };
 // The GeoJSON sources' files, so the envelope can be computed without reaching
 // into the source object's private state.
 var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
-  bores: './boreholes.geojson', synergy: './synergy.geojson',
+  bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
   contours: './bore_contours.geojson'
 };
 // Contours are the exception to caching: setData replaces them whenever the
@@ -5742,6 +5890,7 @@ var LAYER_FLAGS = [
   ['syn', 't-syn', function (v) { showSyn = v; }, function () { return showSyn; }],
   ['contours', 't-contours', function (v) { showContours = v; }, function () { return showContours; }],
   ['bores', 't-bores', function (v) { showBores = v; }, function () { return showBores; }],
+  ['exide', 't-exide', function (v) { showExide = v; }, function () { return showExide; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
   ['faults', 't-faults', function (v) { showFaults = v; }, function () { return showFaults; }]
 ];
