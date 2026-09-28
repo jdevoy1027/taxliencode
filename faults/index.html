@@ -2403,6 +2403,13 @@ map.on('load', function () {
                 '</b> mg/cm² of ' + (exide.pn || 0) + ' chips</div>';
       }
       if (exide.yrs) html += '<div class="pop-row">Sampled ' + esc(exide.yrs) + '</div>';
+      // Said plainly rather than shown silently: this point is not where DTSC
+      // put it, and a reader comparing against the source should know why.
+      if (exide.fixed === 'apn') {
+        html += '<div class="pop-row" style="color:#8a5a12">Position corrected — the ' +
+                'DTSC coordinate fell miles outside the sampling area, so this point ' +
+                'is the assessor parcel for APN ' + esc(exide.apn) + '.</div>';
+      }
       if (exide.clean) html += '<div class="pop-row">Cleanup ' + esc(exide.clean) + '</div>';
       else if (exide.phase) html += '<div class="pop-row">' + esc(exide.phase) + '</div>';
       html += '<div class="pop-row" style="opacity:.62;font-size:11.5px">' +
