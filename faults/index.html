@@ -616,7 +616,14 @@
           <span class="cnt">10,300</span>
         </div>
         <div class="sym" id="sym-exide" hidden>
-          <div class="symh">Representative soil lead, ppm</div>
+          <select id="ex-min">
+            <option value="0">Show every property</option>
+            <option value="80">Only above 80 ppm — the screening level</option>
+            <option value="200">Only above 200 ppm</option>
+            <option value="400">Only above 400 ppm</option>
+            <option value="1000">Only above 1,000 ppm</option>
+          </select>
+          <div class="symh" style="margin-top:7px">Representative soil lead, ppm</div>
           <div id="ex-legend"></div>
           <div class="ctmeta">
             DTSC residential sampling around the former Exide Technologies
@@ -1172,6 +1179,16 @@ function wellColorExpr() {
 var EX_BREAKS = [80, 200, 400, 1000];
 var EX_COLORS = ['#8fbf9f', '#ffffb2', '#fecc5c', '#f03b20', '#bd0026'];
 var EX_NULL = '#b9b9b2';
+// Hide everything at or below a threshold. Properties with no representative
+// value are hidden by any threshold above zero: 'no data' is not evidence of a
+// low result, and leaving them visible under 'only above 1,000 ppm' would imply
+// they qualify.
+var exMin = 0;
+function exFilterExpr() {
+  if (!exMin) return null;
+  return ['all', ['has', 'pb'], ['>', ['get', 'pb'], exMin]];
+}
+
 function exColorExpr() {
   // step takes: default, then (stop, output) pairs with STRICTLY ascending
   // stops. The default covers everything below the first stop, which here is
@@ -2188,6 +2205,7 @@ function applyState() {
   }
   if (map.getLayer('exide-dot')) {
     map.setLayoutProperty('exide-dot', 'visibility', showExide ? 'visible' : 'none');
+    map.setFilter('exide-dot', exFilterExpr());
   }
   if (map.getLayer('bore-dot')) {
     map.setLayoutProperty('bore-dot', 'visibility', showBores ? 'visible' : 'none');
@@ -2771,6 +2789,17 @@ document.getElementById('t-liq').addEventListener('change', function () {
 document.getElementById('t-exide').addEventListener('change', function () {
   showExide = this.checked; applyState(); saveState();
 });
+document.getElementById('ex-min').addEventListener('change', function () {
+  exMin = +this.value || 0;
+  // Ticking the layer on when a threshold is chosen: picking one is a clear
+  // statement of intent, and applying it to a hidden layer would look broken.
+  if (exMin && !showExide) {
+    showExide = true;
+    var cb = document.getElementById('t-exide');
+    if (cb) cb.checked = true;
+  }
+  applyState(); exLegend(); saveState();
+});
 document.getElementById('t-ap').addEventListener('change', function () {
   showAP = this.checked; applyState();
 });
@@ -2908,13 +2937,22 @@ function exLegend() {
     var lab = lo === null ? 'Below ' + EX_BREAKS[0]
             : hi ? lo.toLocaleString() + ' – ' + hi.toLocaleString()
                  : lo.toLocaleString() + '+';
-    rows += '<div class="ctrow"><span class="sw"><i class="dot sw-edit" data-pal="exide" ' +
+    // A class the threshold excludes is dimmed rather than removed: the reader
+    // can still see what the scale is, and that something is being withheld.
+    var off = exMin > 0 && (hi ? hi <= exMin : false) || (i === 0 && exMin > 0);
+    rows += '<div class="ctrow"' + (off ? ' style="opacity:.32"' : '') +
+            '><span class="sw"><i class="dot sw-edit" data-pal="exide" ' +
             'data-idx="' + i + '" style="background:' + EX_COLORS[i] +
             '"></i></span><span>' + lab + (i === 0 ? ' <b>(meets the standard)</b>' : '') +
             '</span></div>';
   }
-  rows += '<div class="ctrow"><span class="sw"><i class="dot" style="background:' + EX_NULL +
+  rows += '<div class="ctrow"' + (exMin > 0 ? ' style="opacity:.32"' : '') +
+          '><span class="sw"><i class="dot" style="background:' + EX_NULL +
           '"></i></span><span>No representative value</span></div>';
+  if (exMin > 0) {
+    rows += '<div class="ctmeta" style="margin-top:6px">Showing only properties above <b>' +
+            exMin.toLocaleString() + ' ppm</b>. The dimmed classes are hidden.</div>';
+  }
   host.innerHTML = rows;
 }
 exLegend();
@@ -5921,6 +5959,7 @@ var OPACITY_CTL = [
 function collectState() {
   var st = { v: 1, layers: {}, op: {}, ages: {},
              by: { parcel: parcelColorBy, water: waterColorBy },
+             exMin: exMin,
              base: baseMap, active: activeLayer, panel: panelOpen,
              print: printPrefs,
              toolbar: (typeof map.toolBarVisible === 'function')
@@ -5964,6 +6003,12 @@ function restoreState() {
     if (el) el.value = Math.round(v * 100);
     if (lab) lab.textContent = Math.round(v * 100) + '%';
   });
+  if (typeof SAVED.exMin === 'number' && SAVED.exMin >= 0) {
+    exMin = SAVED.exMin;
+    var exSel = document.getElementById('ex-min');
+    if (exSel) exSel.value = String(exMin);
+    exLegend();
+  }
   if (SAVED.by) {
     if (SAVED.by.parcel) { parcelColorBy = SAVED.by.parcel;
       var pb = document.getElementById('pc-by'); if (pb) pb.value = parcelColorBy; }
