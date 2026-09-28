@@ -3566,6 +3566,16 @@ function parcelAddress(p) {
   return [line, city].filter(Boolean).join(', ');
 }
 var LAYER_COLS = {
+  exide: {
+    // Pinned rather than left to frequency. Matrix and contractor are present on
+    // every property so they would rank near the top anyway, but the
+    // concentration -- the reason the layer exists -- is absent on 284 and would
+    // sit eighth, one new universal field away from falling off the table.
+    lead: ['id', 'addr', 'city', 'pb', 'matrix', 'contractor'],
+    // An internal marker for the nine relocated points; the popup explains it,
+    // and a bare 'apn' in a column would say nothing.
+    hide: ['fixed']
+  },
   parcels: {
     derive: { address: parcelAddress },
     lead: ['ain', 'owner', 'address', 'use_code'],
