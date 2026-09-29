@@ -2489,6 +2489,13 @@ map.on('load', function () {
       if (well.spud) wb.push('spudded ' + esc(well.spud));
       if (well.elev) wb.push('elev ' + esc(well.elev));
       if (wb.length) html += '<div class="pop-row">' + wb.join(' · ') + '</div>';
+      // The popup shows the 10 fields the tileset carries; the other 22 are a
+      // fetch away and only worth making when asked for.
+      if (well.api) {
+        html += '<div class="pop-row"><a href="#" class="wa-link" data-api="' +
+                esc(well.api) + '" data-label="' + esc(wname || ('API ' + well.api)) +
+                '">All CalGEM attributes →</a></div>';
+      }
       html += '<div class="pop-row" style="font-size:11px;opacity:.65">CalGEM well database</div>';
       if (parc || fault || unit || soil || bore || blk || ap) html += '<div class="pop-sep"></div>';
     }
@@ -6078,6 +6085,116 @@ function openExideDlg() {
   });
 }
 
+
+
+// ================= Well attributes =================
+// The tileset carries 10 of CalGEM's 32 fields, because the rest would not fit
+// a tile budget. The other 22 live beside it, sharded on the API number the
+// tileset does carry, and are fetched only when a well is asked about.
+//
+// API is not unique: 679 APIs have more than one record, which are redrills of
+// the same hole. A shard therefore maps an API to a list, and all of them are
+// shown rather than one being picked silently.
+var WA_META = null;
+var WA_CACHE = {};
+
+function waShard(api) {
+  var h = 0;
+  for (var i = 0; i < api.length; i++) h = (h * 31 + api.charCodeAt(i)) & 0x7FFFFFFF;
+  return h % (WA_META ? WA_META.shards : 400);
+}
+
+function waLoad(api, cb) {
+  var go = function () {
+    var sid = waShard(api);
+    if (WA_CACHE[sid]) { cb(WA_CACHE[sid]); return; }
+    fetch('./well_attrs/' + ('00' + sid).slice(-3) + '.json')
+      .then(function (r) { return r.json(); })
+      .then(function (j) { WA_CACHE[sid] = j; cb(j); })
+      .catch(function (e) {
+        showToast('Could not load well attributes: ' + esc(e.message),
+                  'Dismiss', function () {});
+        cb(null);
+      });
+  };
+  if (WA_META) { go(); return; }
+  fetch('./well_attrs/meta.json').then(function (r) { return r.json(); })
+    .then(function (j) { WA_META = j; go(); })
+    .catch(function (e) {
+      showToast('Could not load the well attribute index: ' + esc(e.message),
+                'Dismiss', function () {});
+      cb(null);
+    });
+}
+
+// Epoch milliseconds in the source. Rendered as a date, with the raw value kept
+// out of the way -- a column of 13-digit integers is not a date to anyone.
+function waDate(v) {
+  var t = parseFloat(v);
+  if (!isFinite(t) || t === 0) return '';
+  var d = new Date(t);
+  if (isNaN(d.getTime())) return String(v);
+  return d.toISOString().slice(0, 10);
+}
+
+function showWellAttrs(api, label) {
+  waLoad(api, function (sh) {
+    if (!sh) return;
+    var recs = sh.wells[api];
+    if (!recs || !recs.length) {
+      showToast('No CalGEM record found for API ' + esc(api) + '.',
+                'Dismiss', function () {});
+      return;
+    }
+    var dates = {};
+    (WA_META.dates || []).forEach(function (d) { dates[d] = 1; });
+
+    // One record is a field/value list, which reads far better than a
+    // single-row table thirty columns wide. Several records go side by side, so
+    // a redrill can be compared against the original hole.
+    var body = '<table class="dtab attrs"><thead><tr><th>Field</th>' +
+      recs.map(function (_, i) {
+        return '<th>' + (recs.length > 1 ? 'Record ' + (i + 1) : 'Value') + '</th>';
+      }).join('') + '</tr></thead><tbody>';
+    sh.cols.forEach(function (c, ci) {
+      var lab = (WA_META.labels && WA_META.labels[c]) || c;
+      var cells = recs.map(function (r) {
+        var v = sh.dict[r[ci]];
+        if (dates[c]) v = waDate(v);
+        return '<td>' + (v === '' || v == null
+          ? '<span style="opacity:.35">—</span>' : esc(v)) + '</td>';
+      }).join('');
+      body += '<tr><td class="fk">' + esc(lab) + '</td>' + cells + '</tr>';
+    });
+    body += '</tbody></table>';
+
+    openDlg('<h2>' + esc(label || ('API ' + api)) + '</h2><div class="bd">' +
+      '<div class="fld" style="margin-bottom:0">' +
+        '<label>' + sh.cols.length + ' fields' +
+        (recs.length > 1 ? ' · ' + recs.length + ' records share this API' : '') +
+        '</label>' +
+        '<div class="dwrap">' + body + '</div>' +
+        '<div class="hint">Every attribute CalGEM publishes for this well. ' +
+        (recs.length > 1
+          ? 'More than one record carries this API — these are redrills of the ' +
+            'same hole, shown side by side rather than merged. '
+          : '') +
+        'Dates are stored as epoch milliseconds in the source and shown as dates ' +
+        'here.</div>' +
+      '</div></div>' +
+      '<div class="ft"><button class="cx" id="wa-close">Close</button></div>', 'wide');
+    document.getElementById('wa-close').addEventListener('click', closeDlg);
+  });
+}
+
+// Bound on the document: the popup is built and destroyed by Mapbox, so a
+// listener on its contents would not survive the next click.
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a.wa-link');
+  if (!a) return;
+  e.preventDefault();
+  showWellAttrs(a.getAttribute('data-api'), a.getAttribute('data-label'));
+});
 
 // ================= Exide data =================
 // The analytical table itself: every one of the 414,883 rows, every one of the
