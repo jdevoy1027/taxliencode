@@ -1990,9 +1990,14 @@ function addLayers() {
       type: 'raster',
       tiles: ['https://carto.nationalmap.gov/arcgis/rest/services/contours/MapServer/' +
               'export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857' +
-              // 1024 px for a 512 px tile: the lines are hairlines, and at 1x
-              // they blur on a retina display. Measured no slower to render.
-              '&size=1024,1024&format=png32&transparent=true&f=image'],
+              // 512 px for a 512 px tile, so the service's own design scale is
+              // what reaches the screen. Asking for 1024 and letting Mapbox
+              // shrink it into the tile was rendering the whole layer at half
+              // size -- crisper lines, but labels at roughly 4pt, which is what
+              // made them unreadable. The labels are baked into the image by
+              // the service, so their size cannot be set independently; only
+              // the ratio between requested pixels and tile pixels can.
+              '&size=512,512&format=png32&transparent=true&f=image'],
       tileSize: 512,
       attribution: 'Contours: USGS The National Map'
     });
