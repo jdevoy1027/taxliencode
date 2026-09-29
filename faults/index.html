@@ -813,6 +813,33 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-usgsct">
+          <button class="tw" type="button" data-sym="sym-usgsct" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="usgsct" tabindex="0" role="button">USGS elevation contours</span>
+          <span class="cnt">z10+</span>
+        </div>
+        <div class="sym" id="sym-usgsct" hidden>
+          <div class="ctrow"><span class="sw"><i style="height:2.4px;background:#a05a2c"></i></span>
+            <span>Index contour, labelled</span></div>
+          <div class="ctrow"><span class="sw"><i style="height:1px;background:#b4744a"></i></span>
+            <span>Intermediate contour</span></div>
+          <div class="ctmeta">
+            USGS elevation contours from The National Map, derived from the
+            3DEP elevation model — the published topographic contours, not
+            something interpolated here.<br>
+            The interval follows the zoom, as it does on a paper quad:
+            <b>100&nbsp;ft</b> at around 1:600,000, <b>50&nbsp;ft</b> from
+            1:150,000, and the full large-scale set with supplemental and
+            depression contours below 1:50,000. Labels are drawn by the service.<br>
+            Rendered on request rather than from a tile cache, so the first
+            view of an area takes a moment.
+          </div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-contours">
           <button class="tw" type="button" data-sym="sym-contours" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -949,6 +976,7 @@ var showBores = true, showBoreLabels = true;
 // rest of the map for anyone not looking for them.
 var showExide = false;
 var showGwCt = false;
+var showUsgsCt = false;
 var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
 var showContours = false;
 var showAP = false;
@@ -1948,6 +1976,39 @@ function addLayers() {
       }
     });
   }
+  if (!map.getSource('usgsct')) {
+    // USGS elevation contours from The National Map, rendered on demand by
+    // their MapServer. A dynamic export rather than a tile cache, which is why
+    // the URL carries an explicit bbox and size, exactly as the NAIP layer does.
+    //
+    // The service picks the interval from the scale on its own: 100-foot
+    // between 1:600k and 1:150k, 50-foot to 1:50k, and the full large-scale set
+    // -- index, intermediate, supplemental and depression contours -- below
+    // that. Labels are drawn into the image, so there is no separate symbol
+    // layer and nothing for the label styling pass to reach.
+    map.addSource('usgsct', {
+      type: 'raster',
+      tiles: ['https://carto.nationalmap.gov/arcgis/rest/services/contours/MapServer/' +
+              'export?bbox={bbox-epsg-3857}&bboxSR=3857&imageSR=3857' +
+              // 1024 px for a 512 px tile: the lines are hairlines, and at 1x
+              // they blur on a retina display. Measured no slower to render.
+              '&size=1024,1024&format=png32&transparent=true&f=image'],
+      tileSize: 512,
+      attribution: 'Contours: USGS The National Map'
+    });
+  }
+  if (!map.getLayer('usgsct')) {
+    map.addLayer({
+      id: 'usgsct', type: 'raster', source: 'usgsct',
+      // From z10. The service draws nothing above 1:3,000,000 and the
+      // small-scale set below that is 100-metre contours of the whole country,
+      // which is not what this map is for.
+      minzoom: 10,
+      // Slightly transparent so a fill beneath still reads through a dense
+      // hillside, where contours can cover most of the ground.
+      paint: { 'raster-opacity': 0.82, 'raster-fade-duration': 200 }
+    });
+  }
   if (!map.getSource('gwcontours')) {
     map.addSource('gwcontours', { type: 'geojson', data: './gw_contours.geojson' });
   }
@@ -2260,6 +2321,9 @@ function applyState() {
   ['ap-fill', 'ap-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showAP ? 'visible' : 'none');
   });
+  if (map.getLayer('usgsct')) {
+    map.setLayoutProperty('usgsct', 'visibility', showUsgsCt ? 'visible' : 'none');
+  }
   ['gwct-line', 'gwct-label'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showGwCt ? 'visible' : 'none');
   });
@@ -2729,7 +2793,8 @@ var LAYER_HITS = {
   geo:      ['geo-fill'],
   syn:      ['syn-dot'],
   contours: [],
-  gwct:     []
+  gwct:     [],
+  usgsct:   []
 };
 var LAYER_NAMES = {};   // filled from the panel markup at startup
 var activeLayer = null; // exactly one, or null for "report everything"
@@ -2877,6 +2942,9 @@ document.getElementById('t-pipe').addEventListener('change', function () {
 
 document.getElementById('t-liq').addEventListener('change', function () {
   showLiq = this.checked; applyState();
+});
+document.getElementById('t-usgsct').addEventListener('change', function () {
+  showUsgsCt = this.checked; applyState(); saveState();
 });
 document.getElementById('t-gwct').addEventListener('change', function () {
   showGwCt = this.checked; applyState(); saveState();
@@ -6801,6 +6869,7 @@ var LAYER_FLAGS = [
   ['syn', 't-syn', function (v) { showSyn = v; }, function () { return showSyn; }],
   ['contours', 't-contours', function (v) { showContours = v; }, function () { return showContours; }],
   ['gwct', 't-gwct', function (v) { showGwCt = v; }, function () { return showGwCt; }],
+  ['usgsct', 't-usgsct', function (v) { showUsgsCt = v; }, function () { return showUsgsCt; }],
   ['bores', 't-bores', function (v) { showBores = v; }, function () { return showBores; }],
   ['exide', 't-exide', function (v) { showExide = v; }, function () { return showExide; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
