@@ -375,6 +375,49 @@
       }
     }
 
+    // Search radius. Linear interpolation fills the whole convex hull, so a
+    // scatter with a concave outline -- a sampling area that follows streets,
+    // say -- gets a surface stretched across ground where nothing was measured.
+    // Cells further than maxDist metres from any sample are dropped, which
+    // turns the hull into something close to the data's real footprint.
+    //
+    // Stamped rather than searched: each point marks the cells within its own
+    // radius, which is a few dozen operations per point, where testing every
+    // cell against every point would be the grid times the sample count.
+    if (+opt.maxDist > 0) {
+      var near = new Uint8Array(g.Z.length);
+      var mPerDegY = 110570;
+      var midLat = (bbox[1] + bbox[3]) / 2;
+      var mPerDegX = 111320 * Math.cos(midLat * Math.PI / 180);
+      var rx = (+opt.maxDist / mPerDegX) / g.sx;     // radius in cells
+      var ry = (+opt.maxDist / mPerDegY) / g.sy;
+      var ri = Math.ceil(rx), rj = Math.ceil(ry);
+      for (var pi = 0; pi < pts.length; pi++) {
+        var ci = Math.round((pts[pi].x - g.x0) / g.sx);
+        var cj = Math.round((pts[pi].y - g.y0) / g.sy);
+        for (var jj = cj - rj; jj <= cj + rj; jj++) {
+          if (jj < 0 || jj >= g.ny) continue;
+          var fy = (jj - cj) / ry;
+          for (var ii = ci - ri; ii <= ci + ri; ii++) {
+            if (ii < 0 || ii >= g.nx) continue;
+            var fx = (ii - ci) / rx;
+            if (fx * fx + fy * fy <= 1) near[jj * g.nx + ii] = 1;
+          }
+        }
+      }
+      var keptNear = 0;
+      for (var q2 = 0; q2 < g.M.length; q2++) {
+        if (!g.M[q2]) continue;
+        if (near[q2]) keptNear++; else g.M[q2] = 0;
+      }
+      if (!keptNear) {
+        return { type: 'FeatureCollection', features: [],
+                 stats: { points: pts.length, triangles: tris.length, levels: 0, lines: 0,
+                          zmin: zmin, zmax: zmax, interval: interval, clipped: !!clip,
+                          outside: true } };
+      }
+    }
+
     // Blur after masking: doing it before would pull values across the clip edge
     // from cells that are about to be discarded.
     if (blur > 0) blurGrid(g, blur);
@@ -389,6 +432,17 @@
       }
     }
 
+    // Explicit levels, for a classification whose breaks are not evenly spaced
+    // -- a contamination scale set by health thresholds rather than by a step
+    // size. Levels outside the surface's own range are dropped rather than
+    // traced, since there is nothing there to trace.
+    var levels = null;
+    if (Array.isArray(opt.levels) && opt.levels.length) {
+      levels = opt.levels.map(Number).filter(function (v) {
+        return isFinite(v) && v > zmin && v < zmax;
+      }).sort(function (a, b) { return a - b; });
+    }
+
     var lo = Math.ceil(zmin / interval) * interval;
     var hi = Math.floor(zmax / interval) * interval;
     var tol = Math.min(g.sx, g.sy) / 4;
@@ -397,13 +451,24 @@
     var simpTol = opt.simplify == null ? Math.min(g.sx, g.sy) / 40 : +opt.simplify;
     var feats = [];
     var nLevels = 0;
-    for (var lev = lo; lev <= hi + 1e-9; lev += interval) {
+    // One loop over either an explicit list or the even ladder, so everything
+    // downstream -- tracing, smoothing, the index flag -- is identical.
+    var ladder = levels;
+    if (!ladder) {
+      ladder = [];
+      for (var lv = lo; lv <= hi + 1e-9; lv += interval) ladder.push(lv);
+    }
+    for (var li = 0; li < ladder.length; li++) {
+      var lev = ladder[li];
       var segs = segmentsAt(g, lev);
       if (!segs.length) continue;
       nLevels++;
       var lines = chain(segs, tol);
-      var step = Math.round(lev / interval);
-      var isIndex = indexEvery > 0 && (step % indexEvery === 0) ? 1 : 0;
+      // With explicit levels every line is an index line: each one is a
+      // threshold that was chosen for a reason, so all of them are labelled.
+      // On the even ladder the usual every-Nth rule applies.
+      var isIndex = levels ? 1
+                  : (indexEvery > 0 && Math.round(lev / interval) % indexEvery === 0) ? 1 : 0;
       lines.forEach(function (ln) {
         if (ln.length < 3) return;
         if (smooth > 0) ln = chaikin(ln, smooth);

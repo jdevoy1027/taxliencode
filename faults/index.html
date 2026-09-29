@@ -525,6 +525,7 @@
         <div class="mh">Analysis</div>
         <button id="m-syn">Synergy results…</button>
         <button id="m-syndata">Synergy data…</button>
+        <button id="m-exide">Exide results…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -5147,6 +5148,18 @@ function shadeBands(peak, interval) {
 // A pixel is drawn only where all four grid cells it sits between are inside the
 // mask; sampling across the mask edge would bleed colour past the parcel
 // boundary that the contours themselves stop at.
+// Bands from explicit breaks and explicit colours, for a classification whose
+// steps are health thresholds rather than an even ladder.
+function shadeBandsFrom(breaks, colors) {
+  var out = [];
+  for (var i = 0; i < colors.length; i++) {
+    out.push({ lo: i === 0 ? 0 : breaks[i - 1],
+               hi: i < breaks.length ? breaks[i] : Infinity,
+               color: colors[i] });
+  }
+  return out;
+}
+
 function shadeFromGrid(g, interval, bands) {
   var W = g.nx * 2, H = g.ny * 2;
   var cv = document.createElement('canvas');
@@ -5173,8 +5186,11 @@ function shadeFromGrid(g, interval, bands) {
       if (!(M[k00] && M[k10] && M[k01] && M[k11])) { d[o + 3] = 0; continue; }
       var v = (Z[k00] * (1 - tx) + Z[k10] * tx) * (1 - ty) +
               (Z[k01] * (1 - tx) + Z[k11] * tx) * ty;
-      var b = Math.floor(v / interval);
-      if (b < 0) b = 0; else if (b >= nb) b = nb - 1;
+      // Bands may be uneven, so the class is found by walking their upper
+      // bounds rather than dividing by a step. nb is small -- five at most --
+      // so the walk costs less than the division it replaces did in clarity.
+      var b = 0;
+      while (b < nb - 1 && v >= bands[b].hi) b++;
       var c = cols[b];
       d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
     }
@@ -5710,6 +5726,357 @@ window.addEventListener('afterprint', function () { map.resize(); });
 document.getElementById('m-syn').addEventListener('click', function () {
   MENU.hidden = true;
   openSynDlg();
+});
+
+
+// ================= Exide results =================
+// The Synergy tool's shape, with depth where that one has a month range. The
+// two datasets differ in the way that matters: Synergy is five wells sampled
+// repeatedly over twelve years, so time is its axis; Exide is ten thousand
+// properties sampled once at several depths, so depth is.
+//
+// Soil only. 59,447 of the source rows are lead paint in mg/cm2, a surface
+// loading on a wall -- it has no depth, and it is not a soil concentration, so
+// it can never enter a depth slice. The converter filters on Matrix == Soil
+// before a value reaches the 'dep' field this reads.
+var EX = null;          // features, loaded once
+var exSel = null;       // { depth, stat }
+
+// Only depths with enough properties to interpolate across the whole area. The
+// source also holds 1", 2", 5", 8", 14" and 16", but those carry 479, 113 and
+// one property each -- contouring them would draw a surface over ground where
+// nothing was measured.
+var EX_DEPTHS = [3, 6, 12, 18];
+var EX_MIN_PROPS = 1000;
+// Metres. See the note at the contour call.
+var EX_MAX_DIST = 150;
+
+function loadExide(cb) {
+  if (EX) { cb(); return; }
+  var src = map.getSource('exide');
+  var url = './exide.geojson';
+  fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+    EX = j.features;
+    cb();
+  }).catch(function (e) {
+    showToast('Could not load the Exide data: ' + esc(e.message), 'Dismiss', function () {});
+  });
+}
+
+// Which depths are actually present, and how many properties carry each.
+function exDepthCounts() {
+  var c = {};
+  EX.forEach(function (f) {
+    var d = f.properties.dep;
+    if (!d) return;
+    Object.keys(d).forEach(function (k) { c[k] = (c[k] || 0) + 1; });
+  });
+  return c;
+}
+
+// One value per property at a depth. stat 0 = maximum, 1 = mean; the converter
+// stores [max, mean, n] so both are a lookup rather than a recomputation.
+function exValues(depth, stat) {
+  var out = [];
+  EX.forEach(function (f) {
+    var d = f.properties.dep && f.properties.dep[depth];
+    if (!d) return;
+    var v = d[stat];
+    if (typeof v !== 'number') return;
+    out.push({ x: f.geometry.coordinates[0], y: f.geometry.coordinates[1], z: v,
+               id: f.properties.id, addr: f.properties.addr });
+  });
+  return out;
+}
+
+// Colour the dots by the selected depth rather than by the property
+// representative, so the map and any contour drawn over it show the same slice.
+function exDepthColorExpr(depth, stat) {
+  if (!exSel) return exColorExpr();
+  var e = ['step', ['coalesce', ['get', 'dsel'], -1], EX_NULL, 0, EX_COLORS[0]];
+  EX_BREAKS.forEach(function (b, i) { e.push(b, EX_COLORS[i + 1]); });
+  return e;
+}
+
+function applyExideDepth() {
+  var src = map.getSource('exide');
+  if (!src || !EX) return;
+  // The selected depth's value is written onto each feature as `dsel`, so the
+  // paint expression stays a plain step over one property instead of a nested
+  // lookup that would have to know the depth at style level.
+  EX.forEach(function (f) {
+    if (!exSel) { delete f.properties.dsel; return; }
+    var d = f.properties.dep && f.properties.dep[exSel.depth];
+    if (d && typeof d[exSel.stat] === 'number') f.properties.dsel = d[exSel.stat];
+    else delete f.properties.dsel;
+  });
+  src.setData({ type: 'FeatureCollection', features: EX });
+  if (map.getLayer('exide-dot')) {
+    map.setPaintProperty('exide-dot', 'circle-color',
+      exSel ? exDepthColorExpr() : exColorExpr());
+  }
+  exLegend();
+}
+
+function contourExide(depth, stat) {
+  var pts = exValues(depth, stat);
+  if (pts.length < 3) {
+    showToast('Only ' + pts.length + ' properties have a result at ' + depth +
+              '" — too few to contour.', 'Dismiss', function () {});
+    return null;
+  }
+  var res;
+  try {
+    // The health thresholds themselves, not an even interval. maxDist keeps the
+    // surface inside the sampled ground: median spacing between properties is
+    // 14 m and the 99th percentile is 39 m, so 150 m bridges every real gap
+    // while cutting the empty wedges the convex hull would otherwise fill.
+    res = makeContours(pts, { levels: EX_BREAKS, grid: 320, index: 5, maxDist: EX_MAX_DIST });
+  } catch (e) {
+    showToast('Contouring failed: ' + esc(e.message), 'Dismiss', function () {});
+    return null;
+  }
+  return { fc: res, pts: pts.length };
+}
+
+function exApply(depth, stat, withContour) {
+  exSel = { depth: String(depth), stat: stat };
+  showExide = true;
+  var cb = document.getElementById('t-exide'); if (cb) cb.checked = true;
+  applyExideDepth();
+
+  if (!withContour) {
+    if (map.getSource('contours')) map.getSource('contours').setData(emptyFC());
+    setShade(null);
+    ctInfo = null; renderContourLegend();
+    applyState();
+    return;
+  }
+
+  var r = contourExide(depth, stat);
+  if (!r) { applyState(); return; }
+  // Guarded like every other call site: addLayers creates this source, but a
+  // style still loading has not, and an unguarded call throws.
+  if (!map.getSource('contours')) {
+    showToast('The contour layer is not ready yet — try again in a moment.',
+              'Dismiss', function () {});
+    applyState();
+    return;
+  }
+  map.getSource('contours').setData(r.fc);
+  showContours = true;
+  var cc = document.getElementById('t-contours'); if (cc) cc.checked = true;
+  if (map.getLayer('contour-line')) map.setPaintProperty('contour-line', 'line-color', '#3b2f2a');
+  setContourUnits(' ppm');
+
+  var bands = shadeBandsFrom(EX_BREAKS, EX_COLORS);
+  if (r.fc.grid) {
+    try { setShade(shadeFromGrid(r.fc.grid, 0, bands)); } catch (e) { setShade(null); }
+    r.fc.grid = null;
+  }
+  ctInfo = { label: 'Exide soil lead · ' + depth + '" below ground',
+             field: (stat ? 'Mean' : 'Maximum') + ' lead (ppm)',
+             interval: 0, indexEvery: 1,
+             zmin: r.fc.stats.zmin, zmax: r.fc.stats.zmax,
+             levels: r.fc.stats.levels, lines: r.fc.stats.lines,
+             color: '#3b2f2a', units: 'ppm', smoothed: true, bands: bands };
+  renderContourLegend();
+  applyState();
+  showToast(r.pts.toLocaleString() + ' properties at ' + depth + '" · ' +
+            r.fc.stats.lines + ' contour lines at the 80 / 200 / 400 / 1,000 ppm breaks',
+            'Dismiss', function () {});
+}
+
+function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
+
+// ---- depth lapse ----------------------------------------------------------
+// The same engine as the Synergy time lapse, stepping down through the soil
+// rather than forward through the years.
+var EXL = null;
+
+function exBuildDepths(stat) {
+  var counts = exDepthCounts();
+  var use = EX_DEPTHS.filter(function (d) { return (counts[d] || 0) >= EX_MIN_PROPS; });
+  var bands = shadeBandsFrom(EX_BREAKS, EX_COLORS);
+  var frames = [];
+  use.forEach(function (d) {
+    var pts = exValues(String(d), stat);
+    var f = { depth: d, n: pts.length, fc: null, shade: null };
+    if (pts.length >= 3) {
+      try {
+        f.fc = makeContours(pts, { levels: EX_BREAKS, grid: 320, index: 5,
+                                   maxDist: EX_MAX_DIST });
+        if (f.fc.grid) {
+          f.shade = shadeFromGrid(f.fc.grid, 0, bands);
+          f.fc.grid = null;
+        }
+      } catch (e) { f.fc = null; }
+    }
+    frames.push(f);
+  });
+  if (!frames.length) return null;
+  return { frames: frames, bands: bands, stat: stat, i: 0, timer: null, speed: 3000 };
+}
+
+function exlShow(i) {
+  if (!EXL) return;
+  i = Math.max(0, Math.min(EXL.frames.length - 1, i));
+  EXL.i = i;
+  var f = EXL.frames[i];
+
+  exSel = { depth: String(f.depth), stat: EXL.stat };
+  showExide = true;
+  applyExideDepth();
+
+  if (f.fc && map.getSource('contours')) {
+    map.getSource('contours').setData(f.fc);
+    showContours = true;
+    setContourUnits(' ppm');
+    if (map.getLayer('contour-line'))
+      map.setPaintProperty('contour-line', 'line-color', '#3b2f2a');
+    ctInfo = { label: 'Exide soil lead · ' + f.depth + '" below ground',
+               field: (EXL.stat ? 'Mean' : 'Maximum') + ' lead (ppm)',
+               interval: 0, indexEvery: 1,
+               zmin: f.fc.stats.zmin, zmax: f.fc.stats.zmax,
+               levels: f.fc.stats.levels, lines: f.fc.stats.lines,
+               color: '#3b2f2a', units: 'ppm', smoothed: true, bands: EXL.bands };
+    renderContourLegend();
+  } else if (map.getSource('contours')) {
+    map.getSource('contours').setData(emptyFC());
+  }
+  setShade(f.shade || null);
+  applyState();
+  exlRenderBar();
+}
+
+function exlRenderBar() {
+  var bar = document.getElementById('tlbar');
+  if (!bar || !EXL) return;
+  var f = EXL.frames[EXL.i];
+  bar.hidden = false;
+  bar.innerHTML =
+    '<button type="button" id="exl-play" title="Play or pause">' +
+      (EXL.timer ? '❚❚' : '▶') + '</button>' +
+    '<div class="tl-year">' + f.depth + '&quot;</div>' +
+    '<input type="range" id="exl-range" min="0" max="' + (EXL.frames.length - 1) +
+      '" value="' + EXL.i + '">' +
+    '<div class="tl-meta">' + f.n.toLocaleString() + ' properties at ' + f.depth +
+      '&quot; below ground' + (f.fc ? '' : ' · too few to contour') + '</div>' +
+    '<button type="button" id="exl-close" title="Close">&times;</button>';
+  document.getElementById('exl-play').addEventListener('click', exlToggle);
+  document.getElementById('exl-close').addEventListener('click', exlStop);
+  document.getElementById('exl-range').addEventListener('input', function () {
+    exlPause(); exlShow(+this.value);
+  });
+}
+
+function exlToggle() { EXL && EXL.timer ? exlPause() : exlPlay(); }
+function exlPlay() {
+  if (!EXL) return;
+  if (EXL.i >= EXL.frames.length - 1) EXL.i = 0;
+  clearInterval(EXL.timer);
+  EXL.timer = setInterval(function () {
+    if (EXL.i >= EXL.frames.length - 1) { exlPause(); return; }
+    exlShow(EXL.i + 1);
+  }, EXL.speed);
+  exlRenderBar();
+}
+function exlPause() { if (EXL) { clearInterval(EXL.timer); EXL.timer = null; exlRenderBar(); } }
+function exlStop() {
+  exlPause();
+  EXL = null;
+  setShade(null);
+  if (ctInfo) delete ctInfo.bands;
+  renderContourLegend();
+  var bar = document.getElementById('tlbar');
+  if (bar) { bar.hidden = true; bar.innerHTML = ''; }
+}
+
+function openExideDlg() {
+  loadExide(function () {
+    var counts = exDepthCounts();
+    var avail = EX_DEPTHS.filter(function (d) { return (counts[d] || 0) >= EX_MIN_PROPS; });
+    var last = exSel || { depth: String(avail[0]), stat: 0 };
+    openDlg(
+      '<h2>Exide results</h2><div class="bd">' +
+      '<div class="fld"><label>Depth below ground</label><select id="ed-depth">' +
+        avail.map(function (d) {
+          return '<option value="' + d + '"' + (String(d) === last.depth ? ' selected' : '') +
+                 '>' + d + ' inches — ' + counts[d].toLocaleString() + ' properties</option>';
+        }).join('') + '</select>' +
+      '<div class="hint">Soil only. Lead paint is measured in mg/cm² on a wall ' +
+      'surface, has no depth, and is excluded throughout.</div></div>' +
+      '<div class="fld"><label>Value per property</label><select id="ed-stat">' +
+        '<option value="0"' + (last.stat === 0 ? ' selected' : '') +
+          '>Maximum at that depth</option>' +
+        '<option value="1"' + (last.stat === 1 ? ' selected' : '') +
+          '>Mean at that depth</option>' +
+      '</select><div class="hint">A property has several samples at a depth — 13 ' +
+      'on average at 3 inches. Maximum matches how the cleanup threshold is ' +
+      'applied; mean gives a smoother surface.</div></div>' +
+      '<div class="fld" style="margin-bottom:0"><label>Contour bands</label>' +
+      '<div id="ed-bands"></div></div>' +
+      '<div id="ed-err"></div></div>' +
+      '<div class="ft"><button class="cx" id="ed-cancel">Cancel</button>' +
+      '<button class="cx" id="ed-clear">Clear</button>' +
+      '<button class="go" id="ed-show">Show</button>' +
+      '<button class="go" id="ed-cont">Show + contour</button>' +
+      '<button class="go" id="ed-lapse">Depth lapse</button></div>', 'wide');
+
+    var bh = document.getElementById('ed-bands');
+    bh.innerHTML = shadeBandsFrom(EX_BREAKS, EX_COLORS).map(function (b, i) {
+      var lab = i === 0 ? 'Below ' + EX_BREAKS[0] + ' ppm'
+              : b.hi === Infinity ? b.lo.toLocaleString() + '+ ppm'
+              : b.lo.toLocaleString() + ' – ' + b.hi.toLocaleString() + ' ppm';
+      return '<div class="ctrow"><span class="sw"><i style="height:12px;background:' +
+             b.color + ';border:1px solid rgba(0,0,0,.2)"></i></span><span>' + lab +
+             '</span></div>';
+    }).join('');
+
+    var pick = function () {
+      return { d: +document.getElementById('ed-depth').value,
+               s: +document.getElementById('ed-stat').value };
+    };
+    document.getElementById('ed-cancel').addEventListener('click', closeDlg);
+    document.getElementById('ed-clear').addEventListener('click', function () {
+      exlStop();
+      exSel = null; applyExideDepth();
+      if (map.getSource('contours')) map.getSource('contours').setData(emptyFC());
+      setShade(null); ctInfo = null; renderContourLegend();
+      applyState(); closeDlg();
+      showToast('Exide depth selection cleared.', 'Dismiss', function () {});
+    });
+    document.getElementById('ed-show').addEventListener('click', function () {
+      var p = pick(); exlStop(); exApply(p.d, p.s, false); closeDlg();
+    });
+    document.getElementById('ed-cont').addEventListener('click', function () {
+      var p = pick(); exlStop(); closeDlg();
+      // Yielded to first: contouring ten thousand points takes a moment and the
+      // dialog should be gone before the tab stops painting.
+      setTimeout(function () { exApply(p.d, p.s, true); }, 30);
+    });
+    document.getElementById('ed-lapse').addEventListener('click', function () {
+      var p = pick(); exlStop(); closeDlg();
+      showToast('Building the depth series…', null, null);
+      setTimeout(function () {
+        var built = exBuildDepths(p.s);
+        if (!built) { showToast('No depth has enough properties to contour.',
+                                'Dismiss', function () {}); return; }
+        EXL = built;
+        exlShow(0);
+        exlPlay();
+        var withC = built.frames.filter(function (f) { return f.fc; }).length;
+        showToast(built.frames.length + ' depths, ' + withC + ' contoured · ' +
+                  built.frames.map(function (f) { return f.depth + '"'; }).join(' → '),
+                  'Dismiss', function () {});
+      }, 40);
+    });
+  });
+}
+
+document.getElementById('m-exide').addEventListener('click', function () {
+  MENU.hidden = true;
+  openExideDlg();
 });
 
 document.getElementById('m-syndata').addEventListener('click', function () {
