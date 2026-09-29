@@ -816,11 +816,33 @@
           <input type="checkbox" id="t-contours">
           <button class="tw" type="button" data-sym="sym-contours" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <span class="lbl" data-layer="contours" tabindex="0" role="button">Contours</span>
+          <span class="lbl" data-layer="contours" tabindex="0" role="button">Ground surface elevation</span>
           <span class="cnt" id="ct-cap">10 ft</span>
         </div>
         <div class="sym" id="sym-contours" hidden>
           <div id="ct-legend"></div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-gwct">
+          <button class="tw" type="button" data-sym="sym-gwct" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="gwct" tabindex="0" role="button">Depth to groundwater</span>
+          <span class="cnt">25 ft</span>
+        </div>
+        <div class="sym" id="sym-gwct" hidden>
+          <div id="gwct-legend"></div>
+          <div class="ctmeta">
+            Contoured from <b>44,745</b> DWR monitoring wells, each carrying its
+            most recent depth-to-water reading. Feet below ground surface, so a
+            larger number is a deeper water table; negative values are artesian,
+            where the potentiometric surface stands above ground.<br>
+            Interpolated no further than <b>3&nbsp;km</b> from a well, which is
+            the 99th percentile of the spacing between them, so no water table
+            is drawn across ground nobody measured.
+          </div>
         </div>
       </div>
 
@@ -926,6 +948,7 @@ var showBores = true, showBoreLabels = true;
 // Off by default: 10,300 points over a few square miles, which would bury the
 // rest of the map for anyone not looking for them.
 var showExide = false;
+var showGwCt = false;
 var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
 var showContours = false;
 var showAP = false;
@@ -942,6 +965,9 @@ var BORE_COLOR = '#10233f';
 var AP_COLOR = '#756bb1';
 var LIQ_COLOR = '#1f9e8c';
 var CT_COLOR = '#8a6a4a';
+// Blue for water, against the brown of the ground-surface contours, so the two
+// are told apart by hue when both are on.
+var GWCT_COLOR = '#1f6f9c';
 function darken(hex, f) {
   var n = parseInt(hex.slice(1), 16);
   var r = Math.round(((n >> 16) & 255) * f), g = Math.round(((n >> 8) & 255) * f),
@@ -1313,6 +1339,14 @@ var PALETTES = {
       if (map.getLayer('geo-fill')) map.setPaintProperty('geo-fill', 'fill-color', geoColorExpr());
       geoLegend();
     }),
+  gwct: withRedraw(symOne(function () { return GWCT_COLOR; },
+    function (c) { GWCT_COLOR = c; }, 'Contour line'), function () {
+      ['gwct-line'].forEach(function (id) {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'line-color', GWCT_COLOR);
+      });
+      if (map.getLayer('gwct-label')) map.setPaintProperty('gwct-label', 'text-color', GWCT_COLOR);
+      gwctLegend();
+    }),
   contours: withRedraw(symOne(function () { return CT_COLOR; },
     function (c) { CT_COLOR = c; if (ctInfo) ctInfo.color = c; }, 'Contour line'), function () {
       if (map.getLayer('contour-line')) map.setPaintProperty('contour-line', 'line-color', CT_COLOR);
@@ -1340,7 +1374,8 @@ var LAYER_SYM = {
   exide: { title: 'Exide soil lead — by concentration', pal: function () { return 'exide'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
-  contours: { title: 'Contours', pal: function () { return 'contours'; } }
+  contours: { title: 'Ground surface elevation contours', pal: function () { return 'contours'; } },
+  gwct: { title: 'Depth to groundwater contours', pal: function () { return 'gwct'; } }
 };
 
 var SWATCH_COLORS = [
@@ -1913,6 +1948,46 @@ function addLayers() {
       }
     });
   }
+  if (!map.getSource('gwcontours')) {
+    map.addSource('gwcontours', { type: 'geojson', data: './gw_contours.geojson' });
+  }
+  if (!map.getLayer('gwct-line')) {
+    map.addLayer({
+      id: 'gwct-line', type: 'line', source: 'gwcontours',
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': GWCT_COLOR,
+        'line-opacity': 0.85,
+        'line-width': ['interpolate', ['linear'], ['zoom'],
+          8,  ['case', ['==', ['get', 'ix'], 1], 1.4, 0.6],
+          12, ['case', ['==', ['get', 'ix'], 1], 2.4, 1.1],
+          16, ['case', ['==', ['get', 'ix'], 1], 4.0, 1.9]]
+      }
+    });
+  }
+  if (!map.getLayer('gwct-label')) {
+    map.addLayer({
+      id: 'gwct-label', type: 'symbol', source: 'gwcontours',
+      minzoom: 9,
+      // Index lines only. Every 25 ft line carrying a label would be unreadable
+      // at the zooms this layer is useful at.
+      filter: ['==', ['get', 'ix'], 1],
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['concat', ['to-string', ['get', 'e']], ' ft'],
+        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 9, 9.5, 15, 12],
+        'symbol-spacing': 280,
+        'text-allow-overlap': false,
+        'text-padding': 3
+      },
+      paint: {
+        'text-color': GWCT_COLOR,
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.6
+      }
+    });
+  }
   if (!map.getSource('contours')) {
     map.addSource('contours', { type: 'geojson', data: './bore_contours.geojson' });
   }
@@ -2185,6 +2260,9 @@ function applyState() {
   ['ap-fill', 'ap-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showAP ? 'visible' : 'none');
   });
+  ['gwct-line', 'gwct-label'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showGwCt ? 'visible' : 'none');
+  });
   ['contour-line', 'contour-label', 'contour-label-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showContours ? 'visible' : 'none');
   });
@@ -2241,7 +2319,8 @@ function applyState() {
 //   syn-label       the sample sites, carrying a well name and its concentration.
 //                   It wears a heavier black halo than everything else because it
 //                   is read against the band shading rather than the basemap.
-var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1, 'syn-label': 1 };
+var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1, 'syn-label': 1,
+                   'gwct-label': 1 };
 
 // Our own labels that follow the base map alongside the basemap's own. These
 // two are read against pale fills -- a geology unit, open ground around a
@@ -2649,7 +2728,8 @@ var LAYER_HITS = {
   soils:    ['soil-fill'],
   geo:      ['geo-fill'],
   syn:      ['syn-dot'],
-  contours: []
+  contours: [],
+  gwct:     []
 };
 var LAYER_NAMES = {};   // filled from the panel markup at startup
 var activeLayer = null; // exactly one, or null for "report everything"
@@ -2797,6 +2877,9 @@ document.getElementById('t-pipe').addEventListener('change', function () {
 
 document.getElementById('t-liq').addEventListener('change', function () {
   showLiq = this.checked; applyState();
+});
+document.getElementById('t-gwct').addEventListener('change', function () {
+  showGwCt = this.checked; applyState(); saveState();
 });
 document.getElementById('t-exide').addEventListener('change', function () {
   showExide = this.checked; applyState(); saveState();
@@ -2968,6 +3051,21 @@ function exLegend() {
   host.innerHTML = rows;
 }
 exLegend();
+
+// ---- depth to groundwater contour legend ----
+function gwctLegend() {
+  var host = document.getElementById('gwct-legend');
+  if (!host) return;
+  host.innerHTML =
+    '<div class="ctrow"><span class="sw"><i class="sw-edit" data-pal="gwct" data-idx="0" ' +
+    'style="height:2.6px;background:' + GWCT_COLOR + '"></i></span>' +
+    '<span>Index — every <b>100</b> ft, labelled at z9+</span></div>' +
+    '<div class="ctrow"><span class="sw"><i style="height:1px;background:' + GWCT_COLOR +
+    '"></i></span><span>Intermediate — every <b>25</b> ft</span></div>' +
+    '<div class="ctmeta"><b>Depth to water (ft below ground)</b><br>' +
+    'Range <b>-25 – 1,450</b> · 60 levels · 2,772 lines</div>';
+}
+gwctLegend();
 
 // ---- census block legend ----
 function cbLegend() {
@@ -3358,13 +3456,15 @@ var LAYER_SRC = {
   wells: ['wells'], water: ['waterwells'], bores: ['bores'], faults: ['faults'],
   ap: ['apzones'], liq: ['liqzones'], pipe: ['pipelines'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
-  geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide']
+  geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
+  gwct: ['gwcontours']
 };
 // The GeoJSON sources' files, so the envelope can be computed without reaching
 // into the source object's private state.
 var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
+  gwcontours: './gw_contours.geojson',
   contours: './bore_contours.geojson'
 };
 // Contours are the exception to caching: setData replaces them whenever the
@@ -3599,7 +3699,7 @@ function fitLayerExtent(key, acc) {
 
 // Contours report on no layer when clicked, so LAYER_HITS has nothing for them,
 // but they are drawn and can be tabulated.
-var LAYER_TABLE = { contours: ['contour-line'] };
+var LAYER_TABLE = { contours: ['contour-line'], gwct: ['gwct-line'] };
 
 // A parcel's address arrives in four fields. Ordering columns by how many
 // features carry them -- a fair default for a layer nobody has described --
@@ -6700,6 +6800,7 @@ var LAYER_FLAGS = [
   ['pipe', 't-pipe', function (v) { showPipe = v; }, function () { return showPipe; }],
   ['syn', 't-syn', function (v) { showSyn = v; }, function () { return showSyn; }],
   ['contours', 't-contours', function (v) { showContours = v; }, function () { return showContours; }],
+  ['gwct', 't-gwct', function (v) { showGwCt = v; }, function () { return showGwCt; }],
   ['bores', 't-bores', function (v) { showBores = v; }, function () { return showBores; }],
   ['exide', 't-exide', function (v) { showExide = v; }, function () { return showExide; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
