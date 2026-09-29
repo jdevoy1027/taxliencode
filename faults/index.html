@@ -3628,7 +3628,10 @@ var LAYER_COLS = {
   },
   parcels: {
     derive: { address: parcelAddress },
-    lead: ['ain', 'owner', 'address', 'use_code'],
+    // yr_built is LA only -- Orange's tileset has no such field, and the lead
+    // list is filtered to fields something actually carries, so it simply does
+    // not appear on an Orange view rather than showing an empty column.
+    lead: ['ain', 'owner', 'address', 'use_code', 'yr_built'],
     // The parts are redundant once address exists, and would eat half the
     // columns repeating what it already says.
     // tra is the tax rate area code, which identifies a taxing district rather
