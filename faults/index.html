@@ -526,6 +526,7 @@
         <button id="m-syn">Synergy results…</button>
         <button id="m-syndata">Synergy data…</button>
         <button id="m-exide">Exide results…</button>
+        <button id="m-exdata">Exide data…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -2431,6 +2432,9 @@ map.on('load', function () {
       }
       if (exide.clean) html += '<div class="pop-row">Cleanup ' + esc(exide.clean) + '</div>';
       else if (exide.phase) html += '<div class="pop-row">' + esc(exide.phase) + '</div>';
+      html += '<div class="pop-row"><a href="#" class="exd-link" data-id="' +
+              esc(exide.id) + '" data-addr="' + esc(exide.addr || '') +
+              '">Show all analyses for this property →</a></div>';
       html += '<div class="pop-row" style="opacity:.62;font-size:11.5px">' +
               'DTSC Exide residential sampling</div>';
     }
@@ -6073,6 +6077,215 @@ function openExideDlg() {
     });
   });
 }
+
+
+// ================= Exide data =================
+// The analytical table itself: every one of the 414,883 rows, every one of the
+// 37 fields, as recorded.
+//
+// It is stored by property rather than as one file. 131 MB of CSV cannot be
+// fetched, and no table survives half a million rows in the DOM, but a property
+// has 37 rows at the median and 381 at most -- and the map is already a way of
+// pointing at a property. So the question this answers is "show me everything
+// behind this address", which is the question the data is shaped for.
+//
+// Shards are dictionary-encoded and hoist the fields that are constant across a
+// property, so a fetch is around 380 KB for roughly 65 properties.
+var EXD_META = null;
+var EXD_CACHE = {};        // shard number -> decoded shard
+var EXD_ROWS = [], EXD_COLS = [], EXD_PAGE = 0, EXD_TITLE = '';
+
+// Mirrors shard_of() in tools/exide_rows.py. A plain character sum, chosen so
+// the two implementations can be read against each other.
+function exdShard(pid) {
+  var h = 0;
+  for (var i = 0; i < pid.length; i++) h = (h * 31 + pid.charCodeAt(i)) & 0x7FFFFFFF;
+  return h % (EXD_META ? EXD_META.shards : 160);
+}
+
+function exdLoadMeta(cb) {
+  if (EXD_META) { cb(); return; }
+  fetch('./exide_rows/meta.json').then(function (r) { return r.json(); })
+    .then(function (j) { EXD_META = j; cb(); })
+    .catch(function (e) {
+      showToast('Could not load the Exide data index: ' + esc(e.message),
+                'Dismiss', function () {});
+    });
+}
+
+function exdLoadShard(sid, cb) {
+  if (EXD_CACHE[sid]) { cb(EXD_CACHE[sid]); return; }
+  var name = ('00' + sid).slice(-3);
+  fetch('./exide_rows/' + name + '.json').then(function (r) { return r.json(); })
+    .then(function (j) { EXD_CACHE[sid] = j; cb(j); })
+    .catch(function (e) {
+      showToast('Could not load shard ' + name + ': ' + esc(e.message),
+                'Dismiss', function () {});
+      cb(null);
+    });
+}
+
+// Reassembles the rows for one property exactly as the CSV had them: the
+// hoisted constants, the dictionary indices resolved, and the derived column
+// recomputed.
+function exdRowsFor(pid, cb) {
+  exdLoadMeta(function () {
+    exdLoadShard(exdShard(pid), function (sh) {
+      if (!sh || !sh.rows[pid]) { cb(null); return; }
+      var constVals = sh.props[pid] || [];
+      var atSet = {};
+      sh.dictAt.forEach(function (i) { atSet[i] = 1; });
+
+      var order = EXD_META.cols;                  // original CSV column order
+      var out = sh.rows[pid].map(function (row) {
+        var rec = {};
+        sh.const.forEach(function (c, i) { rec[c] = constVals[i]; });
+        sh.cols.forEach(function (c, i) {
+          rec[c] = atSet[i] ? sh.dict[row[i]] : row[i];
+        });
+        return rec;
+      });
+      cb({ cols: order, rows: out });
+    });
+  });
+}
+
+var EXD_PAGE_SIZE = 200;
+
+function exdRender(p) {
+  var pages = Math.max(1, Math.ceil(EXD_ROWS.length / EXD_PAGE_SIZE));
+  EXD_PAGE = Math.max(0, Math.min(pages - 1, p));
+  var from = EXD_PAGE * EXD_PAGE_SIZE;
+  var to = Math.min(EXD_ROWS.length, from + EXD_PAGE_SIZE);
+
+  var cnt = document.getElementById('exd-count');
+  if (cnt) {
+    cnt.textContent = EXD_ROWS.length.toLocaleString() + ' row' +
+      (EXD_ROWS.length === 1 ? '' : 's') + ' · ' + EXD_COLS.length + ' fields' +
+      (pages > 1 ? ' · showing ' + (from + 1) + '–' + to : '');
+  }
+  var html = '<table class="dtab"><thead><tr><th class="rn">#</th>' +
+    EXD_COLS.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') +
+    '</tr></thead><tbody>';
+  for (var i = from; i < to; i++) {
+    var r = EXD_ROWS[i];
+    html += '<tr><td class="rn">' + (i + 1) + '</td>' +
+      EXD_COLS.map(function (c) {
+        var v = r[c];
+        return '<td' + (v !== '' && isFinite(v) && v !== null ? ' class="n"' : '') + '>' +
+               (v === '' || v == null ? '<span style="opacity:.35">—</span>' : esc(v)) +
+               '</td>';
+      }).join('') + '</tr>';
+  }
+  document.getElementById('exd-out').innerHTML = html + '</tbody></table>';
+  document.getElementById('exd-out').scrollTop = 0;
+
+  var pg = document.getElementById('exd-pager');
+  if (pages < 2) { pg.hidden = true; pg.innerHTML = ''; return; }
+  pg.hidden = false;
+  var ahead = Math.min(EXD_PAGE_SIZE, EXD_ROWS.length - to);
+  var behind = Math.min(EXD_PAGE_SIZE, from);
+  pg.innerHTML =
+    '<button type="button" id="exd-prev"' + (behind ? '' : ' disabled') + '>‹ Previous' +
+      (behind ? ' ' + behind : '') + '</button>' +
+    '<span>' + (from + 1) + '–' + to + ' of ' + EXD_ROWS.length.toLocaleString() + '</span>' +
+    '<button type="button" id="exd-next"' + (ahead ? '' : ' disabled') + '>' +
+      (ahead ? 'Show next ' + ahead + ' ›' : 'End of rows') + '</button>';
+  document.getElementById('exd-prev').addEventListener('click', function () { exdRender(EXD_PAGE - 1); });
+  document.getElementById('exd-next').addEventListener('click', function () { exdRender(EXD_PAGE + 1); });
+}
+
+function exdShow(pid, label) {
+  exdRowsFor(pid, function (res) {
+    if (!res) {
+      showToast('No rows found for ' + esc(pid) + '.', 'Dismiss', function () {});
+      return;
+    }
+    EXD_ROWS = res.rows; EXD_COLS = res.cols; EXD_TITLE = label || pid;
+    openDlg('<h2>' + esc(EXD_TITLE) + '</h2><div class="bd">' +
+      '<div class="fld" style="margin-bottom:0">' +
+        '<label id="exd-count"></label>' +
+        '<div class="dwrap" id="exd-out" style="max-height:52vh"></div>' +
+        '<div id="exd-pager" class="ltpager" hidden></div>' +
+        '<div class="hint">Every analysis DTSC recorded at this property, with all ' +
+        '37 source fields, in file order — scroll sideways for the rest of the ' +
+        'columns. Values are exactly as the source file has them; a sample of ' +
+        '166,130 field comparisons against the CSV found no differences.</div>' +
+      '</div></div>' +
+      '<div class="ft"><button class="cx" id="exd-close">Close</button></div>', 'xwide');
+    document.getElementById('exd-close').addEventListener('click', closeDlg);
+    exdRender(0);
+  });
+}
+
+// Picker: the tool has to work without clicking the map first, so an address or
+// id typed here finds the property. Searched against the layer already loaded
+// rather than a second index.
+function openExdDlg() {
+  loadExide(function () {
+    exdLoadMeta(function () {
+      openDlg('<h2>Exide data</h2><div class="bd">' +
+        '<div class="fld"><label>Find a property</label>' +
+        '<input type="text" id="exd-q" placeholder="Address, property ID or APN" ' +
+        'autocomplete="off" style="width:100%;font:inherit;font-size:13px;padding:7px 9px;' +
+        'border:1px solid #d0d0ca;border-radius:7px">' +
+        '<div class="hint">' + EXD_META.rows.toLocaleString() + ' analyses across ' +
+        EXD_META.props.toLocaleString() + ' properties, ' + EXD_META.cols.length +
+        ' fields. Pick a property to see its rows.</div></div>' +
+        '<div class="dwrap" id="exd-hits" style="max-height:44vh"></div>' +
+        '</div><div class="ft"><button class="cx" id="exd-cancel">Close</button></div>', 'wide');
+
+      var q = document.getElementById('exd-q'), hits = document.getElementById('exd-hits');
+      function search() {
+        var t = (q.value || '').trim().toLowerCase();
+        var list = t
+          ? EX.filter(function (f) {
+              var p = f.properties;
+              return (p.addr || '').toLowerCase().indexOf(t) !== -1 ||
+                     (p.id || '').toLowerCase().indexOf(t) !== -1 ||
+                     (p.apn || '').indexOf(t) !== -1;
+            }).slice(0, 200)
+          : EX.slice(0, 200);
+        hits.innerHTML = list.length
+          ? '<table class="dtab"><tbody>' + list.map(function (f) {
+              var p = f.properties;
+              return '<tr data-id="' + esc(p.id) + '" style="cursor:pointer">' +
+                     '<td>' + esc(p.id) + '</td><td>' + esc(p.addr || '') + '</td>' +
+                     '<td>' + esc(p.city || '') + '</td><td class="n">' +
+                     (p.pb != null ? p.pb.toLocaleString() + ' ppm' : '—') + '</td></tr>';
+            }).join('') + '</tbody></table>'
+          : '<div class="dempty">Nothing matches that.</div>';
+      }
+      q.addEventListener('input', search);
+      hits.addEventListener('click', function (e) {
+        var tr = e.target.closest && e.target.closest('tr[data-id]');
+        if (!tr) return;
+        var id = tr.getAttribute('data-id');
+        var f = EX.filter(function (x) { return x.properties.id === id; })[0];
+        closeDlg();
+        exdShow(id, (f && f.properties.addr ? f.properties.addr + ' · ' : '') + id);
+      });
+      document.getElementById('exd-cancel').addEventListener('click', closeDlg);
+      search();
+      q.focus();
+    });
+  });
+}
+
+// Bound on the document: the popup is created and destroyed by Mapbox, so a
+// listener attached to its contents would not survive the next click.
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a.exd-link');
+  if (!a) return;
+  e.preventDefault();
+  var id = a.getAttribute('data-id'), addr = a.getAttribute('data-addr');
+  exdShow(id, (addr ? addr + ' · ' : '') + id);
+});
+
+document.getElementById('m-exdata').addEventListener('click', function () {
+  MENU.hidden = true;
+  openExdDlg();
+});
 
 document.getElementById('m-exide').addEventListener('click', function () {
   MENU.hidden = true;
