@@ -6094,6 +6094,9 @@ function openExideDlg() {
 var EXD_META = null;
 var EXD_CACHE = {};        // shard number -> decoded shard
 var EXD_ROWS = [], EXD_COLS = [], EXD_PAGE = 0, EXD_TITLE = '';
+// The full set for the open property, kept so the filter can be widened again
+// without re-fetching the shard.
+var EXD_ALL = [], EXD_FILTER = '';
 
 // Mirrors shard_of() in tools/exide_rows.py. A plain character sum, chosen so
 // the two implementations can be read against each other.
@@ -6161,7 +6164,11 @@ function exdRender(p) {
   var cnt = document.getElementById('exd-count');
   if (cnt) {
     cnt.textContent = EXD_ROWS.length.toLocaleString() + ' row' +
-      (EXD_ROWS.length === 1 ? '' : 's') + ' · ' + EXD_COLS.length + ' fields' +
+      (EXD_ROWS.length === 1 ? '' : 's') +
+      // The total is kept in view while filtered, so a small number never reads
+      // as "this property has three analyses" when it has forty-seven.
+      (EXD_FILTER ? ' of ' + EXD_ALL.length.toLocaleString() : '') +
+      ' · ' + EXD_COLS.length + ' fields' +
       (pages > 1 ? ' · showing ' + (from + 1) + '–' + to : '');
   }
   var html = '<table class="dtab"><thead><tr><th class="rn">#</th>' +
@@ -6177,7 +6184,13 @@ function exdRender(p) {
                '</td>';
       }).join('') + '</tr>';
   }
-  document.getElementById('exd-out').innerHTML = html + '</tbody></table>';
+  document.getElementById('exd-out').innerHTML = EXD_ROWS.length
+    ? html + '</tbody></table>'
+    : '<div class="dempty">No analysis at this property matches “' + esc(EXD_FILTER) +
+      '”.<br><span style="font-size:11.5px">It was tested for ' +
+      Object.keys(EXD_ALL.reduce(function (a, r) {
+        if (r.Metal_Analyzed) a[r.Metal_Analyzed] = 1; return a; }, {})).sort().join(', ') +
+      '.</span></div>';
   document.getElementById('exd-out').scrollTop = 0;
 
   var pg = document.getElementById('exd-pager');
@@ -6195,15 +6208,38 @@ function exdRender(p) {
   document.getElementById('exd-next').addEventListener('click', function () { exdRender(EXD_PAGE + 1); });
 }
 
+// Substring, case-insensitive, on the chemical column only. 'ars' finds
+// Arsenic; it does not also match a sample id that happens to contain those
+// letters, which a whole-row search would.
+function exdFilter(q) {
+  EXD_FILTER = (q || '').trim().toLowerCase();
+  EXD_ROWS = EXD_FILTER
+    ? EXD_ALL.filter(function (r) {
+        return (r.Metal_Analyzed || '').toLowerCase().indexOf(EXD_FILTER) !== -1;
+      })
+    : EXD_ALL;
+  exdRender(0);
+}
+
 function exdShow(pid, label) {
   exdRowsFor(pid, function (res) {
     if (!res) {
       showToast('No rows found for ' + esc(pid) + '.', 'Dismiss', function () {});
       return;
     }
-    EXD_ROWS = res.rows; EXD_COLS = res.cols; EXD_TITLE = label || pid;
+    EXD_ALL = res.rows; EXD_COLS = res.cols; EXD_TITLE = label || pid;
+    EXD_FILTER = ''; EXD_ROWS = EXD_ALL;
     openDlg('<h2>' + esc(EXD_TITLE) + '</h2><div class="bd">' +
       '<div class="fld" style="margin-bottom:0">' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:7px">' +
+          '<input type="text" id="exd-chem" list="exd-chems" placeholder="Filter by chemical" ' +
+          'autocomplete="off" style="flex:1;font:inherit;font-size:13px;padding:6px 9px;' +
+          'border:1px solid #d0d0ca;border-radius:7px">' +
+          '<datalist id="exd-chems"></datalist>' +
+          '<button type="button" class="cx" id="exd-chem-x" style="font:inherit;font-size:12px;' +
+          'padding:6px 11px;border:1px solid #d0d0ca;background:#fff;border-radius:7px;' +
+          'cursor:pointer">Clear</button>' +
+        '</div>' +
         '<label id="exd-count"></label>' +
         '<div class="dwrap" id="exd-out" style="max-height:52vh"></div>' +
         '<div id="exd-pager" class="ltpager" hidden></div>' +
@@ -6214,6 +6250,26 @@ function exdShow(pid, label) {
       '</div></div>' +
       '<div class="ft"><button class="cx" id="exd-close">Close</button></div>', 'xwide');
     document.getElementById('exd-close').addEventListener('click', closeDlg);
+
+    // Offered from the rows in front of you rather than from the full list of
+    // seventeen: most properties were tested for six metals, and suggesting
+    // eleven that return nothing here would be a list of dead ends.
+    var present = {};
+    EXD_ALL.forEach(function (r) {
+      var m = (r.Metal_Analyzed || '').trim();
+      if (m) present[m] = (present[m] || 0) + 1;
+    });
+    var names = Object.keys(present).sort(function (a, b) { return present[b] - present[a]; });
+    document.getElementById('exd-chems').innerHTML = names.map(function (m) {
+      return '<option value="' + esc(m) + '">' + present[m] + ' row' +
+             (present[m] === 1 ? '' : 's') + '</option>';
+    }).join('');
+
+    var box = document.getElementById('exd-chem');
+    box.addEventListener('input', function () { exdFilter(this.value); });
+    document.getElementById('exd-chem-x').addEventListener('click', function () {
+      box.value = ''; exdFilter('');
+    });
     exdRender(0);
   });
 }
