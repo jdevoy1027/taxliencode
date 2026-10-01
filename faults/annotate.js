@@ -264,6 +264,22 @@ window.initAnnotate = function (map) {
   [[false, 'round'], [false, 'square'], [true, 'round'], [true, 'square']].forEach(([d, cap]) => { const id = `annot-line-${d ? 'd' : 's'}-${cap}`;
     map.addLayer({ id, type: 'line', source: 'annot', filter: ['all', ['==', ['geometry-type'], 'LineString'], ['==', ['get', 'dash'], d], ['==', ['get', 'cap'], cap]], layout: { 'line-cap': cap, 'line-join': 'round' },
       paint: Object.assign({ 'line-color': ['get', 'color'], 'line-width': ['get', 'width'] }, d ? { 'line-dasharray': [2, 1.6] } : {}) }); HIT.push(id); });
+  // Point annotations that are not text. Nothing drew these before: the filters
+  // above cover Polygon and LineString, and the symbol layer below covers text,
+  // so a bare point -- which is what every point in a loaded GeoJSON becomes --
+  // matched no layer and was held in the source while drawing nothing. The
+  // circle sits on the same source as the rest, not on the draft source, whose
+  // dot only exists while a shape is being placed.
+  map.addLayer({ id: 'annot-dot', type: 'circle', source: 'annot',
+    filter: ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'atype'], 'text']],
+    paint: {
+      // Grows with the annotation width, the way the text size does, so the
+      // width control means the same thing for every kind of annotation.
+      'circle-radius': ['+', 3, ['*', ['coalesce', ['get', 'width'], 2], 1.1]],
+      'circle-color': ['get', 'color'],
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 1.4
+    } }); HIT.push('annot-dot');
   // text-font cannot read a property directly: the spec requires the font stacks
   // to appear as literals inside the expression, so the choice is a match over a
   // key rather than a get of the stack itself. Both fall back for annotations
@@ -377,7 +393,32 @@ window.initAnnotate = function (map) {
     // Undo would reach past it to the previous action, leaving the import behind.
     pushHist(() => { fc.features = fc.features.filter((f) => added.indexOf(f) === -1); });
     refresh();
+    // Move to what was just loaded. A file is rarely inside the current view --
+    // a statewide layer opened over one city draws entirely off-screen, which
+    // reads as the load having failed rather than as the map being elsewhere.
+    const b = bboxOf(added);
+    if (b) map.fitBounds(b, { padding: 60, maxZoom: 15, duration: 600 });
     return added.length;
+  }
+
+  // Bounds of a set of features, walking coordinates of any nesting depth so it
+  // holds for points, lines, polygons and their multi- forms alike.
+  function bboxOf(feats) {
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity, any = false;
+    const walk = (c) => {
+      if (!Array.isArray(c)) return;
+      if (typeof c[0] === 'number') {
+        const x = c[0], y = c[1];
+        if (!isFinite(x) || !isFinite(y)) return;
+        any = true;
+        if (x < w) w = x; if (x > e) e = x;
+        if (y < s) s = y; if (y > n) n = y;
+        return;
+      }
+      c.forEach(walk);
+    };
+    feats.forEach((f) => { if (f.geometry) walk(f.geometry.coordinates); });
+    return any ? [[w, s], [e, n]] : null;
   }
 
   function loadFile(file) {
@@ -426,7 +467,11 @@ window.initAnnotate = function (map) {
     r.onload = () => { try {
       const g = JSON.parse(r.result);
       const feats = g.type === 'FeatureCollection' ? g.features : g.type === 'Feature' ? [g] : [];
-      ingest(feats, file.name);
+      const n = ingest(feats, file.name);
+      // Said out loud, as the shapefile path already does. Silence on success is
+      // indistinguishable from silence on failure, and a load that lands outside
+      // the view looks like nothing happened at all.
+      alert(n.toLocaleString() + ' feature' + (n === 1 ? '' : 's') + ' loaded from ' + file.name + '.');
     } catch (e) { alert('Load failed: ' + e.message); } };
     r.readAsText(file);
   }
