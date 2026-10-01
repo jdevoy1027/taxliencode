@@ -1372,7 +1372,9 @@ var PALETTES = {
       ['gwct-line'].forEach(function (id) {
         if (map.getLayer(id)) map.setPaintProperty(id, 'line-color', GWCT_COLOR);
       });
-      if (map.getLayer('gwct-label')) map.setPaintProperty('gwct-label', 'text-color', GWCT_COLOR);
+      ['gwct-label', 'gwct-label-min'].forEach(function (id) {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'text-color', GWCT_COLOR);
+      });
       gwctLegend();
     }),
   contours: withRedraw(symOne(function () { return CT_COLOR; },
@@ -2054,6 +2056,38 @@ function addLayers() {
       }
     });
   }
+  if (!map.getLayer('gwct-label-min')) {
+    map.addLayer({
+      id: 'gwct-label-min', type: 'symbol', source: 'gwcontours',
+      // The elevation contours have carried a second label layer for the
+      // non-index lines all along; this one did not, so only index lines were
+      // ever labelled -- every 100 ft, with index set to 4 over a 25 ft
+      // interval. Depth to water in the coastal basins is shallow: Orange
+      // County reads 56 ft at the median and 100 ft at the third quartile, so
+      // 100 was the only index level the whole county reached and the map
+      // showed a single labelled contour across all of it.
+      //
+      // z10 rather than the elevation layer's z11, because a county fits on
+      // screen at z10 and that is the scale this was read at. Collision culling
+      // thins the labels where they will not fit.
+      minzoom: 10,
+      filter: ['!=', ['get', 'ix'], 1],
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['concat', ['to-string', ['get', 'e']], ' ft'],
+        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 10, 8.5, 16, 10.5],
+        'symbol-spacing': 300,
+        'text-allow-overlap': false,
+        'text-padding': 4
+      },
+      paint: {
+        'text-color': GWCT_COLOR,
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1.4
+      }
+    });
+  }
   if (!map.getSource('contours')) {
     map.addSource('contours', { type: 'geojson', data: './bore_contours.geojson' });
   }
@@ -2329,7 +2363,7 @@ function applyState() {
   if (map.getLayer('usgsct')) {
     map.setLayoutProperty('usgsct', 'visibility', showUsgsCt ? 'visible' : 'none');
   }
-  ['gwct-line', 'gwct-label'].forEach(function (id) {
+  ['gwct-line', 'gwct-label', 'gwct-label-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showGwCt ? 'visible' : 'none');
   });
   ['contour-line', 'contour-label', 'contour-label-min'].forEach(function (id) {
@@ -2389,7 +2423,7 @@ function applyState() {
 //                   It wears a heavier black halo than everything else because it
 //                   is read against the band shading rather than the basemap.
 var LABEL_KEEP = { 'contour-label': 1, 'contour-label-min': 1, 'syn-label': 1,
-                   'gwct-label': 1 };
+                   'gwct-label': 1, 'gwct-label-min': 1 };
 
 // Our own labels that follow the base map alongside the basemap's own. These
 // two are read against pale fills -- a geology unit, open ground around a
@@ -3376,6 +3410,15 @@ function ensureParcelsOn() {
   applyState();
 }
 
+// The parcel fabric is two tilesets that read as one layer, so every lookup has
+// to ask both. Asking only the LA source is why an Orange County search reported
+// the parcel as not loaded: the county's parcels were on the screen the whole
+// time, in a source nothing here was reading.
+var PARCEL_SRC = [
+  { src: 'parcels',    fill: 'pc-fill'  },
+  { src: 'parcels_oc', fill: 'pc2-fill' }
+];
+
 // Tiles arrive asynchronously after a flyTo, so this retries briefly rather than
 // assuming the parcel is queryable the instant the camera stops.
 function openParcelAt(lngLat, wantAin, wantAddr) {
@@ -3386,23 +3429,31 @@ function openParcelAt(lngLat, wantAin, wantAddr) {
     var hit = null;
 
     if (wantAin) {
-      var byAin = map.querySourceFeatures('parcels', {
-        sourceLayer: 'parcels', filter: ['==', ['get', 'ain'], wantAin]
+      PARCEL_SRC.forEach(function (d) {
+        if (hit || !map.getSource(d.src)) return;
+        var byAin = map.querySourceFeatures(d.src, {
+          sourceLayer: 'parcels', filter: ['==', ['get', 'ain'], wantAin]
+        });
+        if (byAin.length) hit = byAin[0].properties;
       });
-      if (byAin.length) hit = byAin[0].properties;
     }
     if (!hit && wantAddr) {
-      var all = map.querySourceFeatures('parcels', { sourceLayer: 'parcels' });
-      for (var i = 0; i < all.length; i++) {
-        var p = all[i].properties;
-        if (String(p.situs_no || '') === wantAddr.no &&
-            String(p.situs_street || '').toUpperCase().indexOf(wantAddr.street) === 0) {
-          hit = p; break;
+      PARCEL_SRC.forEach(function (d) {
+        if (hit || !map.getSource(d.src)) return;
+        var all = map.querySourceFeatures(d.src, { sourceLayer: 'parcels' });
+        for (var i = 0; i < all.length; i++) {
+          var p = all[i].properties;
+          if (String(p.situs_no || '') === wantAddr.no &&
+              String(p.situs_street || '').toUpperCase().indexOf(wantAddr.street) === 0) {
+            hit = p; break;
+          }
         }
-      }
+      });
     }
     if (!hit) {
-      var under = map.queryRenderedFeatures(map.project(lngLat), { layers: ['pc-fill'] });
+      var fills = PARCEL_SRC.map(function (d) { return d.fill; })
+        .filter(function (id) { return map.getLayer(id); });
+      var under = map.queryRenderedFeatures(map.project(lngLat), { layers: fills });
       if (under.length) hit = under[0].properties;
     }
 
@@ -3457,14 +3508,21 @@ function searchAIN(ain) {
 
 function searchAddress(q) {
   searchMsg('Searching…');
+  // The union of the two parcel tilesets, not LA's box alone. The old east edge
+  // of -117.64 was LA County's, which cut off Orange County from Rancho Santa
+  // Margarita east- and southward -- and the geocoder does not fail on a
+  // address outside the box, it returns the best match inside it. "Avenida
+  // Presidio, San Clemente" came back as San Clemente ISLAND, 101 km out in the
+  // Pacific, which is in LA County and so was the only San Clemente the box
+  // allowed.
   var url = 'https://api.mapbox.com/search/geocode/v6/forward?q=' + encodeURIComponent(q) +
-            '&bbox=-118.95,32.79,-117.64,34.83&country=us&limit=1&access_token=' +
+            '&bbox=-118.95,32.79,-117.41,34.83&country=us&limit=1&access_token=' +
             mapboxgl.accessToken;
   fetch(url)
     .then(function (r) { return r.json(); })
     .then(function (j) {
       var f = (j.features || [])[0];
-      if (!f) { searchMsg('No match for that address in LA County.'); return; }
+      if (!f) { searchMsg('No match for that address in Los Angeles or Orange County.'); return; }
       searchMsg(esc(f.properties.full_address || f.properties.name || ''));
       var m = q.trim().match(/^(\d+)\s+(.+)$/);
       var want = m ? { no: m[1], street: m[2].toUpperCase().replace(/[.,].*$/, '').trim() } : null;
