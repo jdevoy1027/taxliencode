@@ -691,6 +691,31 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-flood">
+          <button class="tw" type="button" data-sym="sym-flood" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="flood" tabindex="0" role="button">Flood hazard (FEMA)</span>
+          <span class="cnt">11,093</span>
+        </div>
+        <div class="sym" id="sym-flood" hidden>
+          <div id="flood-legend"></div>
+          <div class="ctmeta">
+            FEMA National Flood Hazard Layer, California, 8 October 2026.
+            Los Angeles and Orange counties — the same footprint as the parcels.<br>
+            Outlines are simplified to about 5&nbsp;m. A zone boundary is modelled,
+            not surveyed, and FEMA publishes its panels at 1:12,000, where 5&nbsp;m
+            is under half a millimetre on the page.<br>
+            Areas mapped as <b>minimal</b> hazard are drawn as a hairline from
+            zoom&nbsp;12 rather than filled: they cover most of both counties, and
+            leaving them out entirely would make “mapped and minimal” look the
+            same as “never mapped”.<br>
+            Click a zone for its designation, base flood elevation and depth.
+          </div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-liq">
           <button class="tw" type="button" data-sym="sym-liq" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -975,6 +1000,7 @@ var showBores = true, showBoreLabels = true;
 // Off by default: 10,300 points over a few square miles, which would bury the
 // rest of the map for anyone not looking for them.
 var showExide = false;
+var showFlood = false;
 var showGwCt = false;
 var showUsgsCt = false;
 var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
@@ -993,6 +1019,31 @@ var BORE_COLOR = '#10233f';
 var AP_COLOR = '#756bb1';
 var LIQ_COLOR = '#1f9e8c';
 var CT_COLOR = '#8a6a4a';
+// FEMA flood zones. Ordered by hazard rather than by alphabet.
+var FLD_COLORS = {
+  high:  '#c2334d',   // V, VE -- coastal, wave action on top of the water
+  sfha:  '#2b7bba',   // A, AE, AH, AO -- the 1% annual chance floodplain
+  mod:   '#e8913c',   // X with the 0.2% annual chance subtype
+  undet: '#8d8d86',   // D -- not studied, which is not the same as safe
+  water: '#6bb7d4'    // OPEN WATER
+};
+// Returns the colour band a feature belongs to. Zone X carries two very
+// different meanings and is split on its subtype: the 0.2% fringe is a real
+// finding, 'minimal' is the absence of one.
+function fldBand() {
+  return ['match', ['get', 'zone'],
+    ['V', 'VE'], 'high',
+    ['A', 'AE', 'AH', 'AO', 'A99', 'AR'], 'sfha',
+    'D', 'undet',
+    'OPEN WATER', 'water',
+    ['case', ['==', ['get', 'subty'], '0.2 PCT ANNUAL CHANCE FLOOD HAZARD'], 'mod', 'min']];
+}
+function fldColorExpr() {
+  return ['match', fldBand(),
+    'high', FLD_COLORS.high, 'sfha', FLD_COLORS.sfha, 'mod', FLD_COLORS.mod,
+    'undet', FLD_COLORS.undet, 'water', FLD_COLORS.water,
+    'rgba(0,0,0,0)'];
+}
 // Blue for water, against the brown of the ground-surface contours, so the two
 // are told apart by hue when both are on.
 var GWCT_COLOR = '#1f6f9c';
@@ -1943,6 +1994,40 @@ function addLayers() {
       }
     });
   }
+  if (!map.getSource('flood')) {
+    map.addSource('flood', { type: 'geojson', data: './flood.geojson' });
+  }
+  if (!map.getLayer('flood-fill')) {
+    map.addLayer({
+      id: 'flood-fill', type: 'fill', source: 'flood',
+      // Everything except the minimal-hazard class, which would otherwise be a
+      // flat wash over most of two counties.
+      filter: ['!=', fldBand(), 'min'],
+      paint: { 'fill-color': fldColorExpr(), 'fill-opacity': 0.34 }
+    });
+  }
+  if (!map.getLayer('flood-line')) {
+    map.addLayer({
+      id: 'flood-line', type: 'line', source: 'flood',
+      filter: ['!=', fldBand(), 'min'],
+      paint: {
+        'line-color': fldColorExpr(), 'line-opacity': 0.9,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 16, 1.2]
+      }
+    });
+  }
+  if (!map.getLayer('flood-min')) {
+    // Mapped as minimal hazard, drawn as a hairline and nothing else. Keeping
+    // it visible matters for due diligence: 'mapped and minimal' and 'not
+    // mapped at all' are different answers, and an empty map cannot tell them
+    // apart.
+    map.addLayer({
+      id: 'flood-min', type: 'line', source: 'flood',
+      filter: ['==', fldBand(), 'min'],
+      minzoom: 12,
+      paint: { 'line-color': '#9fb0a8', 'line-width': 0.5, 'line-opacity': 0.55 }
+    });
+  }
   if (!map.getSource('liqzones')) {
     map.addSource('liqzones', { type: 'vector', url: 'mapbox://jdevoy.liq-zones' });
   }
@@ -2354,6 +2439,9 @@ function applyState() {
   if (map.getLayer('pipe-line')) {
     map.setLayoutProperty('pipe-line', 'visibility', showPipe ? 'visible' : 'none');
   }
+  ['flood-fill', 'flood-line', 'flood-min'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showFlood ? 'visible' : 'none');
+  });
   ['liq-fill', 'liq-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showLiq ? 'visible' : 'none');
   });
@@ -2551,13 +2639,14 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'liq-fill' && !liq) liq = h.properties;
+      if (h.layer.id === 'flood-fill' && !flood) flood = h.properties;
       if (h.layer.id === 'pipe-line' && !pipe) pipe = h.properties;
       if (h.layer.id === 'syn-dot' && !syn) syn = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
@@ -2567,7 +2656,7 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood) return;
 
     var html = '';
     if (exide && showExide) {
@@ -2758,6 +2847,22 @@ map.on('load', function () {
       html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
               'NPMS, 2001 release — alignment is approximate and 25 years old</div>';
     }
+    if (flood && showFlood) {
+      var fz = flood.zone || '?';
+      var fsub = flood.subty || '';
+      html += '<div class="pop-h">Flood zone ' + esc(fz) + '</div>';
+      if (fsub) html += '<div class="pop-row">' + esc(fsub) + '</div>';
+      // SFHA is the line that carries consequences -- it is what triggers the
+      // mandatory insurance purchase requirement on a federally backed loan.
+      html += '<div class="pop-row">' + (flood.sfha === 'T'
+        ? '<b>Inside</b> the Special Flood Hazard Area (1% annual chance)'
+        : 'Outside the Special Flood Hazard Area') + '</div>';
+      if (flood.bfe != null) html += '<div class="pop-row">Base flood elevation ' +
+        esc(flood.bfe) + ' ft</div>';
+      if (flood.depth != null) html += '<div class="pop-row">Depth ' +
+        esc(flood.depth) + ' ft</div>';
+      html += '<div class="pop-row" style="color:#85857e">FEMA NFHL, 8 Oct 2026</div>';
+    }
     if (liq && showLiq) {
       if (html) html += '<div class="pop-sep"></div>';
       html += '<div class="pop-row"><b>Liquefaction hazard zone</b></div>';
@@ -2812,7 +2917,7 @@ map.on('load', function () {
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
 var CLICK_LAYERS = ['exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
-                    'ap-fill', 'liq-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
+                    'ap-fill', 'liq-fill', 'flood-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
 
 // Which rendered layers each entry in the table of contents owns. Parcels own
@@ -2825,6 +2930,7 @@ var LAYER_HITS = {
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
   liq:      ['liq-fill'],
+  flood:    ['flood-fill'],
   pipe:     ['pipe-line'],
   parcels:  ['pc-fill', 'pc2-fill'],
   blocks:   ['cb-fill'],
@@ -2926,7 +3032,23 @@ function liqLegend() {
     LIQ_COLOR + ';opacity:.5;border:1px dashed ' + darken(LIQ_COLOR, 0.62) +
     '"></i></span><span>Liquefaction hazard zone</span></div>';
 }
-boresLegend(); apLegend(); liqLegend();
+function floodLegend() {
+  var h = document.getElementById('flood-legend');
+  if (!h) return;
+  var rows = [
+    [FLD_COLORS.high,  'V, VE — coastal, with wave action'],
+    [FLD_COLORS.sfha,  'A, AE, AH, AO — 1% annual chance'],
+    [FLD_COLORS.mod,   'X — 0.2% annual chance'],
+    [FLD_COLORS.undet, 'D — not studied'],
+    [FLD_COLORS.water, 'Open water'],
+    ['#9fb0a8',        'X — minimal, outline only, from z12']
+  ];
+  h.innerHTML = rows.map(function (r) {
+    return '<div class="ctrow"><span class="sw"><i style="height:10px;background:' +
+           r[0] + ';opacity:.75"></i></span><span>' + esc(r[1]) + '</span></div>';
+  }).join('');
+}
+boresLegend(); apLegend(); liqLegend(); floodLegend();
 
 // ---- Layer toggles ----
 document.getElementById('t-geo').addEventListener('change', function () {
@@ -2979,6 +3101,9 @@ document.getElementById('t-pipe').addEventListener('change', function () {
   });
 })();
 
+document.getElementById('t-flood').addEventListener('change', function () {
+  showFlood = this.checked; applyState(); saveState();
+});
 document.getElementById('t-liq').addEventListener('change', function () {
   showLiq = this.checked; applyState();
 });
@@ -3572,11 +3697,20 @@ document.querySelectorAll('.lbl[data-layer]').forEach(function (el) {
   // someone tries it, so the tooltip says it is there. The Menu key raises the
   // same event, which keeps it reachable from the keyboard.
   el.title = 'Click to make active · right-click for layer commands';
-  el.addEventListener('contextmenu', function (e) {
+
+  // Bound to the whole row, not just the name. The name is a span sized to its
+  // text, so the feature count beside it, the symbology arrow, the checkbox and
+  // every gap between them were dead to a right-click and raised the browser's
+  // own menu instead -- which reads as the command not existing for that layer
+  // rather than as having missed a target. Nothing inside the row needs a
+  // right-click of its own, so the whole row is the target.
+  var row = el.closest ? el.closest('.tr') : null;
+  (row || el).addEventListener('contextmenu', function (e) {
     e.preventDefault();
     e.stopPropagation();
     openLayerMenu(el.getAttribute('data-layer'), e.clientX, e.clientY);
   });
+  if (row) row.title = el.title;
 });
 
 // ================= Layer commands (right-click a layer name) =================
@@ -3585,7 +3719,7 @@ document.querySelectorAll('.lbl[data-layer]').forEach(function (el) {
 // property of the data, and parcels are one entry over two tilesets.
 var LAYER_SRC = {
   wells: ['wells'], water: ['waterwells'], bores: ['bores'], faults: ['faults'],
-  ap: ['apzones'], liq: ['liqzones'], pipe: ['pipelines'],
+  ap: ['apzones'], liq: ['liqzones'], pipe: ['pipelines'], flood: ['flood'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
   gwct: ['gwcontours']
@@ -3595,6 +3729,7 @@ var LAYER_SRC = {
 var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
+  flood: './flood.geojson',
   gwcontours: './gw_contours.geojson',
   contours: './bore_contours.geojson'
 };
@@ -3847,6 +3982,7 @@ function parcelAddress(p) {
   return [line, city].filter(Boolean).join(', ');
 }
 var LAYER_COLS = {
+  flood: { lead: ['zone', 'subty', 'sfha', 'bfe', 'depth'] },
   exide: {
     // Pinned rather than left to frequency. Matrix and contractor are present on
     // every property so they would rank near the top anyway, but the
@@ -6928,6 +7064,7 @@ var LAYER_FLAGS = [
   ['water', 't-water', function (v) { showWater = v; }, function () { return showWater; }],
   ['ap', 't-ap', function (v) { showAP = v; }, function () { return showAP; }],
   ['liq', 't-liq', function (v) { showLiq = v; }, function () { return showLiq; }],
+  ['flood', 't-flood', function (v) { showFlood = v; }, function () { return showFlood; }],
   ['pipe', 't-pipe', function (v) { showPipe = v; }, function () { return showPipe; }],
   ['syn', 't-syn', function (v) { showSyn = v; }, function () { return showSyn; }],
   ['contours', 't-contours', function (v) { showContours = v; }, function () { return showContours; }],
