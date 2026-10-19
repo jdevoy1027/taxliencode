@@ -691,6 +691,31 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-inund">
+          <button class="tw" type="button" data-sym="sym-inund" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="inund" tabindex="0" role="button">Dam inundation (DSOD)</span>
+          <span class="cnt">1,160</span>
+        </div>
+        <div class="sym" id="sym-inund" hidden>
+          <div id="inund-legend"></div>
+          <div class="ctmeta">
+            California DSOD approved dam-failure inundation maps, as of
+            1&nbsp;April&nbsp;2026. 1,160 modelled scenarios across 781 dams,
+            statewide — a breach path runs far downstream, so this one is not
+            clipped to the two counties.<br>
+            <b>Generalised to about 110&nbsp;m.</b> The source carries 79&nbsp;million
+            vertices, most of it raster speckle; parts under 5&nbsp;ha and islands
+            under 10&nbsp;ha are dropped. Good for which areas lie downstream of a
+            dam, <b>not</b> for whether a given parcel is inside the line.<br>
+            Areas overlap where several dams drain the same valley, which is why
+            the fill is faint. Click for the dam, the scenario and its hazard class.
+          </div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-flood">
           <button class="tw" type="button" data-sym="sym-flood" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -1001,6 +1026,7 @@ var showBores = true, showBoreLabels = true;
 // rest of the map for anyone not looking for them.
 var showExide = false;
 var showFlood = false;
+var showInund = false;
 var showGwCt = false;
 var showUsgsCt = false;
 var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
@@ -1020,6 +1046,23 @@ var AP_COLOR = '#756bb1';
 var LIQ_COLOR = '#1f9e8c';
 var CT_COLOR = '#8a6a4a';
 // FEMA flood zones. Ordered by hazard rather than by alphabet.
+// Dam-failure inundation, by DSOD hazard classification. Purple, because the
+// map already spends blue on the 1% floodplain and red on coastal wave action,
+// and a dam breach is a different kind of event from either -- engineered
+// rather than meteorological.
+var INU_COLORS = {
+  'Extremely High': '#6a2c91',
+  'High':           '#9b62bd',
+  'Significant':    '#c4a2d8',
+  'Low':            '#e2d2ec'
+};
+function inuColorExpr() {
+  var m = ['match', ['get', 'haz']];
+  Object.keys(INU_COLORS).forEach(function (k) { m.push(k, INU_COLORS[k]); });
+  m.push('#b9a7c6');
+  return m;
+}
+
 var FLD_COLORS = {
   high:  '#c2334d',   // V, VE -- coastal, wave action on top of the water
   sfha:  '#2b7bba',   // A, AE, AH, AO -- the 1% annual chance floodplain
@@ -1998,6 +2041,28 @@ function addLayers() {
       }
     });
   }
+  if (!map.getSource('inund')) {
+    map.addSource('inund', { type: 'geojson', data: './inundation.geojson' });
+  }
+  if (!map.getLayer('inund-fill')) {
+    map.addLayer({
+      id: 'inund-fill', type: 'fill', source: 'inund',
+      // Low opacity on purpose: these overlap heavily. 781 dams produce 1,160
+      // polygons and a valley downstream of several reservoirs is covered by
+      // all of them, so an opaque fill would read as one solid hazard rather
+      // than as separate scenarios stacked.
+      paint: { 'fill-color': inuColorExpr(), 'fill-opacity': 0.22 }
+    });
+  }
+  if (!map.getLayer('inund-line')) {
+    map.addLayer({
+      id: 'inund-line', type: 'line', source: 'inund',
+      paint: {
+        'line-color': inuColorExpr(), 'line-opacity': 0.85,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 14, 1.4]
+      }
+    });
+  }
   if (!map.getSource('flood')) {
     map.addSource('flood', { type: 'geojson', data: './flood.geojson' });
   }
@@ -2443,6 +2508,9 @@ function applyState() {
   if (map.getLayer('pipe-line')) {
     map.setLayoutProperty('pipe-line', 'visibility', showPipe ? 'visible' : 'none');
   }
+  ['inund-fill', 'inund-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showInund ? 'visible' : 'none');
+  });
   ['flood-fill', 'flood-line', 'flood-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showFlood ? 'visible' : 'none');
   });
@@ -2643,7 +2711,7 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
@@ -2651,6 +2719,7 @@ map.on('load', function () {
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'liq-fill' && !liq) liq = h.properties;
       if (h.layer.id === 'flood-fill' && !flood) flood = h.properties;
+      if (h.layer.id === 'inund-fill' && !inund) inund = h.properties;
       if (h.layer.id === 'pipe-line' && !pipe) pipe = h.properties;
       if (h.layer.id === 'syn-dot' && !syn) syn = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
@@ -2660,7 +2729,7 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund) return;
 
     var html = '';
     if (exide && showExide) {
@@ -2851,6 +2920,23 @@ map.on('load', function () {
       html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
               'NPMS, 2001 release — alignment is approximate and 25 years old</div>';
     }
+    if (inund && showInund) {
+      html += '<div class="pop-h">Dam inundation</div>';
+      if (inund.dam) html += '<div class="pop-row"><b>' + esc(inund.dam) + '</b>' +
+        (inund.nid ? ' · ' + esc(inund.nid) : '') + '</div>';
+      var ib = [];
+      if (inund.haz) ib.push(esc(inund.haz) + ' hazard');
+      // Sunny Day means a breach with no storm behind it -- the reservoir
+      // simply fails. Storm Induced assumes it is already in flood. They are
+      // different events and the distinction is the point of the field.
+      if (inund.load) ib.push(esc(inund.load));
+      if (inund.fail) ib.push(esc(inund.fail) + ' failure');
+      if (ib.length) html += '<div class="pop-row">' + ib.join(' · ') + '</div>';
+      if (inund.pub) html += '<div class="pop-row" style="color:#85857e">Published ' +
+        esc(inund.pub) + '</div>';
+      html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
+              'Boundary generalised to ~110 m — not a parcel-level determination</div>';
+    }
     if (flood && showFlood) {
       var fz = flood.zone || '?';
       var fsub = flood.subty || '';
@@ -2921,7 +3007,7 @@ map.on('load', function () {
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
 var CLICK_LAYERS = ['exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
-                    'ap-fill', 'liq-fill', 'flood-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
+                    'ap-fill', 'liq-fill', 'flood-fill', 'inund-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
 
 // Which rendered layers each entry in the table of contents owns. Parcels own
@@ -2935,6 +3021,7 @@ var LAYER_HITS = {
   ap:       ['ap-fill'],
   liq:      ['liq-fill'],
   flood:    ['flood-fill'],
+  inund:    ['inund-fill'],
   pipe:     ['pipe-line'],
   parcels:  ['pc-fill', 'pc2-fill'],
   blocks:   ['cb-fill'],
@@ -3052,7 +3139,15 @@ function floodLegend() {
            r[0] + ';opacity:.75"></i></span><span>' + esc(r[1]) + '</span></div>';
   }).join('');
 }
-boresLegend(); apLegend(); liqLegend(); floodLegend();
+function inundLegend() {
+  var h = document.getElementById('inund-legend');
+  if (!h) return;
+  h.innerHTML = Object.keys(INU_COLORS).map(function (k) {
+    return '<div class="ctrow"><span class="sw"><i style="height:10px;background:' +
+           INU_COLORS[k] + ';opacity:.8"></i></span><span>' + esc(k) + ' hazard</span></div>';
+  }).join('');
+}
+boresLegend(); apLegend(); liqLegend(); floodLegend(); inundLegend();
 
 // ---- Layer toggles ----
 document.getElementById('t-geo').addEventListener('change', function () {
@@ -3105,6 +3200,9 @@ document.getElementById('t-pipe').addEventListener('change', function () {
   });
 })();
 
+document.getElementById('t-inund').addEventListener('change', function () {
+  showInund = this.checked; applyState(); saveState();
+});
 document.getElementById('t-flood').addEventListener('change', function () {
   showFlood = this.checked; applyState(); saveState();
 });
@@ -3723,7 +3821,7 @@ document.querySelectorAll('.lbl[data-layer]').forEach(function (el) {
 // property of the data, and parcels are one entry over two tilesets.
 var LAYER_SRC = {
   wells: ['wells'], water: ['waterwells'], bores: ['bores'], faults: ['faults'],
-  ap: ['apzones'], liq: ['liqzones'], pipe: ['pipelines'], flood: ['flood'],
+  ap: ['apzones'], liq: ['liqzones'], pipe: ['pipelines'], flood: ['flood'], inund: ['inund'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
   gwct: ['gwcontours']
@@ -3733,7 +3831,7 @@ var LAYER_SRC = {
 var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
-  flood: './flood.geojson',
+  flood: './flood.geojson', inund: './inundation.geojson',
   gwcontours: './gw_contours.geojson',
   contours: './bore_contours.geojson'
 };
@@ -3987,6 +4085,7 @@ function parcelAddress(p) {
 }
 var LAYER_COLS = {
   flood: { lead: ['zone', 'subty', 'sfha', 'bfe', 'depth'] },
+  inund: { lead: ['dam', 'nid', 'haz', 'load', 'fail', 'scn', 'pub'] },
   exide: {
     // Pinned rather than left to frequency. Matrix and contractor are present on
     // every property so they would rank near the top anyway, but the
@@ -7070,6 +7169,7 @@ var LAYER_FLAGS = [
   ['ap', 't-ap', function (v) { showAP = v; }, function () { return showAP; }],
   ['liq', 't-liq', function (v) { showLiq = v; }, function () { return showLiq; }],
   ['flood', 't-flood', function (v) { showFlood = v; }, function () { return showFlood; }],
+  ['inund', 't-inund', function (v) { showInund = v; }, function () { return showInund; }],
   ['pipe', 't-pipe', function (v) { showPipe = v; }, function () { return showPipe; }],
   ['syn', 't-syn', function (v) { showSyn = v; }, function () { return showSyn; }],
   ['contours', 't-contours', function (v) { showContours = v; }, function () { return showContours; }],
