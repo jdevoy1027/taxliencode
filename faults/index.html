@@ -1793,7 +1793,11 @@ function addLayers() {
     });
   }
   if (!map.getSource('parcels_oc')) {
-    map.addSource('parcels_oc', { type: 'vector', url: 'mapbox://jdevoy.oc-parcels' });
+    // 2026 refresh: 982,155 parcels against the old tileset's 674,851, and the
+    // first Orange tileset to carry yr_built. Same source-layer and the same
+    // field names, so nothing else here changes. The old tileset is still
+    // published, so reverting this one line rolls the whole thing back.
+    map.addSource('parcels_oc', { type: 'vector', url: 'mapbox://jdevoy.oc-parcels-2026' });
   }
   if (!map.getLayer('pc2-fill')) {
     map.addLayer({
@@ -3995,9 +3999,10 @@ var LAYER_COLS = {
   },
   parcels: {
     derive: { address: parcelAddress },
-    // yr_built is LA only -- Orange's tileset has no such field, and the lead
-    // list is filtered to fields something actually carries, so it simply does
-    // not appear on an Orange view rather than showing an empty column.
+    // yr_built is on both counties as of the 2026 Orange refresh; it used to
+    // be LA only. The lead list is filtered to fields something actually
+    // carries, so a county missing one simply does not show that column
+    // rather than showing an empty one.
     lead: ['ain', 'owner', 'address', 'use_code', 'yr_built'],
     // The parts are redundant once address exists, and would eat half the
     // columns repeating what it already says.
