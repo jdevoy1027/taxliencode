@@ -741,6 +741,24 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-slide">
+          <button class="tw" type="button" data-sym="sym-slide" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="slide" tabindex="0" role="button">Landslide zones</span>
+          <span class="cnt">41,752</span>
+        </div>
+        <div class="sym" id="sym-slide" hidden>
+          <div id="slide-legend"></div>
+          <div class="ctmeta">Areas required to be investigated for
+            earthquake-induced landslide before development.<br>41,752 zones ·
+            CGS Seismic Hazard Zones · 131 quadrangles, released 1997–2025<br>
+            Mapped quadrangles only — blank ground is unmapped, not unhazardous.<br>
+            Click a zone for its quadrangle map and report.</div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-liq">
           <button class="tw" type="button" data-sym="sym-liq" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -1027,6 +1045,7 @@ var showBores = true, showBoreLabels = true;
 var showExide = false;
 var showFlood = false;
 var showInund = false;
+var showSlide = false;
 var showGwCt = false;
 var showUsgsCt = false;
 var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
@@ -1044,6 +1063,7 @@ var SYN_COLOR = '#e6007e';
 var BORE_COLOR = '#10233f';
 var AP_COLOR = '#756bb1';
 var LIQ_COLOR = '#1f9e8c';
+var SLD_COLOR = '#b5762a';
 var CT_COLOR = '#8a6a4a';
 // FEMA flood zones. Ordered by hazard rather than by alphabet.
 // Dam-failure inundation, by DSOD hazard classification. Purple, because the
@@ -1416,6 +1436,12 @@ var PALETTES = {
       if (map.getLayer('ap-line')) map.setPaintProperty('ap-line', 'line-color', darken(AP_COLOR, 0.62));
       apLegend();
     }),
+  slide: withRedraw(symOne(function () { return SLD_COLOR; },
+    function (c) { SLD_COLOR = c; }, 'Hazard zone'), function () {
+      if (map.getLayer('sld-fill')) map.setPaintProperty('sld-fill', 'fill-color', SLD_COLOR);
+      if (map.getLayer('sld-line')) map.setPaintProperty('sld-line', 'line-color', darken(SLD_COLOR, 0.62));
+      slideLegend();
+    }),
   liq: withRedraw(symOne(function () { return LIQ_COLOR; },
     function (c) { LIQ_COLOR = c; }, 'Hazard zone'), function () {
       if (map.getLayer('liq-fill')) map.setPaintProperty('liq-fill', 'fill-color', LIQ_COLOR);
@@ -1491,6 +1517,7 @@ var LAYER_SYM = {
   faults: { title: 'CGS Faults — by age of last movement', pal: function () { return 'faults'; } },
   ap: { title: 'Alquist-Priolo zones', pal: function () { return 'ap'; } },
   liq: { title: 'Liquefaction zones', pal: function () { return 'liq'; } },
+  slide: { title: 'Landslide zones', pal: function () { return 'slide'; } },
   pipe: { title: 'Pipelines — by commodity', pal: function () { return 'pipe'; } },
   parcels: { title: 'Parcels', pal: function () {
     return parcelColorBy === 'value' ? 'pval' : 'parcel'; } },
@@ -2097,6 +2124,21 @@ function addLayers() {
       paint: { 'line-color': '#9fb0a8', 'line-width': 0.5, 'line-opacity': 0.55 }
     });
   }
+  if (!map.getSource('slidezones')) {
+    map.addSource('slidezones', { type: 'vector', url: 'mapbox://jdevoy.landslide-zones' });
+  }
+  if (!map.getLayer('sld-fill')) {
+    map.addLayer({
+      id: 'sld-fill', type: 'fill', source: 'slidezones', 'source-layer': 'landslide',
+      paint: { 'fill-color': SLD_COLOR, 'fill-opacity': 0.26 }
+    });
+  }
+  if (!map.getLayer('sld-line')) {
+    map.addLayer({
+      id: 'sld-line', type: 'line', source: 'slidezones', 'source-layer': 'landslide',
+      paint: { 'line-color': darken(SLD_COLOR, 0.62), 'line-width': 0.9, 'line-dasharray': [3, 1.6] }
+    });
+  }
   if (!map.getSource('liqzones')) {
     map.addSource('liqzones', { type: 'vector', url: 'mapbox://jdevoy.liq-zones' });
   }
@@ -2514,6 +2556,9 @@ function applyState() {
   ['flood-fill', 'flood-line', 'flood-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showFlood ? 'visible' : 'none');
   });
+  ['sld-fill', 'sld-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSlide ? 'visible' : 'none');
+  });
   ['liq-fill', 'liq-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showLiq ? 'visible' : 'none');
   });
@@ -2711,13 +2756,14 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'liq-fill' && !liq) liq = h.properties;
+      if (h.layer.id === 'sld-fill' && !slide) slide = h.properties;
       if (h.layer.id === 'flood-fill' && !flood) flood = h.properties;
       if (h.layer.id === 'inund-fill' && !inund) inund = h.properties;
       if (h.layer.id === 'pipe-line' && !pipe) pipe = h.properties;
@@ -2729,7 +2775,7 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide) return;
 
     var html = '';
     if (exide && showExide) {
@@ -2966,6 +3012,19 @@ map.on('load', function () {
       if (liq.rpt) ll.push('<a href="' + esc(liq.rpt) + '" target="_blank" rel="noopener">Report</a>');
       if (ll.length) html += '<div class="pop-row">' + ll.join(' · ') + '</div>';
     }
+    if (slide && showSlide) {
+      if (html) html += '<div class="pop-sep"></div>';
+      html += '<div class="pop-row"><b>Earthquake-induced landslide zone</b></div>';
+      if (slide.q) html += '<div class="pop-row">' + esc(slide.q) + ' quadrangle</div>';
+      var sb = [];
+      if (slide.rl) sb.push('released ' + esc(slide.rl));
+      if (slide.rv === 'Y') sb.push('revised');
+      if (sb.length) html += '<div class="pop-row">' + sb.join(' · ') + '</div>';
+      var sl = [];
+      if (slide.pdf) sl.push('<a href="' + esc(slide.pdf) + '" target="_blank" rel="noopener">Map PDF</a>');
+      if (slide.rpt) sl.push('<a href="' + esc(slide.rpt) + '" target="_blank" rel="noopener">Report</a>');
+      if (sl.length) html += '<div class="pop-row">' + sl.join(' · ') + '</div>';
+    }
     if (ap && showAP) {
       if (fault || unit || soil || bore) html += '<div class="pop-sep"></div>';
       html += '<div class="pop-row"><b>Alquist-Priolo zone</b></div>';
@@ -3007,7 +3066,7 @@ map.on('load', function () {
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
 var CLICK_LAYERS = ['exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
-                    'ap-fill', 'liq-fill', 'flood-fill', 'inund-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
+                    'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
 
 // Which rendered layers each entry in the table of contents owns. Parcels own
@@ -3020,6 +3079,7 @@ var LAYER_HITS = {
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
   liq:      ['liq-fill'],
+  slide:    ['sld-fill'],
   flood:    ['flood-fill'],
   inund:    ['inund-fill'],
   pipe:     ['pipe-line'],
@@ -3123,6 +3183,12 @@ function liqLegend() {
     LIQ_COLOR + ';opacity:.5;border:1px dashed ' + darken(LIQ_COLOR, 0.62) +
     '"></i></span><span>Liquefaction hazard zone</span></div>';
 }
+function slideLegend() {
+  var h = document.getElementById('slide-legend');
+  if (h) h.innerHTML = '<div class="ctrow"><span class="sw"><i style="height:13px;background:' +
+    SLD_COLOR + ';opacity:.5;border:1px dashed ' + darken(SLD_COLOR, 0.62) +
+    '"></i></span><span>Landslide hazard zone</span></div>';
+}
 function floodLegend() {
   var h = document.getElementById('flood-legend');
   if (!h) return;
@@ -3147,7 +3213,7 @@ function inundLegend() {
            INU_COLORS[k] + ';opacity:.8"></i></span><span>' + esc(k) + ' hazard</span></div>';
   }).join('');
 }
-boresLegend(); apLegend(); liqLegend(); floodLegend(); inundLegend();
+boresLegend(); apLegend(); liqLegend(); slideLegend(); floodLegend(); inundLegend();
 
 // ---- Layer toggles ----
 document.getElementById('t-geo').addEventListener('change', function () {
@@ -3205,6 +3271,9 @@ document.getElementById('t-inund').addEventListener('change', function () {
 });
 document.getElementById('t-flood').addEventListener('change', function () {
   showFlood = this.checked; applyState(); saveState();
+});
+document.getElementById('t-slide').addEventListener('change', function () {
+  showSlide = this.checked; applyState(); saveState();
 });
 document.getElementById('t-liq').addEventListener('change', function () {
   showLiq = this.checked; applyState();
@@ -3821,7 +3890,7 @@ document.querySelectorAll('.lbl[data-layer]').forEach(function (el) {
 // property of the data, and parcels are one entry over two tilesets.
 var LAYER_SRC = {
   wells: ['wells'], water: ['waterwells'], bores: ['bores'], faults: ['faults'],
-  ap: ['apzones'], liq: ['liqzones'], pipe: ['pipelines'], flood: ['flood'], inund: ['inund'],
+  ap: ['apzones'], liq: ['liqzones'], slide: ['slidezones'], pipe: ['pipelines'], flood: ['flood'], inund: ['inund'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
   gwct: ['gwcontours']
@@ -4086,6 +4155,7 @@ function parcelAddress(p) {
 var LAYER_COLS = {
   flood: { lead: ['zone', 'subty', 'sfha', 'bfe', 'depth'] },
   inund: { lead: ['dam', 'nid', 'haz', 'load', 'fail', 'scn', 'pub'] },
+  slide: { lead: ['q', 'rl', 'rv', 'pdf', 'rpt'] },
   exide: {
     // Pinned rather than left to frequency. Matrix and contractor are present on
     // every property so they would rank near the top anyway, but the
@@ -7168,6 +7238,7 @@ var LAYER_FLAGS = [
   ['water', 't-water', function (v) { showWater = v; }, function () { return showWater; }],
   ['ap', 't-ap', function (v) { showAP = v; }, function () { return showAP; }],
   ['liq', 't-liq', function (v) { showLiq = v; }, function () { return showLiq; }],
+  ['slide', 't-slide', function (v) { showSlide = v; }, function () { return showSlide; }],
   ['flood', 't-flood', function (v) { showFlood = v; }, function () { return showFlood; }],
   ['inund', 't-inund', function (v) { showInund = v; }, function () { return showInund; }],
   ['pipe', 't-pipe', function (v) { showPipe = v; }, function () { return showPipe; }],
