@@ -3574,6 +3574,37 @@ map.on('load', function () {
       if (bits.length) html += '<div class="pop-row">' + bits.join(' · ') + '</div>';
       if (blk.pop1mile != null) html += '<div class="pop-row">Pop within 1 mi: <b>' +
         Number(blk.pop1mile).toLocaleString() + '</b></div>';
+      // Esri Tapestry segment. The name is in the tileset and was never
+      // surfaced; the figures come from the spreadsheet table, which is
+      // loaded when this layer is switched on.
+      var tseg = blk.tapestryhouseholdsnew_tsegname;
+      if (tseg) {
+        var tr = tapFind(tseg);
+        html += '<div class="pop-row"><b>Tapestry:</b> ' + esc(tseg) +
+                (tr && tr.code ? ' <span style="color:#85857e">' + esc(tr.code) + '</span>' : '') +
+                '</div>';
+        if (tr) {
+          var tb = [];
+          if (tr.income != null) tb.push('$' + tr.income.toLocaleString() + ' income');
+          if (tr.worth != null) tb.push('$' + tr.worth.toLocaleString() + ' net worth');
+          if (tr.age != null) tb.push('median age ' + tr.age);
+          if (tb.length) html += '<div class="pop-row" style="color:#55554f">' +
+            esc(tb.join(' · ')) + '</div>';
+          if (tr.lifemode) html += '<div class="pop-row" style="color:#85857e">' +
+            esc(tr.lifemode) + (tr.urban ? ' · ' + esc(tr.urban) : '') + '</div>';
+          // Attribute-quoted, and the name can contain an apostrophe
+          // (\u201cDiners & Miners\u201d is fine, but others are not), so the
+          // value is escaped the same way any other attribute is.
+          html += '<div class="pop-row"><a href="#" onclick="tapFromBlock(\'' +
+                  esc(String(tseg).replace(/\\/g, '\\\\').replace(/'/g, "\\'")) +
+                  '\');return false;">Full description</a></div>';
+        } else {
+          // Named but not in the table: say which, rather than quietly
+          // dropping the figures and leaving it looking like a short entry.
+          html += '<div class="pop-row" style="color:#85857e;font-size:11px">' +
+                  'Not in the segment table</div>';
+        }
+      }
     }
     new mapboxgl.Popup({ closeButton: true, maxWidth: '290px' })
       .setLngLat(e.lngLat).setHTML(html).addTo(map);
@@ -4058,6 +4089,7 @@ cbLegend();
 
 var cbOp = document.getElementById('cb-op'), cbOpV = document.getElementById('cb-op-v');
 document.getElementById('t-blocks').addEventListener('change', function () {
+  if (this.checked) tapLoad().catch(function () {});
   showBlocks = this.checked;
   cbOp.disabled = !showBlocks;
   applyState();
@@ -4498,6 +4530,32 @@ document.getElementById('m-lucodes').addEventListener('click', openLuDlg);
 // Fetched rather than inlined. 67 descriptions run to about 150 KB, which is
 // weight on every page load for a panel most visits never open.
 var TAPESTRY = null;
+var TAP_BY_NAME = null;      // lower-cased segment name -> record
+var tapPending = null;
+
+// The census block tileset carries the segment NAME, not a code, so the join
+// is on the string. Every one of the 31 names seen over central Los Angeles
+// matched, but a rename at Esri's end would stop matching silently rather
+// than error, which is why an unmatched name still shows -- just without the
+// figures.
+function tapLoad() {
+  if (TAPESTRY) return Promise.resolve(TAPESTRY);
+  if (tapPending) return tapPending;
+  tapPending = fetch('./tapestry.json').then(function (r) { return r.json(); })
+    .then(function (j) {
+      TAPESTRY = j;
+      TAP_BY_NAME = {};
+      j.forEach(function (r) {
+        if (r.name) TAP_BY_NAME[String(r.name).trim().toLowerCase()] = r;
+      });
+      return j;
+    });
+  return tapPending;
+}
+function tapFind(name) {
+  if (!name || !TAP_BY_NAME) return null;
+  return TAP_BY_NAME[String(name).trim().toLowerCase()] || null;
+}
 
 // Each figure is its own element: .tapstats is a flex row, and its gap only
 // separates children. Joined as bare strings they ran together as
@@ -4549,7 +4607,7 @@ function tapRender(q) {
     hits.length + ' of ' + TAPESTRY.length + ' segments';
 }
 
-function openTapDlg() {
+function openTapDlg(preset) {
   MENU.hidden = true;
   openDlg('<h2>Tapestry segments</h2><div class="bd">' +
     '<div class="fld">' +
@@ -4566,8 +4624,9 @@ function openTapDlg() {
   document.getElementById('tap-close').addEventListener('click', closeDlg);
 
   function wire() {
-    tapRender('');
     var inp = document.getElementById('tap-q');
+    if (preset) inp.value = preset;
+    tapRender(inp.value);
     inp.addEventListener('input', function () { tapRender(inp.value); });
     inp.focus();
   }
@@ -4580,7 +4639,11 @@ function openTapDlg() {
       document.getElementById('tap-count').textContent = '';
     });
 }
-document.getElementById('m-tapestry').addEventListener('click', openTapDlg);
+document.getElementById('m-tapestry').addEventListener('click', function () { openTapDlg(); });
+
+// Opened from a census block popup, which is rendered as a string and so
+// cannot hold a closure.
+window.tapFromBlock = function (name) { openTapDlg(name); };
 
 // ================= Active layer =================
 // One layer at a time can be made active. While it is, a map click reports only
