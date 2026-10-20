@@ -1476,6 +1476,18 @@ function symRows(arr, at, nameAt) {
 }
 function withRedraw(a, redraw) { a.redraw = redraw; return a; }
 
+// Colours stored in an object, edited through the same interface as the
+// array-backed ones. `keys` fixes the order shown; `labels` is what the row
+// says, which is usually not the key.
+function symKeyed(obj, keys, labels) {
+  return {
+    n: function () { return keys.length; },
+    get: function (i) { return obj[keys[i]]; },
+    set: function (i, c) { obj[keys[i]] = c; },
+    name: function (i) { return labels[i]; }
+  };
+}
+
 var GEO_FLAT = [];
 GEO_LEGEND.forEach(function (grp) {
   grp.items.forEach(function (it) { GEO_FLAT.push({ grp: grp.label, it: it }); });
@@ -1620,8 +1632,51 @@ var LAYER_SYM = {
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
   contours: { title: 'Ground surface elevation contours', pal: function () { return 'contours'; } },
-  gwct: { title: 'Depth to groundwater contours', pal: function () { return 'gwct'; } }
+  gwct: { title: 'Depth to groundwater contours', pal: function () { return 'gwct'; } },
+  flood: { title: 'Flood hazard (FEMA)', pal: function () { return 'floodZone'; } },
+  inund: { title: 'Dam inundation (DSOD)', pal: function () { return 'damHaz'; } },
+  fhsz: { title: 'Fire hazard severity', pal: function () { return 'fireSev'; } }
 };
+
+PALETTES.floodZone = withRedraw(
+  symKeyed(FLD_COLORS, ['high', 'sfha', 'mod', 'undet', 'water'],
+    ['V, VE — coastal, with wave action',
+     'A, AE, AH, AO — 1% annual chance',
+     'X — 0.2% annual chance',
+     'D — not studied',
+     'Open water']),
+  function () {
+    ['flood-fill', 'flood-line'].forEach(function (id) {
+      if (!map.getLayer(id)) return;
+      map.setPaintProperty(id, id === 'flood-fill' ? 'fill-color' : 'line-color', fldColorExpr());
+    });
+    floodLegend();
+  });
+
+PALETTES.damHaz = withRedraw(
+  symKeyed(INU_COLORS, ['Extremely High', 'High', 'Significant', 'Low'],
+    ['Extremely High hazard', 'High hazard', 'Significant hazard', 'Low hazard']),
+  function () {
+    ['inund-fill', 'inund-line'].forEach(function (id) {
+      if (!map.getLayer(id)) return;
+      map.setPaintProperty(id, id === 'inund-fill' ? 'fill-color' : 'line-color', inuColorExpr());
+    });
+    inundLegend();
+  });
+
+// NonWildland is deliberately absent: it is transparent on purpose, because it
+// marks the absence of a rating rather than a low one, and offering a colour
+// picker for it would invite turning "no rating" into a hazard class.
+PALETTES.fireSev = withRedraw(
+  symKeyed(FHSZ_COLORS, ['Very High', 'High', 'Moderate'],
+    ['Very High', 'High', 'Moderate']),
+  function () {
+    ['fhsz-fill', 'fhsz-line'].forEach(function (id) {
+      if (!map.getLayer(id)) return;
+      map.setPaintProperty(id, id === 'fhsz-fill' ? 'fill-color' : 'line-color', fhszColorExpr());
+    });
+    fhszLegend();
+  });
 
 var SWATCH_COLORS = [
   '#000000','#7f7f7f','#880015','#ed1c24','#ff7f27','#fff200','#22b14c','#00a2e8','#3f48cc','#a349a4',
@@ -4882,7 +4937,9 @@ function openLayerMenu(key, x, y) {
   openCtxMenu(LAYER_NAMES[key] || key, [
     { label: 'Zoom to extent of layer', run: function () { zoomToLayer(key); } },
     { label: 'Show table for layer', run: function () { showLayerTable(key); } },
-    { label: 'Change symbology…', disabled: !LAYER_SYM[key],
+    { label: LAYER_SYM[key] ? 'Change symbology…'
+                            : 'Change symbology — drawn by USGS, not stylable here',
+      disabled: !LAYER_SYM[key],
       run: function () { openSymDlg(key); } },
     // Shown even with nothing to go back to, greyed rather than hidden, so the
     // command is discoverable before it is ever usable and the menu does not
