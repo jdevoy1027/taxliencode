@@ -741,6 +741,62 @@
 
       <div class="toc">
         <div class="tr">
+          <input type="checkbox" id="t-fhsz">
+          <button class="tw" type="button" data-sym="sym-fhsz" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="fhsz" tabindex="0" role="button">Fire hazard severity</span>
+          <span class="cnt">5,695</span>
+        </div>
+        <div class="sym" id="sym-fhsz" hidden>
+          <div id="fhsz-legend"></div>
+          <div class="ctmeta">CAL FIRE Fire Hazard Severity Zones, 2025 Phase&nbsp;4.<br>
+            <b>Local Responsibility Area only</b> — the state-responsibility and
+            federal lands are a separate dataset and are blank here, which is not
+            the same as unhazardous.<br>
+            NonWildland is the absence of a rating rather than a low one, so it is
+            drawn unfilled but still answers a click.</div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-tsu">
+          <button class="tw" type="button" data-sym="sym-tsu" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="tsu" tabindex="0" role="button">Tsunami hazard area</span>
+          <span class="cnt">20</span>
+        </div>
+        <div class="sym" id="sym-tsu" hidden>
+          <div id="tsu-legend"></div>
+          <div class="ctmeta">CGS tsunami hazard areas for emergency planning,
+            one polygon per coastal county.<br>
+            These are evacuation-planning extents, drawn deliberately generously:
+            they are not a prediction of any single wave.<br>
+            The source ships each county twice, as the hazard area and its
+            inverse; only the hazard halves are here.</div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-hab">
+          <button class="tw" type="button" data-sym="sym-hab" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="hab" tabindex="0" role="button">Critical habitat (USFWS)</span>
+          <span class="cnt">2,559</span>
+        </div>
+        <div class="sym" id="sym-hab" hidden>
+          <div id="hab-legend"></div>
+          <div class="ctmeta">Federally designated critical habitat.<br>
+            <b>Extent only.</b> The source is a single dissolved polygon carrying
+            no species, unit or listing date, so this can answer whether
+            designated habitat is present and nothing further. For the species
+            you need the USFWS record for that unit.</div>
+        </div>
+      </div>
+
+      <div class="toc">
+        <div class="tr">
           <input type="checkbox" id="t-slide">
           <button class="tw" type="button" data-sym="sym-slide" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -1046,6 +1102,9 @@ var showExide = false;
 var showFlood = false;
 var showInund = false;
 var showSlide = false;
+var showTsu = false;
+var showHab = false;
+var showFhsz = false;
 var showGwCt = false;
 var showUsgsCt = false;
 var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
@@ -1064,6 +1123,27 @@ var BORE_COLOR = '#10233f';
 var AP_COLOR = '#756bb1';
 var LIQ_COLOR = '#1f9e8c';
 var SLD_COLOR = '#b5762a';
+// Deep navy for tsunami: related to the flood blues because it is also water,
+// but darker so the two are not confused where they overlap on the coast.
+var TSU_COLOR = '#1d4e89';
+// Conservation green. Nothing else on the map is a flat green -- geology and
+// soils are categorical ramps -- so habitat reads as its own thing.
+var HAB_COLOR = '#2e7d32';
+// Fire severity is ordered, so the ramp is ordered: yellow through red.
+// NonWildland is not a low rating, it is the absence of one, so it gets no
+// fill at all rather than the palest colour in the ramp.
+var FHSZ_COLORS = {
+  'Very High':   '#c0392b',
+  'High':        '#e8833a',
+  'Moderate':    '#f2c75c',
+  'NonWildland': 'rgba(0,0,0,0)'
+};
+function fhszColorExpr() {
+  var m = ['match', ['get', 'cls']];
+  Object.keys(FHSZ_COLORS).forEach(function (k) { m.push(k, FHSZ_COLORS[k]); });
+  m.push('#cccccc');
+  return m;
+}
 var CT_COLOR = '#8a6a4a';
 // FEMA flood zones. Ordered by hazard rather than by alphabet.
 // Dam-failure inundation, by DSOD hazard classification. Purple, because the
@@ -1436,6 +1516,18 @@ var PALETTES = {
       if (map.getLayer('ap-line')) map.setPaintProperty('ap-line', 'line-color', darken(AP_COLOR, 0.62));
       apLegend();
     }),
+  tsu: withRedraw(symOne(function () { return TSU_COLOR; },
+    function (c) { TSU_COLOR = c; }, 'Hazard area'), function () {
+      if (map.getLayer('tsu-fill')) map.setPaintProperty('tsu-fill', 'fill-color', TSU_COLOR);
+      if (map.getLayer('tsu-line')) map.setPaintProperty('tsu-line', 'line-color', darken(TSU_COLOR, 0.7));
+      tsuLegend();
+    }),
+  hab: withRedraw(symOne(function () { return HAB_COLOR; },
+    function (c) { HAB_COLOR = c; }, 'Critical habitat'), function () {
+      if (map.getLayer('hab-fill')) map.setPaintProperty('hab-fill', 'fill-color', HAB_COLOR);
+      if (map.getLayer('hab-line')) map.setPaintProperty('hab-line', 'line-color', darken(HAB_COLOR, 0.6));
+      habLegend();
+    }),
   slide: withRedraw(symOne(function () { return SLD_COLOR; },
     function (c) { SLD_COLOR = c; }, 'Hazard zone'), function () {
       if (map.getLayer('sld-fill')) map.setPaintProperty('sld-fill', 'fill-color', SLD_COLOR);
@@ -1518,6 +1610,8 @@ var LAYER_SYM = {
   ap: { title: 'Alquist-Priolo zones', pal: function () { return 'ap'; } },
   liq: { title: 'Liquefaction zones', pal: function () { return 'liq'; } },
   slide: { title: 'Landslide zones', pal: function () { return 'slide'; } },
+  tsu: { title: 'Tsunami hazard area', pal: function () { return 'tsu'; } },
+  hab: { title: 'Critical habitat', pal: function () { return 'hab'; } },
   pipe: { title: 'Pipelines — by commodity', pal: function () { return 'pipe'; } },
   parcels: { title: 'Parcels', pal: function () {
     return parcelColorBy === 'value' ? 'pval' : 'parcel'; } },
@@ -2124,6 +2218,55 @@ function addLayers() {
       paint: { 'line-color': '#9fb0a8', 'line-width': 0.5, 'line-opacity': 0.55 }
     });
   }
+  if (!map.getSource('tsunami')) {
+    map.addSource('tsunami', { type: 'geojson', data: './tsunami.geojson' });
+  }
+  if (!map.getLayer('tsu-fill')) {
+    map.addLayer({
+      id: 'tsu-fill', type: 'fill', source: 'tsunami',
+      paint: { 'fill-color': TSU_COLOR, 'fill-opacity': 0.28 }
+    });
+  }
+  if (!map.getLayer('tsu-line')) {
+    map.addLayer({
+      id: 'tsu-line', type: 'line', source: 'tsunami',
+      paint: { 'line-color': darken(TSU_COLOR, 0.7), 'line-width': 1.1 }
+    });
+  }
+  if (!map.getSource('habitat')) {
+    map.addSource('habitat', { type: 'geojson', data: './habitat.geojson' });
+  }
+  if (!map.getLayer('hab-fill')) {
+    map.addLayer({
+      id: 'hab-fill', type: 'fill', source: 'habitat',
+      paint: { 'fill-color': HAB_COLOR, 'fill-opacity': 0.22 }
+    });
+  }
+  if (!map.getLayer('hab-line')) {
+    map.addLayer({
+      id: 'hab-line', type: 'line', source: 'habitat',
+      paint: { 'line-color': darken(HAB_COLOR, 0.6), 'line-width': 0.8 }
+    });
+  }
+  if (!map.getSource('fhsz')) {
+    map.addSource('fhsz', { type: 'geojson', data: './fhsz.geojson' });
+  }
+  if (!map.getLayer('fhsz-fill')) {
+    map.addLayer({
+      id: 'fhsz-fill', type: 'fill', source: 'fhsz',
+      // NonWildland carries a transparent colour rather than being filtered
+      // out, so it still answers a click -- "mapped, no rating" is a different
+      // answer from "not mapped".
+      paint: { 'fill-color': fhszColorExpr(), 'fill-opacity': 0.34 }
+    });
+  }
+  if (!map.getLayer('fhsz-line')) {
+    map.addLayer({
+      id: 'fhsz-line', type: 'line', source: 'fhsz',
+      filter: ['!=', ['get', 'cls'], 'NonWildland'],
+      paint: { 'line-color': fhszColorExpr(), 'line-opacity': 0.8, 'line-width': 0.6 }
+    });
+  }
   if (!map.getSource('slidezones')) {
     map.addSource('slidezones', { type: 'vector', url: 'mapbox://jdevoy.landslide-zones' });
   }
@@ -2556,6 +2699,15 @@ function applyState() {
   ['flood-fill', 'flood-line', 'flood-min'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showFlood ? 'visible' : 'none');
   });
+  ['tsu-fill', 'tsu-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showTsu ? 'visible' : 'none');
+  });
+  ['hab-fill', 'hab-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showHab ? 'visible' : 'none');
+  });
+  ['fhsz-fill', 'fhsz-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showFhsz ? 'visible' : 'none');
+  });
   ['sld-fill', 'sld-line'].forEach(function (id) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showSlide ? 'visible' : 'none');
   });
@@ -2756,7 +2908,7 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
@@ -2764,6 +2916,9 @@ map.on('load', function () {
       if (h.layer.id === 'ap-fill' && !ap) ap = h.properties;
       if (h.layer.id === 'liq-fill' && !liq) liq = h.properties;
       if (h.layer.id === 'sld-fill' && !slide) slide = h.properties;
+      if (h.layer.id === 'tsu-fill' && !tsu) tsu = h.properties;
+      if (h.layer.id === 'hab-fill' && !hab) hab = h.properties;
+      if (h.layer.id === 'fhsz-fill' && !fhsz) fhsz = h.properties;
       if (h.layer.id === 'flood-fill' && !flood) flood = h.properties;
       if (h.layer.id === 'inund-fill' && !inund) inund = h.properties;
       if (h.layer.id === 'pipe-line' && !pipe) pipe = h.properties;
@@ -2775,7 +2930,7 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz) return;
 
     var html = '';
     if (exide && showExide) {
@@ -3012,6 +3167,27 @@ map.on('load', function () {
       if (liq.rpt) ll.push('<a href="' + esc(liq.rpt) + '" target="_blank" rel="noopener">Report</a>');
       if (ll.length) html += '<div class="pop-row">' + ll.join(' · ') + '</div>';
     }
+    if (fhsz && showFhsz) {
+      if (html) html += '<div class="pop-sep"></div>';
+      html += '<div class="pop-row"><b>Fire hazard severity</b></div>';
+      html += '<div class="pop-row">' + esc(fhsz.cls || '—') +
+              (fhsz.cls === 'NonWildland' ? ' — mapped, no severity rating' : '') + '</div>';
+      html += '<div class="pop-row" style="color:#85857e">CAL FIRE 2025, ' +
+              'Local Responsibility Area</div>';
+    }
+    if (tsu && showTsu) {
+      if (html) html += '<div class="pop-sep"></div>';
+      html += '<div class="pop-row"><b>Tsunami hazard area</b></div>';
+      if (tsu.county) html += '<div class="pop-row">' + esc(tsu.county) + ' County</div>';
+      html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
+              'Evacuation planning extent, not a prediction of one wave</div>';
+    }
+    if (hab && showHab) {
+      if (html) html += '<div class="pop-sep"></div>';
+      html += '<div class="pop-row"><b>Designated critical habitat</b></div>';
+      html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
+              'Extent only — the source names no species</div>';
+    }
     if (slide && showSlide) {
       if (html) html += '<div class="pop-sep"></div>';
       html += '<div class="pop-row"><b>Earthquake-induced landslide zone</b></div>';
@@ -3066,7 +3242,8 @@ map.on('load', function () {
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
 var CLICK_LAYERS = ['exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
-                    'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
+                    'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill',
+                    'tsu-fill', 'hab-fill', 'fhsz-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
 
 // Which rendered layers each entry in the table of contents owns. Parcels own
@@ -3080,6 +3257,9 @@ var LAYER_HITS = {
   ap:       ['ap-fill'],
   liq:      ['liq-fill'],
   slide:    ['sld-fill'],
+  tsu:      ['tsu-fill'],
+  hab:      ['hab-fill'],
+  fhsz:     ['fhsz-fill'],
   flood:    ['flood-fill'],
   inund:    ['inund-fill'],
   pipe:     ['pipe-line'],
@@ -3183,6 +3363,26 @@ function liqLegend() {
     LIQ_COLOR + ';opacity:.5;border:1px dashed ' + darken(LIQ_COLOR, 0.62) +
     '"></i></span><span>Liquefaction hazard zone</span></div>';
 }
+function tsuLegend() {
+  var h = document.getElementById('tsu-legend');
+  if (h) h.innerHTML = '<div class="ctrow"><span class="sw"><i style="height:13px;background:' +
+    TSU_COLOR + ';opacity:.5"></i></span><span>Tsunami hazard area</span></div>';
+}
+function habLegend() {
+  var h = document.getElementById('hab-legend');
+  if (h) h.innerHTML = '<div class="ctrow"><span class="sw"><i style="height:13px;background:' +
+    HAB_COLOR + ';opacity:.5"></i></span><span>Designated critical habitat</span></div>';
+}
+function fhszLegend() {
+  var h = document.getElementById('fhsz-legend');
+  if (!h) return;
+  h.innerHTML = ['Very High', 'High', 'Moderate'].map(function (k) {
+    return '<div class="ctrow"><span class="sw"><i style="height:11px;background:' +
+           FHSZ_COLORS[k] + ';opacity:.8"></i></span><span>' + esc(k) + '</span></div>';
+  }).join('') +
+  '<div class="ctrow"><span class="sw"><i style="height:11px;background:transparent;' +
+  'border:1px dashed #b4b4ae"></i></span><span>NonWildland — no rating</span></div>';
+}
 function slideLegend() {
   var h = document.getElementById('slide-legend');
   if (h) h.innerHTML = '<div class="ctrow"><span class="sw"><i style="height:13px;background:' +
@@ -3214,6 +3414,7 @@ function inundLegend() {
   }).join('');
 }
 boresLegend(); apLegend(); liqLegend(); slideLegend(); floodLegend(); inundLegend();
+tsuLegend(); habLegend(); fhszLegend();
 
 // ---- Layer toggles ----
 document.getElementById('t-geo').addEventListener('change', function () {
@@ -3271,6 +3472,15 @@ document.getElementById('t-inund').addEventListener('change', function () {
 });
 document.getElementById('t-flood').addEventListener('change', function () {
   showFlood = this.checked; applyState(); saveState();
+});
+document.getElementById('t-tsu').addEventListener('change', function () {
+  showTsu = this.checked; applyState(); saveState();
+});
+document.getElementById('t-hab').addEventListener('change', function () {
+  showHab = this.checked; applyState(); saveState();
+});
+document.getElementById('t-fhsz').addEventListener('change', function () {
+  showFhsz = this.checked; applyState(); saveState();
 });
 document.getElementById('t-slide').addEventListener('change', function () {
   showSlide = this.checked; applyState(); saveState();
@@ -3890,7 +4100,8 @@ document.querySelectorAll('.lbl[data-layer]').forEach(function (el) {
 // property of the data, and parcels are one entry over two tilesets.
 var LAYER_SRC = {
   wells: ['wells'], water: ['waterwells'], bores: ['bores'], faults: ['faults'],
-  ap: ['apzones'], liq: ['liqzones'], slide: ['slidezones'], pipe: ['pipelines'], flood: ['flood'], inund: ['inund'],
+  ap: ['apzones'], liq: ['liqzones'], slide: ['slidezones'], pipe: ['pipelines'],
+  tsu: ['tsunami'], hab: ['habitat'], fhsz: ['fhsz'], flood: ['flood'], inund: ['inund'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
   gwct: ['gwcontours']
@@ -3901,6 +4112,7 @@ var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
   flood: './flood.geojson', inund: './inundation.geojson',
+  tsunami: './tsunami.geojson', habitat: './habitat.geojson', fhsz: './fhsz.geojson',
   gwcontours: './gw_contours.geojson',
   contours: './bore_contours.geojson'
 };
@@ -4156,6 +4368,8 @@ var LAYER_COLS = {
   flood: { lead: ['zone', 'subty', 'sfha', 'bfe', 'depth'] },
   inund: { lead: ['dam', 'nid', 'haz', 'load', 'fail', 'scn', 'pub'] },
   slide: { lead: ['q', 'rl', 'rv', 'pdf', 'rpt'] },
+  tsu: { lead: ['county'] },
+  fhsz: { lead: ['cls', 'sra'] },
   exide: {
     // Pinned rather than left to frequency. Matrix and contractor are present on
     // every property so they would rank near the top anyway, but the
@@ -7239,6 +7453,9 @@ var LAYER_FLAGS = [
   ['ap', 't-ap', function (v) { showAP = v; }, function () { return showAP; }],
   ['liq', 't-liq', function (v) { showLiq = v; }, function () { return showLiq; }],
   ['slide', 't-slide', function (v) { showSlide = v; }, function () { return showSlide; }],
+  ['tsu', 't-tsu', function (v) { showTsu = v; }, function () { return showTsu; }],
+  ['hab', 't-hab', function (v) { showHab = v; }, function () { return showHab; }],
+  ['fhsz', 't-fhsz', function (v) { showFhsz = v; }, function () { return showFhsz; }],
   ['flood', 't-flood', function (v) { showFlood = v; }, function () { return showFlood; }],
   ['inund', 't-inund', function (v) { showInund = v; }, function () { return showInund; }],
   ['pipe', 't-pipe', function (v) { showPipe = v; }, function () { return showPipe; }],
