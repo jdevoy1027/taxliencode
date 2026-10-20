@@ -30,6 +30,27 @@
   .panel h1 { margin: 0 0 3px; font-size: 15px; font-weight: 640; letter-spacing: -.015em; }
   .panel .sub { margin: 0; font-size: 12px; color: #6b6b66; }
 
+  .lutab { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .lutab th { text-align: left; font-size: 10.5px; letter-spacing: .06em;
+    text-transform: uppercase; color: #8a8a84; font-weight: 700;
+    padding: 7px 8px; border-bottom: 1px solid #e4e4de; position: sticky; top: 0;
+    background: #fff; }
+  .lutab td { padding: 5px 8px; border-bottom: 1px solid #f3f3ee; vertical-align: top; }
+  .lutab .lucode { font-variant-numeric: tabular-nums; font-weight: 640; white-space: nowrap; }
+  .lutab .lun { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap;
+    color: #6b6b66; }
+  .lutab tr.lugrp td { background: #f7f7f3; font-weight: 640; font-size: 12px;
+    padding-top: 9px; }
+  .lutab tr.lugrp .lun { float: right; font-weight: 400; }
+  /* The swatch rules are scoped to .ctrow, so inside this table the chip has
+     no dimensions and collapses to nothing. It is the whole point of showing
+     a category heading here -- it is what ties a code to the colour on the
+     map -- so it gets its own size. */
+  .lutab tr.lugrp .sw { display: inline-block; width: 15px; margin-right: 7px;
+    vertical-align: middle; }
+  .lutab tr.lugrp .sw i { display: block; width: 15px; border-radius: 2px;
+    border: 1px solid rgba(0,0,0,.14); }
+
   .sec { padding: 12px 15px; border-bottom: 1px solid #ebebe6; }
   .sec:last-child { border-bottom: 0; }
   .sec h2 {
@@ -527,6 +548,7 @@
         <button id="m-syndata">Synergy data…</button>
         <button id="m-exide">Exide results…</button>
         <button id="m-exdata">Exide data…</button>
+        <button id="m-lucodes">Land use codes…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -1161,6 +1183,29 @@ var SCAG_NAMES = {
   ins: 'Institutional', ops: 'Open space & recreation', agr: 'Agriculture',
   vac: 'Vacant', wat: 'Water', oth: 'Other'
 };
+// 13 of the 131 codes were never labelled by either county, so a lookup can
+// legitimately come back empty; callers fall back to the category name.
+function scagLabel(code) {
+  var r = code && SCAG_CODES[code];
+  return (r && r[0]) || '';
+}
+function scagCategory(code) {
+  var v = parseInt(code, 10);
+  if (!(v > 0)) return 'oth';
+  if (v <= 1199) return v >= 1110 ? 'res' : 'oth';
+  if (v <= 1299) return 'com';
+  if (v <= 1399) return 'ind';
+  if (v <= 1499) return 'tra';
+  if (v <= 1599) return 'utl';
+  if (v <= 1699) return 'mix';
+  if (v <= 1799) return 'ins';
+  if (v <= 1899) return 'ops';
+  if (v <= 2999) return v >= 2000 ? 'agr' : 'oth';
+  if (v <= 3999) return 'vac';
+  if (v <= 4999) return 'wat';
+  return 'oth';
+}
+
 function scagColorExpr() {
   var m = ['match', ['get', 'cat']];
   Object.keys(SCAG_COLORS).forEach(function (k) { m.push(k, SCAG_COLORS[k]); });
@@ -1172,64 +1217,96 @@ function scagColorExpr() {
 // rather than in the tile: a vector tile repeats every attribute per feature
 // per tile, and these strings run to 76 characters across 2.8 million
 // parcels.
-var SCAG_LU = {
-  '1100':"Residential",'1110':"Single Family Residential",
-  '1111':"High Density Single Family Residential (9 or more DUs/ac)",
-  '1112':"Medium Density Single Family Residential (3-8 DUs/ac)",
-  '1113':"Low Density Single Family Residential (2 or less DUs/ac)",
-  '1120':"Multi-Family Residential",'1121':"Mixed Multi-Family Residential",
-  '1122':"Duplexes, Triplexes and 2- or 3-Unit Condominiums and Townhouses",
-  '1123':"Low-Rise Apartments, Condominiums, and Townhouses",
-  '1124':"Medium-Rise Apartments and Condominiums",
-  '1125':"High-Rise Apartments and Condominiums",'1130':"Mobile Homes and Trailer Parks",
-  '1131':"Trailer Parks and Mobile Home Courts, High-Density",
-  '1132':"Mobile Home Courts and Subdivisions, Low-Density",'1140':"Mixed Residential",
-  '1150':"Rural Residential",'1200':"Commercial and Services",'1210':"General Office Use",
-  '1211':"Low- and Medium-Rise Major Office Use",'1212':"High-Rise Major Office Use",
-  '1220':"Retail Stores and Commercial Services",'1221':"Regional Shopping Center",
-  '1222':"Retail Centers (Non-Strip With Contiguous Interconnected Off-Street Parking)",
-  '1223':"Retail Strip Development",'1230':"Other Commercial",'1231':"Commercial Storage",
-  '1232':"Commercial Recreation",'1233':"Hotels and Motels",'1240':"Public Facilities",
-  '1241':"Government Offices",'1242':"Police and Sheriff Stations",'1243':"Fire Stations",
-  '1244':"Major Medical Health Care Facilities",'1245':"Religious Facilities",
-  '1246':"Other Public Facilities",'1247':"Public Parking Facilities",
-  '1250':"Special Use Facilities",'1252':"Special Care Facilities",
-  '1253':"Other Special Use Facilities",'1260':"Educational Institutions",
-  '1261':"Pre-Schools/Day Care Centers",'1262':"Elementary Schools",
-  '1263':"Junior or Intermediate High Schools",'1264':"Senior High Schools",
-  '1265':"Colleges and Universities",
-  '1266':"Trade Schools and Professional Training Facilities",'1270':"Military Installations",
-  '1271':"Base (Built-up Area)",'1272':"Vacant Area",'1274':"Former Base (Built-up Area)",
-  '1300':"Industrial",'1310':"Light Industrial",
-  '1311':"Manufacturing, Assembly, and Industrial Services",
-  '1313':"Packing Houses and Grain Elevators",'1314':"Research and Development",
-  '1320':"Heavy Industrial",'1321':"Manufacturing",'1322':"Petroleum Refining and Processing",
-  '1323':"Open Storage",'1331':"Mineral Extraction - Other Than Oil and Gas",
-  '1332':"Mineral Extraction - Oil and Gas",'1340':"Wholesaling and Warehousing",
-  '1400':"Transportation, Communications, and Utilities",'1410':"Transportation",
-  '1411':"Airports",'1412':"Railroads",'1413':"Freeways and Major Roads",
-  '1414':"Park-and-Ride Lots",'1415':"Bus Terminals and Yards",'1416':"Truck Terminals",
-  '1417':"Harbor Facilities",'1420':"Communication Facilities",'1430':"Utility Facilities",
-  '1431':"Electrical Power Facilities",'1432':"Solid Waste Disposal Facilities",
-  '1433':"Liquid Waste Disposal Facilities",'1434':"Water Storage Facilities",
-  '1435':"Natural Gas and Petroleum Facilities",'1436':"Water Transfer Facilities",
-  '1437':"Improved Flood Waterways and Structures",'1438':"Mixed Utilities",
-  '1440':"Maintenance Yards",'1441':"Bus Yards",'1442':"Rail Yards",
-  '1450':"Mixed Transportation",'1460':"Mixed Transportation and Utility",
-  '1500':"Mixed Commercial and Industrial",'1600':"Mixed Residential and Commercial",
-  '1610':"Residential-Oriented Residential/Commercial Mixed Use",
-  '1620':"Commercial-Oriented Residential/Commercial Mixed Use",'1700':"Under Construction",
-  '1800':"Open Space and Recreation",'1810':"Golf Courses",'1820':"Local Parks and Recreation",
-  '1830':"Regional Parks and Recreation",'1840':"Cemeteries",
-  '1850':"Wildlife Preserves and Sanctuaries",'1870':"Beach Parks",
-  '1880':"Other Open Space and Recreation",'1890':"Off-Street Trails",'1900':"Urban Vacant",
-  '2000':"Agriculture",'2100':"Cropland and Improved Pasture Land",
-  '2110':"Irrigated Cropland and Improved Pasture Land",'2200':"Orchards and Vineyards",
-  '2300':"Nurseries",'2600':"Other Agriculture",'2700':"Horse Ranches",'3000':"Vacant",
-  '3100':"Vacant Undifferentiated",'3300':"Vacant With Limited Improvements",
-  '3400':"Beaches (Vacant)",'4000':"Water",'4100':"Water, Undifferentiated",
-  '4300':"Marina Water Facilities",'7777':"Specific Plan",
-  '8888':"Undevelopable or Protected Land",'9999':"Unknown"
+// code -> [description, total parcels, LA, Orange]. Counts are from the
+// 2016 source, so they are what the layer draws, not today's assessor roll.
+var SCAG_CODES = {
+  '1100':["Residential",4538,2261,2277],
+  '1110':["Single Family Residential",1701995,1186413,515582],
+  '1111':["High Density Single Family Residential (9 or more DUs/ac)",277983,266947,11036],
+  '1112':["Medium Density Single Family Residential (3-8 DUs/ac)",8781,7766,1015],
+  '1113':["Low Density Single Family Residential (2 or less DUs/ac)",7,1,6],
+  '1120':["Multi-Family Residential",134242,91601,42641],
+  '1121':["Mixed Multi-Family Residential",893,788,105],
+  '1122':["Duplexes, Triplexes and 2- or 3-Unit Condominiums and Townhouses",111772,99932,11840],
+  '1123':["Low-Rise Apartments, Condominiums, and Townhouses",45237,33879,11358],
+  '1124':["Medium-Rise Apartments and Condominiums",3392,1676,1716],
+  '1125':["High-Rise Apartments and Condominiums",44,33,11],
+  '1130':["Mobile Homes and Trailer Parks",9736,8587,1149],
+  '1131':["Trailer Parks and Mobile Home Courts, High-Density",172,169,3],
+  '1132':["Mobile Home Courts and Subdivisions, Low-Density",152,150,2],
+  '1140':["Mixed Residential",18794,18741,53],'1150':["Rural Residential",23290,22016,1274],
+  '1200':["Commercial and Services",6038,3078,2960],
+  '1210':["General Office Use",24677,20958,3719],
+  '1211':["Low- and Medium-Rise Major Office Use",1701,1051,650],
+  '1212':["High-Rise Major Office Use",24,22,2],'1213':["",1,1,0],
+  '1220':["Retail Stores and Commercial Services",60083,52282,7801],
+  '1221':["Regional Shopping Center",1084,890,194],
+  '1222':["Retail Centers (Non-Strip With Contiguous Interconnected Off-Street Parking)",8989,6532,2457],
+  '1223':["Retail Strip Development",13330,12081,1249],'1230':["Other Commercial",1266,1068,198],
+  '1231':["Commercial Storage",427,314,113],'1232':["Commercial Recreation",352,276,76],
+  '1233':["Hotels and Motels",1913,1409,504],'1240':["Public Facilities",6560,6121,439],
+  '1241':["Government Offices",1762,965,797],'1242':["Police and Sheriff Stations",219,182,37],
+  '1243':["Fire Stations",569,435,134],
+  '1244':["Major Medical Health Care Facilities",1478,1136,342],
+  '1245':["Religious Facilities",4587,3378,1209],
+  '1246':["Other Public Facilities",1358,1172,186],
+  '1247':["Public Parking Facilities",4289,3844,445],'1250':["Special Use Facilities",27,18,9],
+  '1251':["",6,6,0],'1252':["Special Care Facilities",729,698,31],
+  '1253':["Other Special Use Facilities",120,100,20],
+  '1260':["Educational Institutions",5804,4672,1132],
+  '1261':["Pre-Schools/Day Care Centers",159,59,100],'1262':["Elementary Schools",1150,887,263],
+  '1263':["Junior or Intermediate High Schools",512,471,41],
+  '1264':["Senior High Schools",260,174,86],'1265':["Colleges and Universities",865,617,248],
+  '1266':["Trade Schools and Professional Training Facilities",37,27,10],
+  '1270':["Military Installations",79,60,19],'1271':["Base (Built-up Area)",34,16,18],
+  '1272':["Vacant Area",97,77,20],'1274':["Former Base (Built-up Area)",13,0,13],
+  '1300':["Industrial",5049,1124,3925],'1310':["Light Industrial",3087,2346,741],
+  '1311':["Manufacturing, Assembly, and Industrial Services",37300,34380,2920],
+  '1312':["",56,56,0],'1313':["Packing Houses and Grain Elevators",119,115,4],
+  '1314':["Research and Development",173,75,98],'1320':["Heavy Industrial",5477,5279,198],
+  '1321':["Manufacturing",1144,1099,45],'1322':["Petroleum Refining and Processing",138,72,66],
+  '1323':["Open Storage",716,690,26],'1324':["",67,67,0],'1325':["",31,31,0],'1330':["",35,35,0],
+  '1331':["Mineral Extraction - Other Than Oil and Gas",93,83,10],
+  '1332':["Mineral Extraction - Oil and Gas",233,208,25],
+  '1340':["Wholesaling and Warehousing",6803,5487,1316],
+  '1400':["Transportation, Communications, and Utilities",610,373,237],
+  '1410':["Transportation",6626,416,6210],'1411':["Airports",1418,1375,43],
+  '1412':["Railroads",508,388,120],'1413':["Freeways and Major Roads",763,280,483],
+  '1414':["Park-and-Ride Lots",25,21,4],'1415':["Bus Terminals and Yards",134,119,15],
+  '1416':["Truck Terminals",245,241,4],'1417':["Harbor Facilities",100,99,1],
+  '1420':["Communication Facilities",863,836,27],'1430':["Utility Facilities",957,632,325],
+  '1431':["Electrical Power Facilities",4595,4406,189],
+  '1432':["Solid Waste Disposal Facilities",132,104,28],
+  '1433':["Liquid Waste Disposal Facilities",65,40,25],
+  '1434':["Water Storage Facilities",525,356,169],
+  '1435':["Natural Gas and Petroleum Facilities",103,100,3],
+  '1436':["Water Transfer Facilities",316,278,38],
+  '1437':["Improved Flood Waterways and Structures",2105,1709,396],
+  '1438':["Mixed Utilities",13,12,1],'1440':["Maintenance Yards",161,121,40],
+  '1441':["Bus Yards",3,2,1],'1442':["Rail Yards",4,0,4],
+  '1450':["Mixed Transportation",187,185,2],'1460':["Mixed Transportation and Utility",12,5,7],
+  '1500':["Mixed Commercial and Industrial",2459,1070,1389],
+  '1600':["Mixed Residential and Commercial",4028,3692,336],
+  '1610':["Residential-Oriented Residential/Commercial Mixed Use",18,3,15],
+  '1620':["Commercial-Oriented Residential/Commercial Mixed Use",19,14,5],
+  '1700':["Under Construction",3796,2850,946],
+  '1800':["Open Space and Recreation",11329,2883,8446],'1810':["Golf Courses",1196,885,311],
+  '1820':["Local Parks and Recreation",4072,2063,2009],
+  '1830':["Regional Parks and Recreation",3599,2807,792],'1840':["Cemeteries",622,266,356],
+  '1850':["Wildlife Preserves and Sanctuaries",534,476,58],'1860':["",14,14,0],
+  '1870':["Beach Parks",360,186,174],'1880':["Other Open Space and Recreation",6727,715,6012],
+  '1890':["Off-Street Trails",149,0,149],'1900':["Urban Vacant",5082,2789,2293],
+  '2000':["Agriculture",1558,1426,132],'2100':["Cropland and Improved Pasture Land",185,151,34],
+  '2110':["Irrigated Cropland and Improved Pasture Land",4466,4451,15],'2120':["",801,801,0],
+  '2200':["Orchards and Vineyards",205,189,16],'2300':["Nurseries",329,279,50],
+  '2400':["",22,22,0],'2500':["",31,31,0],'2600':["Other Agriculture",932,368,564],
+  '2700':["Horse Ranches",576,562,14],'3000':["Vacant",39692,36786,2906],
+  '3100':["Vacant Undifferentiated",100018,94027,5991],'3200':["",25,25,0],
+  '3300':["Vacant With Limited Improvements",281,270,11],'3400':["Beaches (Vacant)",39,36,3],
+  '4000':["Water",788,392,396],'4100':["Water, Undifferentiated",161,154,7],'4200':["",6,6,0],
+  '4300':["Marina Water Facilities",12,4,8],'4400':["",7,7,0],
+  '7777':["Specific Plan",1408,444,964],'8888':["Undevelopable or Protected Land",4388,690,3698],
+  '9999':["Unknown",1273,1250,23]
 };
 // Deep navy for tsunami: related to the flood blues because it is also water,
 // but darker so the two are not confused where they overlap on the coast.
@@ -3368,7 +3445,7 @@ map.on('load', function () {
       if (html) html += '<div class="pop-sep"></div>';
       html += '<div class="pop-row"><b>Land use (SCAG 2016)</b></div>';
       var cName = SCAG_NAMES[scag.cat] || 'Other';
-      var lDesc = scag.lu ? SCAG_LU[scag.lu] : null;
+      var lDesc = scagLabel(scag.lu);
       html += '<div class="pop-row pop-unit"><i style="background:' +
               (SCAG_COLORS[scag.cat] || SCAG_COLORS.oth) + '"></i>' +
               esc(lDesc || cName) + '</div>';
@@ -4283,6 +4360,78 @@ document.getElementById('pq').addEventListener('keydown', function (e) {
   if (e.key === 'Enter') { e.preventDefault(); doParcelSearch(); }
 });
 
+// ================= Land use code reference =================
+// A lookup, not a tool: it draws nothing on the map. The codes are in the
+// popup and the table already, but four digits on their own do not say what
+// they mean or how much of the county carries them, and that is the question
+// this answers.
+function luRows(q) {
+  q = (q || '').trim().toLowerCase();
+  var order = ['res', 'com', 'ind', 'mix', 'ins', 'tra', 'utl', 'ops', 'agr', 'vac', 'wat', 'oth'];
+  var byCat = {};
+  Object.keys(SCAG_CODES).forEach(function (code) {
+    var r = SCAG_CODES[code], desc = r[0] || '';
+    if (q && code.indexOf(q) < 0 && desc.toLowerCase().indexOf(q) < 0) return;
+    var c = scagCategory(code);
+    (byCat[c] = byCat[c] || []).push([code, desc, r[1], r[2], r[3]]);
+  });
+  var html = '', shown = 0;
+  order.forEach(function (c) {
+    var rows = byCat[c];
+    if (!rows) return;
+    rows.sort(function (a, b) { return a[0] < b[0] ? -1 : 1; });
+    var sum = rows.reduce(function (t, r) { return t + r[2]; }, 0);
+    html += '<tr class="lugrp"><td colspan="5"><span class="sw"><i style="height:10px;' +
+            'background:' + SCAG_COLORS[c] + '"></i></span>' + esc(SCAG_NAMES[c]) +
+            ' <span class="lun">' + sum.toLocaleString() + ' parcels</span></td></tr>';
+    rows.forEach(function (r) {
+      shown++;
+      html += '<tr><td class="lucode">' + esc(r[0]) + '</td><td>' +
+              (r[1] ? esc(r[1]) : '<i style="color:#9a9a93">no description published</i>') +
+              '</td><td class="lun">' + r[2].toLocaleString() + '</td>' +
+              '<td class="lun">' + (r[3] ? r[3].toLocaleString() : '—') + '</td>' +
+              '<td class="lun">' + (r[4] ? r[4].toLocaleString() : '—') + '</td></tr>';
+    });
+  });
+  return { html: html, shown: shown };
+}
+
+function openLuDlg() {
+  MENU.hidden = true;
+  var total = Object.keys(SCAG_CODES).length;
+  openDlg('<h2>2016 land use codes</h2><div class="bd">' +
+    '<div class="fld">' +
+      '<input id="lu-q" type="text" placeholder="Filter by code or description" ' +
+      'autocomplete="off" autocapitalize="none" spellcheck="false">' +
+      '<div class="hint" id="lu-count"></div>' +
+    '</div>' +
+    '<div class="dwrap" style="max-height:52vh;overflow:auto">' +
+      '<table class="lutab"><thead><tr><th>Code</th><th>Description</th>' +
+      '<th class="lun">Parcels</th><th class="lun">LA</th><th class="lun">Orange</th>' +
+      '</tr></thead><tbody id="lu-body"></tbody></table>' +
+    '</div>' +
+    '<div class="hint">SCAG 2016. Counts are what this layer draws, not the ' +
+    'current assessor roll. 13 of the ' + total + ' codes were never given a ' +
+    'description by either county; they are listed rather than hidden, because ' +
+    'a code with no label is still a code you will meet on the map.</div>' +
+    '</div><div class="ft"><button class="cx" id="lu-close">Close</button></div>', 'wide');
+
+  var body = document.getElementById('lu-body');
+  var cnt = document.getElementById('lu-count');
+  function draw(q) {
+    var r = luRows(q);
+    body.innerHTML = r.html || '<tr><td colspan="5" style="padding:14px;color:#85857e">' +
+                               'Nothing matches that.</td></tr>';
+    cnt.textContent = r.shown + ' of ' + total + ' codes';
+  }
+  draw('');
+  var inp = document.getElementById('lu-q');
+  inp.addEventListener('input', function () { draw(inp.value); });
+  inp.focus();
+  document.getElementById('lu-close').addEventListener('click', closeDlg);
+}
+document.getElementById('m-lucodes').addEventListener('click', openLuDlg);
+
 // ================= Active layer =================
 // One layer at a time can be made active. While it is, a map click reports only
 // that layer, which is the point -- with twelve layers on, a click otherwise
@@ -4595,8 +4744,8 @@ var LAYER_COLS = {
   inund: { lead: ['dam', 'nid', 'haz', 'load', 'fail', 'scn', 'pub'] },
   slide: { lead: ['q', 'rl', 'rv', 'pdf', 'rpt'] },
   tsu: { lead: ['county'] },
-  scag: { derive: { land_use: function (p) { return (p.lu && SCAG_LU[p.lu]) ||
-                                                    SCAG_NAMES[p.cat] || ''; } },
+  scag: { derive: { land_use: function (p) { return scagLabel(p.lu) ||
+                                              SCAG_NAMES[p.cat] || ''; } },
           lead: ['ain', 'land_use', 'lu', 'cat', 'cty'] },
   fhsz: { lead: ['cls', 'sra'] },
   exide: {
