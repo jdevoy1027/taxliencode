@@ -826,15 +826,21 @@
           <button class="tw" type="button" data-sym="sym-hab" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
           <span class="lbl" data-layer="hab" tabindex="0" role="button">Critical habitat (USFWS)</span>
-          <span class="cnt">2,559</span>
+          <span class="cnt">150</span>
         </div>
         <div class="sym" id="sym-hab" hidden>
           <div id="hab-legend"></div>
-          <div class="ctmeta">Federally designated critical habitat.<br>
-            <b>Extent only.</b> The source is a single dissolved polygon carrying
-            no species, unit or listing date, so this can answer whether
-            designated habitat is present and nothing further. For the species
-            you need the USFWS record for that unit.</div>
+          <div class="ctmeta">Federally designated critical habitat —
+            150 units covering 144 species in California, from the USFWS
+            national release.<br>
+            Coloured by the species' listing status. The <b>designation</b> is a
+            separate thing: 12 units are still Proposed for species already
+            listed.<br>
+            Units overlap where several species share ground, so a click
+            reports one of them, not all.<br>
+            Unit names are not in this release — every California record
+            carries a placeholder telling you to fetch the per-species
+            shapefile — so they are omitted rather than shown blank.</div>
         </div>
       </div>
 
@@ -1313,7 +1319,18 @@ var SCAG_CODES = {
 var TSU_COLOR = '#1d4e89';
 // Conservation green. Nothing else on the map is a flat green -- geology and
 // soils are categorical ramps -- so habitat reads as its own thing.
-var HAB_COLOR = '#2e7d32';
+var HAB_COLORS = {
+  'Endangered':          '#1b5e20',
+  'Threatened':          '#4c9a52',
+  'Proposed Endangered': '#8ec594',
+  'Proposed Threatened': '#bcdcbd'
+};
+function habColorExpr() {
+  var m = ['match', ['get', 'lst']];
+  Object.keys(HAB_COLORS).forEach(function (k) { m.push(k, HAB_COLORS[k]); });
+  m.push('#7aa97e');
+  return m;
+}
 // Fire severity is ordered, so the ramp is ordered: yellow through red.
 // NonWildland is not a low rating, it is the absence of one, so it gets no
 // fill at all rather than the palest colour in the ramp.
@@ -1719,10 +1736,13 @@ var PALETTES = {
       if (map.getLayer('tsu-line')) map.setPaintProperty('tsu-line', 'line-color', darken(TSU_COLOR, 0.7));
       tsuLegend();
     }),
-  hab: withRedraw(symOne(function () { return HAB_COLOR; },
-    function (c) { HAB_COLOR = c; }, 'Critical habitat'), function () {
-      if (map.getLayer('hab-fill')) map.setPaintProperty('hab-fill', 'fill-color', HAB_COLOR);
-      if (map.getLayer('hab-line')) map.setPaintProperty('hab-line', 'line-color', darken(HAB_COLOR, 0.6));
+  hab: withRedraw(
+    symKeyed(HAB_COLORS, Object.keys(HAB_COLORS), Object.keys(HAB_COLORS)),
+    function () {
+      ['hab-fill', 'hab-line'].forEach(function (id) {
+        if (!map.getLayer(id)) return;
+        map.setPaintProperty(id, id === 'hab-fill' ? 'fill-color' : 'line-color', habColorExpr());
+      });
       habLegend();
     }),
   slide: withRedraw(symOne(function () { return SLD_COLOR; },
@@ -2509,13 +2529,13 @@ function addLayers() {
   if (!map.getLayer('hab-fill')) {
     map.addLayer({
       id: 'hab-fill', type: 'fill', source: 'habitat',
-      paint: { 'fill-color': HAB_COLOR, 'fill-opacity': 0.22 }
+      paint: { 'fill-color': habColorExpr(), 'fill-opacity': 0.26 }
     });
   }
   if (!map.getLayer('hab-line')) {
     map.addLayer({
       id: 'hab-line', type: 'line', source: 'habitat',
-      paint: { 'line-color': darken(HAB_COLOR, 0.6), 'line-width': 0.8 }
+      paint: { 'line-color': habColorExpr(), 'line-opacity': 0.85, 'line-width': 0.8 }
     });
   }
   if (!map.getSource('fhsz')) {
@@ -3475,9 +3495,26 @@ map.on('load', function () {
     }
     if (hab && showHab) {
       if (html) html += '<div class="pop-sep"></div>';
-      html += '<div class="pop-row"><b>Designated critical habitat</b></div>';
+      html += '<div class="pop-row"><b>Critical habitat</b></div>';
+      if (hab.sp) html += '<div class="pop-row pop-unit"><i style="background:' +
+        (HAB_COLORS[hab.lst] || '#7aa97e') + '"></i>' + esc(hab.sp) + '</div>';
+      if (hab.sci) html += '<div class="pop-row"><i>' + esc(hab.sci) + '</i></div>';
+      var hb = [];
+      // The species listing and the designation are separate things: a species
+      // can be Endangered under a rule whose critical habitat is still only
+      // Proposed, which is the case for 12 of the 150 units here.
+      if (hab.lst) hb.push(esc(hab.lst));
+      if (hab.st) hb.push(esc(hab.st) + ' designation');
+      if (hb.length) html += '<div class="pop-row">' + hb.join(' · ') + '</div>';
+      var hm = [];
+      if (hab.fr) hm.push(esc(hab.fr));
+      if (hab.pub) hm.push(esc(hab.pub));
+      if (hm.length) html += '<div class="pop-row" style="color:#85857e">' +
+        hm.join(' · ') + '</div>';
+      // Units overlap where several species share ground, and a click reports
+      // one of them. Said plainly so an absence is not read as proof.
       html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
-              'Extent only — the source names no species</div>';
+              'Units overlap — other species may also be designated here</div>';
     }
     if (slide && showSlide) {
       if (html) html += '<div class="pop-sep"></div>';
@@ -3670,8 +3707,11 @@ function tsuLegend() {
 }
 function habLegend() {
   var h = document.getElementById('hab-legend');
-  if (h) h.innerHTML = '<div class="ctrow"><span class="sw"><i style="height:13px;background:' +
-    HAB_COLOR + ';opacity:.5"></i></span><span>Designated critical habitat</span></div>';
+  if (!h) return;
+  h.innerHTML = Object.keys(HAB_COLORS).map(function (k) {
+    return '<div class="ctrow"><span class="sw"><i style="height:11px;background:' +
+           HAB_COLORS[k] + ';opacity:.75"></i></span><span>' + esc(k) + '</span></div>';
+  }).join('');
 }
 function fhszLegend() {
   var h = document.getElementById('fhsz-legend');
@@ -4744,6 +4784,7 @@ var LAYER_COLS = {
   inund: { lead: ['dam', 'nid', 'haz', 'load', 'fail', 'scn', 'pub'] },
   slide: { lead: ['q', 'rl', 'rv', 'pdf', 'rpt'] },
   tsu: { lead: ['county'] },
+  hab: { lead: ['sp', 'sci', 'lst', 'st', 'pub', 'fr'] },
   scag: { derive: { land_use: function (p) { return scagLabel(p.lu) ||
                                               SCAG_NAMES[p.cat] || ''; } },
           lead: ['ain', 'land_use', 'lu', 'cat', 'cty'] },
