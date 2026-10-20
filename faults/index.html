@@ -3572,6 +3572,21 @@ map.on('load', function () {
       if (blk.TotalHousingUnits != null) bits.push(blk.TotalHousingUnits.toLocaleString() + ' housing units');
       if (blk.VacancyRate != null) bits.push(blk.VacancyRate + '% vacant');
       if (bits.length) html += '<div class="pop-row">' + bits.join(' · ') + '</div>';
+      // Tenure and poverty, both already in the tileset and both 0-100.
+      // Owner and renter sum to exactly 100 -- they are complements, not two
+      // independent measures -- so they share a line, rounded to whole
+      // numbers because the source carries 14 decimals of false precision.
+      if (blk.PCT_OWNER != null || blk.PCT_RENTER != null) {
+        var ten = [];
+        if (blk.PCT_OWNER != null) ten.push('<b>' + Math.round(blk.PCT_OWNER) + '%</b> owner');
+        if (blk.PCT_RENTER != null) ten.push('<b>' + Math.round(blk.PCT_RENTER) + '%</b> renter');
+        html += '<div class="pop-row">' + ten.join(' · ') + '</div>';
+      }
+      // One decimal here, unlike tenure: these cluster low -- a median of 6%
+      // across central Los Angeles -- and rounding 0.4 to 0 would read as
+      // none rather than as very little.
+      if (blk.Pct_Poverty != null) html += '<div class="pop-row"><b>' +
+        (Math.round(blk.Pct_Poverty * 10) / 10) + '%</b> below the poverty line</div>';
       if (blk.pop1mile != null) html += '<div class="pop-row">Pop within 1 mi: <b>' +
         Number(blk.pop1mile).toLocaleString() + '</b></div>';
       // Esri Tapestry segment. The name is in the tileset and was never
