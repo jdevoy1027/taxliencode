@@ -30,6 +30,11 @@
   .panel h1 { margin: 0 0 3px; font-size: 15px; font-weight: 640; letter-spacing: -.015em; }
   .panel .sub { margin: 0; font-size: 12px; color: #6b6b66; }
 
+  .mf-links { margin-top: 3px; }
+  .mf-links a { font-weight: 600; }
+  .mf-hint { color: #85857e; font-size: 10.5px; line-height: 1.35; margin-top: 2px; }
+  .mf-sv { font-size: 11px; white-space: nowrap; }
+
   .taprow { padding: 11px 2px; border-bottom: 1px solid #f1f1ec; }
   .taprow:last-child { border-bottom: 0; }
   .taphd { display: flex; align-items: baseline; gap: 8px; }
@@ -1690,6 +1695,24 @@ function wellColorExpr() {
 // site instead of one measure at five strengths.
 var MF_BREAKS = [0, 80, 83, 85, 87];
 var MF_COLORS = ['#dfe3ee', '#aab6d6', '#7085bd', '#3f59a1', '#1d2f6f'];
+
+function mfStreetView(lat, lon) {
+  return 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' +
+         encodeURIComponent(lat + ',' + lon);
+}
+function mfAerial(lat, lon) {
+  return 'https://www.google.com/maps/@?api=1&map_action=map&basemap=satellite' +
+         '&zoom=18&center=' + encodeURIComponent(lat + ',' + lon);
+}
+function mfLinks(lat, lon) {
+  if (lat == null || lon == null) return '';
+  return '<div class="pop-row mf-links">' +
+    '<a href="' + mfStreetView(lat, lon) + '" target="_blank" rel="noopener">' +
+    'Street View</a> · <a href="' + mfAerial(lat, lon) +
+    '" target="_blank" rel="noopener">Aerial</a>' +
+    '<div class="mf-hint">Opens Google Maps at the nearest panorama to the ' +
+    'parcel centre, which on a vacant lot may not face the site</div></div>';
+}
 
 function mfColorExpr() {
   var e = ['step', ['get', 'score'], MF_COLORS[0]];
@@ -3403,8 +3426,14 @@ map.on('load', function () {
         (mf.gp ? ' <span style="color:#85857e">' + esc(mf.gp) + '</span>' : '') + '</div>';
       if (mf.sp) html += '<div class="pop-row">Specific plan: ' + esc(mf.sp) + '</div>';
       if (mf.zoning) html += '<div class="pop-row">Assessor zoning ' + esc(mf.zoning) + '</div>';
-      if (mf.yr) html += '<div class="pop-row">Built ' + esc(mf.yr) + '</div>';
-      else html += '<div class="pop-row">No building on the lot</div>';
+      if (mf.vacant) {
+        html += '<div class="pop-row">No building on the lot</div>';
+        if (mf.yr) html += '<div class="pop-row" style="color:#85857e;font-size:11px">' +
+          'Assessor records a ' + esc(mf.yr) + ' structure; the parcel carries no ' +
+          'building area or count now — demolished</div>';
+      } else if (mf.yr) {
+        html += '<div class="pop-row">Built ' + esc(mf.yr) + '</div>';
+      }
       if (mf.land) html += '<div class="pop-row">Land ' + usd(mf.land) +
         (mf.impr != null ? ' · improvements ' + usd(mf.impr) : '') + '</div>';
       if (mf.owner) html += '<div class="pop-row" style="color:#55554f">' +
@@ -3430,6 +3459,7 @@ map.on('load', function () {
       if (mf.gp_src === 'spatial') html += '<div class="pop-row" ' +
         'style="color:#85857e;font-size:11px">General plan matched by location ' +
         'rather than APN</div>';
+      html += mfLinks(mf.lat, mf.lon);
     }
 
     if (exide && showExide) {
@@ -4844,16 +4874,19 @@ function mfRender(q) {
       ' · APN ' + esc(r.apn || '') + '</div></td>' +
       '<td class="lun">' + Number(r.area).toLocaleString() + '</td>' +
       '<td class="lun">' + (r.cap_units ? Number(r.cap_units).toLocaleString() : '—') + '</td>' +
-      '<td class="lun">' + (r.yr || 'vacant') + '</td>' +
+      '<td class="lun">' + (r.vacant ? 'vacant' : (r.yr || '—')) + '</td>' +
       '<td class="lun" style="min-width:86px">' +
         '<div style="display:flex;align-items:center;gap:5px">' +
         '<span style="flex:1;height:6px;background:#ececeb;border-radius:3px;overflow:hidden">' +
         '<i style="display:block;height:6px;width:' + pct.toFixed(0) +
         '%;background:#3f59a1"></i></span>' +
         '<b>' + r.score + '</b></div></td>' +
+      '<td class="lun mf-sv">' + (r.lat != null
+        ? '<a href="' + mfStreetView(r.lat, r.lon) + '" target="_blank" ' +
+          'rel="noopener">Street&nbsp;View</a>' : '—') + '</td>' +
       '</tr>';
   }).join('') ||
-    '<tr><td colspan="6" style="padding:16px;color:#85857e">Nothing matches that.</td></tr>';
+    '<tr><td colspan="7" style="padding:16px;color:#85857e">Nothing matches that.</td></tr>';
   document.getElementById('mf-count').textContent =
     rows.length + ' of 50 shown · ' + Number(MF_DATA.scored).toLocaleString() +
     ' parcels scored';
@@ -4887,6 +4920,7 @@ function openMfDlg() {
       '<table class="lutab"><thead><tr><th class="lun">#</th><th>Site</th>' +
       '<th class="lun">Lot sq ft</th><th class="lun">Units</th>' +
       '<th class="lun">Built</th><th class="lun">Score</th>' +
+      '<th class="lun">Look</th>' +
       '</tr></thead><tbody id="mf-body"></tbody></table>' +
     '</div>' +
     '<div class="hint">Scored against Multifamily_Criteria.docx over 185,082 ' +
@@ -4911,7 +4945,7 @@ function openMfDlg() {
     .then(function (j) { MF_DATA = j; wire(); })
     .catch(function () {
       document.getElementById('mf-body').innerHTML =
-        '<tr><td colspan="6" style="padding:16px;color:#8a2b1c">' +
+        '<tr><td colspan="7" style="padding:16px;color:#8a2b1c">' +
         'Could not load multifamily.json.</td></tr>';
       document.getElementById('mf-count').textContent = '';
     });
