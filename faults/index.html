@@ -566,6 +566,7 @@
         <button id="m-exdata">Exide data…</button>
         <button id="m-lucodes">Land use codes…</button>
         <button id="m-tapestry">Tapestry segments…</button>
+        <button id="m-mf">Multifamily candidates…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -649,6 +650,38 @@
       </div>
 
       <div class="toc">
+        <div class="tr">
+          <input type="checkbox" id="t-mf">
+          <button class="tw" type="button" data-sym="sym-mf" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="mf" tabindex="0" role="button">Multifamily candidates</span>
+          <span class="cnt">500</span>
+        </div>
+        <div class="sym" id="sym-mf" hidden>
+          <select id="mf-top">
+            <option value="50">Best 50 — the shortlist</option>
+            <option value="100">Best 100</option>
+            <option value="250">Best 250</option>
+            <option value="500">Best 500 — everything scored here</option>
+          </select>
+          <div class="symh" style="margin-top:7px">Score, of 90 available</div>
+          <div id="mf-legend"></div>
+          <div class="ctmeta">
+            Sites scored against the 100-point system in
+            <b>Multifamily_Criteria.docx</b>: redevelopment potential (30),
+            site suitability (25), zoning and housing capacity (25), location
+            and rental market appeal (10), development constraints (5).<br>
+            185,082 parcels in Los Angeles and Orange counties were scored
+            after gating on lot area of 8,000 sq ft or more and a general plan
+            designation that permits housing or plausibly converts to it.<br>
+            <b>Scored out of 90, not 100.</b> Height limits, setbacks and
+            parking minimums are numeric standards held in each of the 89
+            jurisdictions' zoning ordinance text; no layer here expresses them,
+            so those five points are left unscored rather than guessed. Street
+            frontage is folded into lot width, which needs no street
+            right-of-way layer to measure.<br>
+            Open the panel from the menu for the ranked table.</div>
+        </div>
         <div class="tr">
           <input type="checkbox" id="t-exide">
           <button class="tw" type="button" data-sym="sym-exide" aria-expanded="false"
@@ -1165,6 +1198,8 @@ var showBores = true, showBoreLabels = true;
 // Off by default: 10,300 points over a few square miles, which would bury the
 // rest of the map for anyone not looking for them.
 var showExide = false;
+var showMf = false;
+var mfTop = 50;        // how many ranks the layer draws
 var showFlood = false;
 var showInund = false;
 var showSlide = false;
@@ -1645,6 +1680,36 @@ function wellColorExpr() {
 // above the standard", not "which quintile is this in". Everything above it runs
 // a ColorBrewer YlOrRd ramp; below it takes a muted green that is not a shade of
 // that ramp, so meeting the standard does not read as a mild exceedance.
+// ================= Multifamily candidates =================
+// Scored sites from Multifamily_Criteria.docx, built by tools/mf_score.py.
+// 185,082 parcels were scored; the layer carries the best 500 and the panel
+// lists the 50 the document asked for.
+//
+// Score is a magnitude, so the ramp is one hue light to dark rather than a set
+// of categorical colours -- a rainbow here would imply these are five kinds of
+// site instead of one measure at five strengths.
+var MF_BREAKS = [0, 80, 83, 85, 87];
+var MF_COLORS = ['#dfe3ee', '#aab6d6', '#7085bd', '#3f59a1', '#1d2f6f'];
+
+function mfColorExpr() {
+  var e = ['step', ['get', 'score'], MF_COLORS[0]];
+  for (var i = 1; i < MF_BREAKS.length; i++) e.push(MF_BREAKS[i], MF_COLORS[i]);
+  return e;
+}
+function mfFilterExpr() { return ['<=', ['get', 'rank'], mfTop]; }
+
+function mfLegend() {
+  var h = document.getElementById('mf-legend');
+  if (!h) return;
+  h.innerHTML = MF_BREAKS.map(function (lo, i) {
+    var hi = MF_BREAKS[i + 1];
+    return '<div class="ctrow"><span class="sw"><i style="height:11px;background:' +
+      MF_COLORS[i] + '"></i></span><span>' +
+      (i === 0 ? 'below ' + MF_BREAKS[1] : hi ? lo + ' – ' + hi : lo + '+') +
+      '</span></div>';
+  }).join('');
+}
+
 var EX_BREAKS = [80, 200, 400, 1000];
 var EX_COLORS = ['#8fbf9f', '#ffffb2', '#fecc5c', '#f03b20', '#bd0026'];
 var EX_NULL = '#b9b9b2';
@@ -1774,6 +1839,18 @@ var PALETTES = {
       if (map.getLayer('liq-line')) map.setPaintProperty('liq-line', 'line-color', darken(LIQ_COLOR, 0.62));
       liqLegend();
     }),
+  mf: withRedraw({
+    n: function () { return MF_COLORS.length; },
+    get: function (i) { return MF_COLORS[i]; },
+    set: function (i, c) { MF_COLORS[i] = c; },
+    name: function (i) {
+      var hi = MF_BREAKS[i + 1];
+      return i === 0 ? 'below ' + MF_BREAKS[1]
+           : hi ? MF_BREAKS[i] + ' – ' + hi : MF_BREAKS[i] + '+';
+    } }, function () {
+      if (map.getLayer('mf-fill')) map.setPaintProperty('mf-fill', 'fill-color', mfColorExpr());
+      mfLegend();
+    }),
   exide: withRedraw({
     n: function () { return EX_COLORS.length; },
     get: function (i) { return EX_COLORS[i]; },
@@ -1851,6 +1928,7 @@ var LAYER_SYM = {
     return parcelColorBy === 'value' ? 'pval' : 'parcel'; } },
   blocks: { title: 'Census blocks — median net worth', pal: function () { return 'blocks'; } },
   exide: { title: 'Exide soil lead — by concentration', pal: function () { return 'exide'; } },
+  mf: { title: 'Multifamily candidates — by score', pal: function () { return 'mf'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
   contours: { title: 'Ground surface elevation contours', pal: function () { return 'contours'; } },
@@ -2397,6 +2475,40 @@ function addLayers() {
         'circle-stroke-color': 'rgba(20,20,20,.55)',
         'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 14, 0.7, 18, 1.2],
         'circle-opacity': 0.92
+      }
+    });
+  }
+  if (!map.getSource('mf')) {
+    map.addSource('mf', { type: 'geojson', data: './multifamily.geojson' });
+  }
+  if (!map.getLayer('mf-fill')) {
+    map.addLayer({
+      id: 'mf-fill', type: 'fill', source: 'mf',
+      filter: mfFilterExpr(),
+      paint: { 'fill-color': mfColorExpr(), 'fill-opacity': 0.55 }
+    });
+    map.addLayer({
+      id: 'mf-line', type: 'line', source: 'mf',
+      filter: mfFilterExpr(),
+      paint: {
+        'line-color': '#141c3a',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 15, 1.4, 18, 2.4]
+      }
+    });
+    // The rank is the point of the layer, so it is drawn on the parcel rather
+    // than hidden behind a click.
+    map.addLayer({
+      id: 'mf-rank', type: 'symbol', source: 'mf',
+      filter: mfFilterExpr(),
+      layout: {
+        'text-field': ['to-string', ['get', 'rank']],
+        'text-font': ['DIN Offc Pro Bold', 'Arial Unicode MS Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 15, 13, 18, 16],
+        'text-allow-overlap': false, 'text-ignore-placement': false
+      },
+      paint: {
+        'text-color': '#ffffff', 'text-halo-color': '#1d2f6f',
+        'text-halo-width': 1.6
       }
     });
   }
@@ -3057,6 +3169,11 @@ function applyState() {
     map.setLayoutProperty('exide-dot', 'visibility', showExide ? 'visible' : 'none');
     map.setFilter('exide-dot', exFilterExpr());
   }
+  ['mf-fill', 'mf-line', 'mf-rank'].forEach(function (id) {
+    if (!map.getLayer(id)) return;
+    map.setLayoutProperty(id, 'visibility', showMf ? 'visible' : 'none');
+    map.setFilter(id, mfFilterExpr());
+  });
   if (map.getLayer('bore-dot')) {
     map.setLayoutProperty('bore-dot', 'visibility', showBores ? 'visible' : 'none');
   }
@@ -3218,8 +3335,9 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null;
     hits.forEach(function (h) {
+      if (h.layer.id === 'mf-fill' && !mf) mf = h.properties;
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
@@ -3241,9 +3359,79 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf) return;
 
     var html = '';
+    if (mf && showMf) {
+      html += '<div class="pop-name">#' + esc(mf.rank) + ' · ' +
+              esc(mf.addr || '') + '</div>';
+      html += '<div class="pop-row">' + esc(mf.city || '') +
+              (mf.apn ? ' · APN ' + esc(mf.apn) : '') +
+              (mf.apn_n > 1 ? ' <span style="color:#85857e">(' + mf.apn_n +
+                              ' APNs on one footprint)</span>' : '') + '</div>';
+      html += '<div class="pop-row"><b>' + esc(mf.score) + '</b> of 90 ' +
+              '<span style="color:#85857e">· ' + esc(mf.pct_avail) +
+              '% of the points that could be scored</span></div>';
+      // The five category subtotals, which is how the document is written.
+      var mfc = [['Redevelopment', mf.c_redevelopment, 30],
+                 ['Site', mf.c_site, 25], ['Zoning', mf.c_zoning, 20],
+                 ['Location', mf.c_location, 10],
+                 ['Constraints', mf.c_constraints, 5]];
+      html += '<div class="pop-row" style="color:#55554f;font-size:11.5px">' +
+        mfc.map(function (r) {
+          return esc(r[0]) + ' <b>' + esc(r[1]) + '</b>/' + r[2];
+        }).join(' · ') + '</div>';
+      html += '<div class="pop-sep"></div>';
+      var mfa = [];
+      if (mf.area != null) mfa.push(Number(mf.area).toLocaleString() + ' sq ft');
+      if (mf.acres != null) mfa.push(mf.acres + ' ac');
+      if (mf.w_ft != null) mfa.push(mf.w_ft + ' × ' + mf.d_ft + ' ft');
+      if (mfa.length) html += '<div class="pop-row">' + esc(mfa.join(' · ')) + '</div>';
+      if (mf.cap_units) {
+        html += '<div class="pop-row">General plan allows <b>' +
+                Number(mf.cap_units).toLocaleString() + '</b> units at ' +
+                esc(mf.du_acre) + ' du/acre</div>';
+      } else {
+        // Commercial and industrial designations carry no residential density
+        // in the general plan. That is not the same as housing being barred,
+        // and saying so is the difference between a gap and a finding.
+        html += '<div class="pop-row" style="color:#85857e">The general plan ' +
+                'states no residential density for this designation, so ' +
+                'capacity scored zero — it is not a prohibition</div>';
+      }
+      if (mf.gp_lbl) html += '<div class="pop-row">' + esc(mf.gp_lbl) +
+        (mf.gp ? ' <span style="color:#85857e">' + esc(mf.gp) + '</span>' : '') + '</div>';
+      if (mf.sp) html += '<div class="pop-row">Specific plan: ' + esc(mf.sp) + '</div>';
+      if (mf.zoning) html += '<div class="pop-row">Assessor zoning ' + esc(mf.zoning) + '</div>';
+      if (mf.yr) html += '<div class="pop-row">Built ' + esc(mf.yr) + '</div>';
+      else html += '<div class="pop-row">No building on the lot</div>';
+      if (mf.land) html += '<div class="pop-row">Land ' + usd(mf.land) +
+        (mf.impr != null ? ' · improvements ' + usd(mf.impr) : '') + '</div>';
+      if (mf.owner) html += '<div class="pop-row" style="color:#55554f">' +
+        esc(mf.owner) + '</div>';
+      if (mf.asm_n) html += '<div class="pop-row">' + esc(mf.asm_n) +
+        ' adjoining parcel' + (mf.asm_n > 1 ? 's' : '') + ' in the same ownership' +
+        (mf.asm_sqft ? ' (' + Number(mf.asm_sqft).toLocaleString() + ' sq ft more)' : '') +
+        '</div>';
+      if (mf.grouped) html += '<div class="pop-row" style="color:#85857e">' +
+        esc(mf.grouped) + ' neighbouring parcel' + (mf.grouped > 1 ? 's' : '') +
+        ' in the same ownership folded into this site</div>';
+      var mfl = [];
+      if (mf.transit_m != null) mfl.push('transit ' + esc(mf.transit_m) + ' m');
+      if (mf.renter_pct != null) mfl.push(Math.round(mf.renter_pct) + '% renters');
+      if (mf.vacancy != null) mfl.push(Math.round(mf.vacancy) + '% vacant');
+      if (mfl.length) html += '<div class="pop-row" style="color:#55554f">' +
+        esc(mfl.join(' · ')) + '</div>';
+      if (mf.tapestry) html += '<div class="pop-row">Tapestry: ' + esc(mf.tapestry) + '</div>';
+      if (mf.flags) html += '<div class="pop-row" style="color:#8a2b1c">' +
+        esc(mf.flags) + '</div>';
+      if (mf.missing) html += '<div class="pop-row" style="color:#85857e;font-size:11px">' +
+        'Scored without: ' + esc(mf.missing) + '</div>';
+      if (mf.gp_src === 'spatial') html += '<div class="pop-row" ' +
+        'style="color:#85857e;font-size:11px">General plan matched by location ' +
+        'rather than APN</div>';
+    }
+
     if (exide && showExide) {
       var ec = EX_NULL, eb = 'No representative value';
       if (exide.pb != null) {
@@ -3632,7 +3820,7 @@ map.on('load', function () {
 
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
-var CLICK_LAYERS = ['exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
+var CLICK_LAYERS = ['mf-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill',
                     'tsu-fill', 'hab-fill', 'fhsz-fill', 'scag-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
@@ -3644,6 +3832,7 @@ var LAYER_HITS = {
   water:    ['water-dot'],
   bores:    ['bore-dot'],
   exide:    ['exide-dot'],
+  mf:       ['mf-fill'],
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
   liq:      ['liq-fill'],
@@ -3899,6 +4088,19 @@ document.getElementById('t-usgsct').addEventListener('change', function () {
 });
 document.getElementById('t-gwct').addEventListener('change', function () {
   showGwCt = this.checked; applyState(); saveState();
+});
+document.getElementById('t-mf').addEventListener('change', function () {
+  showMf = this.checked; applyState(); saveState();
+});
+document.getElementById('mf-top').addEventListener('change', function () {
+  mfTop = +this.value;
+  // Turning the count up with the layer off is a request to see them.
+  if (!showMf) {
+    showMf = true;
+    var cb = document.getElementById('t-mf');
+    if (cb) cb.checked = true;
+  }
+  applyState(); saveState();
 });
 document.getElementById('t-exide').addEventListener('change', function () {
   showExide = this.checked; applyState(); saveState();
@@ -4622,6 +4824,100 @@ function tapRender(q) {
     hits.length + ' of ' + TAPESTRY.length + ' segments';
 }
 
+var MF_DATA = null;
+
+function mfRender(q) {
+  q = (q || '').trim().toLowerCase();
+  var host = document.getElementById('mf-body');
+  var rows = MF_DATA.rows.filter(function (r) {
+    if (r.rank > 50) return false;
+    if (!q) return true;
+    return [r.addr, r.city, r.apn, r.owner, r.gp_lbl, r.zoning, r.sp]
+      .some(function (v) { return v && String(v).toLowerCase().indexOf(q) >= 0; });
+  });
+  host.innerHTML = rows.map(function (r) {
+    var pct = Math.max(0, Math.min(100, 100 * r.score / MF_DATA.max_score));
+    return '<tr>' +
+      '<td class="lun"><b>' + r.rank + '</b></td>' +
+      '<td><a href="#" data-mf="' + r.rank + '">' + esc(r.addr || '') + '</a>' +
+      '<div style="color:#85857e;font-size:11px">' + esc(r.city || '') +
+      ' · APN ' + esc(r.apn || '') + '</div></td>' +
+      '<td class="lun">' + Number(r.area).toLocaleString() + '</td>' +
+      '<td class="lun">' + (r.cap_units ? Number(r.cap_units).toLocaleString() : '—') + '</td>' +
+      '<td class="lun">' + (r.yr || 'vacant') + '</td>' +
+      '<td class="lun" style="min-width:86px">' +
+        '<div style="display:flex;align-items:center;gap:5px">' +
+        '<span style="flex:1;height:6px;background:#ececeb;border-radius:3px;overflow:hidden">' +
+        '<i style="display:block;height:6px;width:' + pct.toFixed(0) +
+        '%;background:#3f59a1"></i></span>' +
+        '<b>' + r.score + '</b></div></td>' +
+      '</tr>';
+  }).join('') ||
+    '<tr><td colspan="6" style="padding:16px;color:#85857e">Nothing matches that.</td></tr>';
+  document.getElementById('mf-count').textContent =
+    rows.length + ' of 50 shown · ' + Number(MF_DATA.scored).toLocaleString() +
+    ' parcels scored';
+
+  host.querySelectorAll('a[data-mf]').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var r = MF_DATA.rows.filter(function (x) { return x.rank === +a.dataset.mf; })[0];
+      if (!r || r.lon == null) return;
+      if (!showMf) {
+        showMf = true;
+        var cb = document.getElementById('t-mf');
+        if (cb) cb.checked = true;
+        applyState(); saveState();
+      }
+      closeDlg();
+      map.flyTo({ center: [r.lon, r.lat], zoom: 17.2 });
+    });
+  });
+}
+
+function openMfDlg() {
+  MENU.hidden = true;
+  openDlg('<h2>Multifamily candidates</h2><div class="bd">' +
+    '<div class="fld">' +
+      '<input id="mf-q" type="text" placeholder="Filter by address, city, APN, owner or designation" ' +
+      'autocomplete="off" autocapitalize="none" spellcheck="false">' +
+      '<div class="hint" id="mf-count">loading…</div>' +
+    '</div>' +
+    '<div class="dwrap" style="max-height:52vh;overflow:auto">' +
+      '<table class="lutab"><thead><tr><th class="lun">#</th><th>Site</th>' +
+      '<th class="lun">Lot sq ft</th><th class="lun">Units</th>' +
+      '<th class="lun">Built</th><th class="lun">Score</th>' +
+      '</tr></thead><tbody id="mf-body"></tbody></table>' +
+    '</div>' +
+    '<div class="hint">Scored against Multifamily_Criteria.docx over 185,082 ' +
+    'parcels in Los Angeles and Orange counties. <b>Out of 90, not 100</b> — ' +
+    'height, setback and parking standards sit in each jurisdiction\'s zoning ' +
+    'ordinance text and are in no layer here, so those five points are ' +
+    'unscored rather than guessed. Units are what the general plan permits ' +
+    '(density × acreage); a dash means the designation states no residential ' +
+    'density, which is not a prohibition. Click an address to zoom to it.' +
+    '</div></div>' +
+    '<div class="ft"><button class="cx" id="mf-close">Close</button></div>', 'wide');
+  document.getElementById('mf-close').addEventListener('click', closeDlg);
+
+  function wire() {
+    var inp = document.getElementById('mf-q');
+    mfRender('');
+    inp.addEventListener('input', function () { mfRender(inp.value); });
+    inp.focus();
+  }
+  if (MF_DATA) { wire(); return; }
+  fetch('./multifamily.json').then(function (r) { return r.json(); })
+    .then(function (j) { MF_DATA = j; wire(); })
+    .catch(function () {
+      document.getElementById('mf-body').innerHTML =
+        '<tr><td colspan="6" style="padding:16px;color:#8a2b1c">' +
+        'Could not load multifamily.json.</td></tr>';
+      document.getElementById('mf-count').textContent = '';
+    });
+}
+document.getElementById('m-mf').addEventListener('click', openMfDlg);
+
 function openTapDlg(preset) {
   MENU.hidden = true;
   openDlg('<h2>Tapestry segments</h2><div class="bd">' +
@@ -4707,6 +5003,7 @@ var LAYER_SRC = {
   tsu: ['tsunami'], hab: ['habitat'], fhsz: ['fhsz'], scag: ['scag'], flood: ['flood'], inund: ['inund'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
+  mf: ['mf'],
   gwct: ['gwcontours']
 };
 // The GeoJSON sources' files, so the envelope can be computed without reaching
@@ -4714,6 +5011,7 @@ var LAYER_SRC = {
 var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
+  mf: './multifamily.geojson',
   flood: './flood.geojson', inund: './inundation.geojson',
   tsunami: './tsunami.geojson', habitat: './habitat.geojson', fhsz: './fhsz.geojson',
   gwcontours: './gw_contours.geojson',
@@ -4973,6 +5271,8 @@ var LAYER_COLS = {
   slide: { lead: ['q', 'rl', 'rv', 'pdf', 'rpt'] },
   tsu: { lead: ['county'] },
   hab: { lead: ['sp', 'sci', 'lst', 'st', 'pub', 'fr'] },
+  mf: { lead: ['rank', 'score', 'addr', 'city', 'apn', 'area', 'cap_units',
+               'du_acre', 'gp_lbl', 'yr', 'transit_m'] },
   scag: { derive: { land_use: function (p) { return scagLabel(p.lu) ||
                                               SCAG_NAMES[p.cat] || ''; } },
           lead: ['ain', 'land_use', 'lu', 'cat', 'cty'] },
@@ -8075,6 +8375,7 @@ var LAYER_FLAGS = [
   ['usgsct', 't-usgsct', function (v) { showUsgsCt = v; }, function () { return showUsgsCt; }],
   ['bores', 't-bores', function (v) { showBores = v; }, function () { return showBores; }],
   ['exide', 't-exide', function (v) { showExide = v; }, function () { return showExide; }],
+  ['mf', 't-mf', function (v) { showMf = v; }, function () { return showMf; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
   ['faults', 't-faults', function (v) { showFaults = v; }, function () { return showFaults; }]
 ];
