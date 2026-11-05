@@ -695,6 +695,25 @@
             Open the panel from the menu for the ranked table.</div>
         </div>
         <div class="tr">
+          <input type="checkbox" id="t-redfin">
+          <button class="tw" type="button" data-sym="sym-redfin" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="redfin" tabindex="0" role="button">Recent Sales</span>
+          <span class="cnt">865</span>
+        </div>
+        <div class="sym" id="sym-redfin" hidden>
+          <div class="symh">Sale price</div>
+          <div id="rf-legend"></div>
+          <div class="ctmeta">
+            Closed sales from a Redfin export, 29 Oct &ndash; 4 Nov 2026 &mdash;
+            865 of them, placed from the latitude and longitude in the file
+            rather than geocoded.<br>
+            Single family 562 &middot; condo 138 &middot; multi-family 89 &middot;
+            townhouse 48 &middot; vacant land 19 &middot; mobile 9<br>
+            Median $899,000, from $14,000 to $12.7M. One week only: this is
+            what sold, not what is for sale, and not a price index.</div>
+        </div>
+        <div class="tr">
           <input type="checkbox" id="t-exide">
           <button class="tw" type="button" data-sym="sym-exide" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -1216,6 +1235,7 @@ var showFlood = false;
 var showInund = false;
 var showSlide = false;
 var showScag = false;
+var showRedfin = false;
 var showTsu = false;
 var showHab = false;
 var showFhsz = false;
@@ -1751,6 +1771,34 @@ function mfLegend() {
   }).join('');
 }
 
+// Redfin closed sales, one week of LA County (2026-10-29 .. 2026-11-04).
+// A sequential single-hue ramp, light to dark, because price is a magnitude --
+// purple specifically, because the three value ramps already on this map are
+// taken: Reds for assessed land value, YlOrRd for census-block net worth and
+// soil lead, Blues for depth to groundwater. Steps are even in perceptual
+// lightness (OKLab L 0.81 -> 0.32, minimum step 0.078), so the order reads
+// without reference to the legend.
+//
+// Breaks are round numbers bracketing the real distribution of this week's
+// sales: p25 $630k, median $899k, p75 $1.5M, p90 $2.4M, max $12.7M.
+var RF_BREAKS = [500000, 750000, 1000000, 1500000, 2500000];
+var RF_COLORS = ['#bcbddc', '#9e9ac8', '#807dba', '#6a51a3', '#54278f', '#3f007d'];
+function rfLabel(i) {
+  function m(v) {
+    return v >= 1000000 ? '$' + (v / 1000000) + 'M' : '$' + (v / 1000) + 'k';
+  }
+  var lo = i === 0 ? null : RF_BREAKS[i - 1], hi = RF_BREAKS[i];
+  return lo === null ? 'Under ' + m(RF_BREAKS[0])
+       : hi ? m(lo) + ' – ' + m(hi) : m(lo) + ' +';
+}
+// No null class: PRICE is populated on all 865 records, so a sale with no
+// price would be a defect in the export rather than a category to colour.
+function rfColorExpr() {
+  var e = ['step', ['coalesce', ['get', 'price'], 0], RF_COLORS[0]];
+  RF_BREAKS.forEach(function (b, i) { e.push(b, RF_COLORS[i + 1]); });
+  return e;
+}
+
 var EX_BREAKS = [80, 200, 400, 1000];
 var EX_COLORS = ['#8fbf9f', '#ffffb2', '#fecc5c', '#f03b20', '#bd0026'];
 var EX_NULL = '#b9b9b2';
@@ -1967,6 +2015,7 @@ var LAYER_SYM = {
     return parcelColorBy === 'value' ? 'pval' : 'parcel'; } },
   blocks: { title: 'Census blocks — median net worth', pal: function () { return 'blocks'; } },
   exide: { title: 'Exide soil lead — by concentration', pal: function () { return 'exide'; } },
+  redfin: { title: 'Recent Sales — by price', pal: function () { return 'redfin'; } },
   mf: { title: 'Multifamily candidates — by score', pal: function () { return 'mf'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
@@ -2019,6 +2068,16 @@ PALETTES.fireSev = withRedraw(
     applyOutline('fhsz');
     fhszLegend();
   });
+
+PALETTES.redfin = withRedraw({
+  n: function () { return RF_COLORS.length; },
+  get: function (i) { return RF_COLORS[i]; },
+  set: function (i, c) { RF_COLORS[i] = c; },
+  name: function (i) { return rfLabel(i); }
+}, function () {
+  if (map.getLayer('rf-dot')) map.setPaintProperty('rf-dot', 'circle-color', rfColorExpr());
+  rfLegend();
+});
 
 var SWATCH_COLORS = [
   '#000000','#7f7f7f','#880015','#ed1c24','#ff7f27','#fff200','#22b14c','#00a2e8','#3f48cc','#a349a4',
@@ -2667,6 +2726,23 @@ function addLayers() {
       });
     }
   });
+  if (!map.getSource('redfin')) {
+    map.addSource('redfin', { type: 'geojson', data: './redfin_sales.geojson' });
+  }
+  if (!map.getLayer('rf-dot')) {
+    map.addLayer({
+      id: 'rf-dot', type: 'circle', source: 'redfin',
+      paint: {
+        'circle-color': rfColorExpr(),
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 2.6, 13, 5, 18, 10],
+        // Dark stroke, not white: the light end of the ramp is pale, and on the
+        // light base map a white ring would leave those dots barely there.
+        'circle-stroke-color': 'rgba(25,20,45,.6)',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 13, 0.8, 18, 1.4],
+        'circle-opacity': 0.92
+      }
+    });
+  }
   if (!map.getSource('exide')) {
     map.addSource('exide', { type: 'geojson', data: './exide.geojson' });
   }
@@ -3372,6 +3448,10 @@ function applyState() {
     map.setLayoutProperty('sat', 'visibility',
       (baseMap === 'sat' || baseMap === 'naip') ? 'visible' : 'none');
   }
+  if (map.getLayer('rf-dot')) {
+    map.setLayoutProperty('rf-dot', 'visibility', showRedfin ? 'visible' : 'none');
+    map.setPaintProperty('rf-dot', 'circle-color', rfColorExpr());
+  }
   if (map.getLayer('exide-dot')) {
     map.setLayoutProperty('exide-dot', 'visibility', showExide ? 'visible' : 'none');
     map.setFilter('exide-dot', exFilterExpr());
@@ -3542,7 +3622,7 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'mf-fill' && !mf) mf = h.properties;
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
@@ -3561,12 +3641,13 @@ map.on('load', function () {
       if (h.layer.id === 'syn-dot' && !syn) syn = h.properties;
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'exide-dot' && !exide) exide = h.properties;
+      if (h.layer.id === 'rf-dot' && !rf) rf = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf && !rf) return;
 
     var html = '';
     if (mf && showMf) {
@@ -3646,6 +3727,40 @@ map.on('load', function () {
       html += mfLinks(mf.lat, mf.lon);
     }
 
+    if (rf && showRedfin) {
+      var ri = 0;
+      while (ri < RF_BREAKS.length && (rf.price || 0) >= RF_BREAKS[ri]) ri++;
+      html += '<div class="pop-name">' + esc(rf.addr || 'Sale') + '</div>';
+      if (rf.city) {
+        html += '<div class="pop-row">' + esc(rf.city) +
+                (rf.zip ? ' ' + esc(rf.zip) : '') + '</div>';
+      }
+      html += '<div class="pop-row pop-unit"><i style="background:' + RF_COLORS[ri] +
+              '"></i><b>' + (usd(rf.price) || '—') + '</b>' +
+              (rf.sold ? ' · sold ' + esc(rf.sold) : '') + '</div>';
+      var rb = [];
+      if (rf.beds) rb.push(esc(rf.beds) + ' bd');
+      if (rf.baths) rb.push(esc(rf.baths) + ' ba');
+      if (rf.sqft) rb.push(Number(rf.sqft).toLocaleString() + ' sq ft');
+      if (rf.ppsf) rb.push('$' + esc(rf.ppsf) + '/sq ft');
+      if (rb.length) html += '<div class="pop-row">' + rb.join(' · ') + '</div>';
+      var rc = [];
+      if (rf.type) rc.push(esc(rf.type));
+      if (rf.yr) rc.push('built ' + esc(rf.yr));
+      if (rf.lot) rc.push(Number(rf.lot).toLocaleString() + ' sq ft lot');
+      if (rf.hoa) rc.push('HOA ' + (usd(rf.hoa) || '') + '/mo');
+      if (rc.length) html += '<div class="pop-row">' + rc.join(' · ') + '</div>';
+      if (rf.url) {
+        html += '<div class="pop-row"><a href="' + esc(rf.url) +
+                '" target="_blank" rel="noopener">Redfin listing →</a></div>';
+      }
+      html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
+              'Redfin closed sales, 29 Oct – 4 Nov 2026' +
+              (rf.mls ? ' · MLS ' + esc(rf.mls) : '') + '</div>';
+      if (exide || parc || fault || unit || soil || bore || blk || ap) {
+        html += '<div class="pop-sep"></div>';
+      }
+    }
     if (exide && showExide) {
       var ec = EX_NULL, eb = 'No representative value';
       if (exide.pb != null) {
@@ -4034,7 +4149,7 @@ map.on('load', function () {
 
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
-var CLICK_LAYERS = ['mf-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
+var CLICK_LAYERS = ['rf-dot', 'mf-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill',
                     'tsu-fill', 'hab-fill', 'fhsz-fill', 'scag-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
@@ -4046,6 +4161,7 @@ var LAYER_HITS = {
   water:    ['water-dot'],
   bores:    ['bore-dot'],
   exide:    ['exide-dot'],
+  redfin:   ['rf-dot'],
   mf:       ['mf-fill'],
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
@@ -4316,6 +4432,10 @@ document.getElementById('mf-top').addEventListener('change', function () {
   }
   applyState(); saveState();
 });
+document.getElementById('t-redfin').addEventListener('change', function () {
+  showRedfin = this.checked; applyState(); saveState();
+});
+rfLegend();
 document.getElementById('t-exide').addEventListener('change', function () {
   showExide = this.checked; applyState(); saveState();
 });
@@ -4458,6 +4578,19 @@ function initContourLegend() {
 initContourLegend();
 
 // ---- Exide soil lead legend ----
+function rfLegend() {
+  var host = document.getElementById('rf-legend');
+  if (!host) return;
+  var rows = '';
+  for (var i = 0; i < RF_COLORS.length; i++) {
+    rows += '<div class="ctrow"><span class="sw"><i class="dot sw-edit" ' +
+            'data-pal="redfin" data-idx="' + i + '" style="background:' +
+            RF_COLORS[i] + '"></i></span><span>' + esc(rfLabel(i)) +
+            '</span></div>';
+  }
+  host.innerHTML = rows;
+}
+
 function exLegend() {
   var host = document.getElementById('ex-legend');
   if (!host) return;
@@ -5221,6 +5354,7 @@ var LAYER_SRC = {
   tsu: ['tsunami'], hab: ['habitat'], fhsz: ['fhsz'], scag: ['scag'], flood: ['flood'], inund: ['inund'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
+  redfin: ['redfin'],
   mf: ['mf'],
   gwct: ['gwcontours']
 };
@@ -5229,7 +5363,7 @@ var LAYER_SRC = {
 var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
-  mf: './multifamily.geojson',
+  mf: './multifamily.geojson', redfin: './redfin_sales.geojson',
   flood: './flood.geojson', inund: './inundation.geojson',
   tsunami: './tsunami.geojson', habitat: './habitat.geojson', fhsz: './fhsz.geojson',
   gwcontours: './gw_contours.geojson',
@@ -5505,6 +5639,12 @@ var LAYER_COLS = {
     // An internal marker for the nine relocated points; the popup explains it,
     // and a bare 'apn' in a column would say nothing.
     hide: ['fixed']
+  },
+  redfin: {
+    lead: ['addr', 'city', 'price', 'sold', 'type', 'beds', 'baths', 'sqft',
+           'ppsf', 'yr'],
+    // The export's own bookkeeping, not facts about the property.
+    hide: ['src', 'mls', 'url']
   },
   parcels: {
     derive: { address: parcelAddress },
@@ -8594,6 +8734,7 @@ var LAYER_FLAGS = [
   ['usgsct', 't-usgsct', function (v) { showUsgsCt = v; }, function () { return showUsgsCt; }],
   ['bores', 't-bores', function (v) { showBores = v; }, function () { return showBores; }],
   ['exide', 't-exide', function (v) { showExide = v; }, function () { return showExide; }],
+  ['redfin', 't-redfin', function (v) { showRedfin = v; }, function () { return showRedfin; }],
   ['mf', 't-mf', function (v) { showMf = v; }, function () { return showMf; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
   ['faults', 't-faults', function (v) { showFaults = v; }, function () { return showFaults; }]
