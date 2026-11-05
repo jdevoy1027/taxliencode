@@ -443,6 +443,13 @@
           text-transform:none;letter-spacing:normal;font-weight:400;color:#1a1a18;margin-bottom:0}
   .dlg .symrow input[type=color]{width:32px;height:22px;padding:0;border:1px solid #c7c7c0;
                             border-radius:4px;background:#fff;cursor:pointer;flex:none}
+  /* Outline block: a checkbox and a width box share the row shape with the
+     colour chips above them, so the two halves of the dialog read as one list. */
+  .dlg .symrow input[type=checkbox]{margin:0;accent-color:#2d6a5a;flex:none}
+  .dlg .symrow input[type=color]:disabled{opacity:.4;cursor:not-allowed}
+  .dlg .symrow input[type=number]{width:74px;flex:none;font:inherit;font-size:12.5px;
+                            padding:4px 7px;border:1px solid #d0d0ca;border-radius:6px;
+                            background:#fff;color:#1a1a18}
   .symgrp{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
           color:#85857e;margin:10px 0 3px}
   .symgrp:first-child{margin-top:0}
@@ -1544,7 +1551,12 @@ function fmtApn(a) {
 // however you arrived at it.
 function parcelPopupHtml(parc) {
   var pcls = parcelClass(parc);
-  var addr = [parc.situs_no, parc.situs_street].filter(Boolean).join(' ');
+  // situs_dir and situs_unit come from the 2026 LA roll; Orange carries
+  // neither, where this reduces to what it always was. Without the unit every
+  // condo in a building reads as the same street address.
+  var addr = [parc.situs_no, parc.situs_dir, parc.situs_street]
+               .filter(Boolean).join(' ');
+  if (parc.situs_unit) addr += ' ' + parc.situs_unit;
   var html = '<div class="pop-name">' + esc(addr || 'Parcel ' + (parc.ain || '')) + '</div>';
   if (parc.situs_city) {
     html += '<div class="pop-row">' + esc(parc.situs_city) +
@@ -1567,8 +1579,14 @@ function parcelPopupHtml(parc) {
   var lv = usd(parc.land_value), iv = usd(parc.impr_value);
   if (lv) html += '<div class="pop-row"><b>Land:</b> ' + lv +
                   (iv ? ' · <b>Improvements:</b> ' + iv : '') + '</div>';
+  // Present on every LA parcel in the 2026 roll; the 2016 join never had it.
+  if (parc.xfer_date) {
+    html += '<div class="pop-row"><b>Last transfer:</b> ' + esc(parc.xfer_date) +
+            (parc.hox ? ' · homeowner exemption' : '') + '</div>';
+  }
   html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
-          (parc.county === 'OC' ? 'Orange County assessor roll' : 'LA County assessor roll 2016') +
+          (parc.county === 'OC' ? 'Orange County assessor roll'
+                                : 'LA County assessor roll 2026 · geometry 2026-10-01') +
           '</div>';
   return html;
 }
@@ -1832,34 +1850,32 @@ var PALETTES = {
   ap: withRedraw(symOne(function () { return AP_COLOR; },
     function (c) { AP_COLOR = c; }, 'Fault zone'), function () {
       if (map.getLayer('ap-fill')) map.setPaintProperty('ap-fill', 'fill-color', AP_COLOR);
-      if (map.getLayer('ap-line')) map.setPaintProperty('ap-line', 'line-color', darken(AP_COLOR, 0.62));
+      applyOutline('ap');
       apLegend();
     }),
   tsu: withRedraw(symOne(function () { return TSU_COLOR; },
     function (c) { TSU_COLOR = c; }, 'Hazard area'), function () {
       if (map.getLayer('tsu-fill')) map.setPaintProperty('tsu-fill', 'fill-color', TSU_COLOR);
-      if (map.getLayer('tsu-line')) map.setPaintProperty('tsu-line', 'line-color', darken(TSU_COLOR, 0.7));
+      applyOutline('tsu');
       tsuLegend();
     }),
   hab: withRedraw(
     symKeyed(HAB_COLORS, Object.keys(HAB_COLORS), Object.keys(HAB_COLORS)),
     function () {
-      ['hab-fill', 'hab-line'].forEach(function (id) {
-        if (!map.getLayer(id)) return;
-        map.setPaintProperty(id, id === 'hab-fill' ? 'fill-color' : 'line-color', habColorExpr());
-      });
+      if (map.getLayer('hab-fill')) map.setPaintProperty('hab-fill', 'fill-color', habColorExpr());
+      applyOutline('hab');
       habLegend();
     }),
   slide: withRedraw(symOne(function () { return SLD_COLOR; },
     function (c) { SLD_COLOR = c; }, 'Hazard zone'), function () {
       if (map.getLayer('sld-fill')) map.setPaintProperty('sld-fill', 'fill-color', SLD_COLOR);
-      if (map.getLayer('sld-line')) map.setPaintProperty('sld-line', 'line-color', darken(SLD_COLOR, 0.62));
+      applyOutline('slide');
       slideLegend();
     }),
   liq: withRedraw(symOne(function () { return LIQ_COLOR; },
     function (c) { LIQ_COLOR = c; }, 'Hazard zone'), function () {
       if (map.getLayer('liq-fill')) map.setPaintProperty('liq-fill', 'fill-color', LIQ_COLOR);
-      if (map.getLayer('liq-line')) map.setPaintProperty('liq-line', 'line-color', darken(LIQ_COLOR, 0.62));
+      applyOutline('liq');
       liqLegend();
     }),
   mf: withRedraw({
@@ -1978,10 +1994,8 @@ PALETTES.floodZone = withRedraw(
      'D — not studied',
      'Open water']),
   function () {
-    ['flood-fill', 'flood-line'].forEach(function (id) {
-      if (!map.getLayer(id)) return;
-      map.setPaintProperty(id, id === 'flood-fill' ? 'fill-color' : 'line-color', fldColorExpr());
-    });
+    if (map.getLayer('flood-fill')) map.setPaintProperty('flood-fill', 'fill-color', fldColorExpr());
+    applyOutline('flood');
     floodLegend();
   });
 
@@ -1989,10 +2003,8 @@ PALETTES.damHaz = withRedraw(
   symKeyed(INU_COLORS, ['Extremely High', 'High', 'Significant', 'Low'],
     ['Extremely High hazard', 'High hazard', 'Significant hazard', 'Low hazard']),
   function () {
-    ['inund-fill', 'inund-line'].forEach(function (id) {
-      if (!map.getLayer(id)) return;
-      map.setPaintProperty(id, id === 'inund-fill' ? 'fill-color' : 'line-color', inuColorExpr());
-    });
+    if (map.getLayer('inund-fill')) map.setPaintProperty('inund-fill', 'fill-color', inuColorExpr());
+    applyOutline('inund');
     inundLegend();
   });
 
@@ -2003,10 +2015,8 @@ PALETTES.fireSev = withRedraw(
   symKeyed(FHSZ_COLORS, ['Very High', 'High', 'Moderate'],
     ['Very High', 'High', 'Moderate']),
   function () {
-    ['fhsz-fill', 'fhsz-line'].forEach(function (id) {
-      if (!map.getLayer(id)) return;
-      map.setPaintProperty(id, id === 'fhsz-fill' ? 'fill-color' : 'line-color', fhszColorExpr());
-    });
+    if (map.getLayer('fhsz-fill')) map.setPaintProperty('fhsz-fill', 'fill-color', fhszColorExpr());
+    applyOutline('fhsz');
     fhszLegend();
   });
 
@@ -2063,33 +2073,93 @@ function openSymDlg(key) {
     rows += '<label class="symrow"><input type="color" data-i="' + i + '" value="' +
             esc(d.get(i)) + '"><span>' + esc(d.name(i)) + '</span></label>';
   }
+  var ol = OUTLINES[key];
   openDlg('<h2>' + esc(L.title) + '</h2><div class="bd">' +
-    '<div class="fld" style="margin-bottom:0">' +
-      '<label>' + total + ' colour' + (total === 1 ? '' : 's') + '</label>' +
-      '<div class="dwrap" style="padding:8px 11px">' + rows + '</div>' +
+    '<div class="fld"' + (ol ? '' : ' style="margin-bottom:0"') + '>' +
+      '<label>' + (ol ? 'Fill — ' : '') + total + ' colour' + (total === 1 ? '' : 's') + '</label>' +
+      '<div class="dwrap symlist" style="padding:8px 11px">' + rows + '</div>' +
       '<div class="hint">The map updates as you pick, and the colours are kept for ' +
-      'next time. Zone outlines are derived from their fill, so they follow it.' +
+      'next time.' + (ol ? '' : ' Zone outlines are derived from their fill, so they follow it.') +
       (L.pal() === 'parcel' || L.pal() === 'pval' || String(L.pal()).charAt(0) === 'w'
         ? ' This is the palette for the colour-by setting currently chosen; the others keep their own.'
         : '') +
       '</div>' +
-    '</div></div>' +
+    '</div>' + outlineFld(key) + '</div>' +
     '<div class="ft"><button class="cx" id="sym-reset">Reset this layer</button>' +
     '<button class="cx" id="sym-close">Close</button></div>', 'wide');
 
-  BACKDROP.querySelectorAll('input[type=color]').forEach(function (inp) {
+  // Scoped to the fill list: the outline block below it has a colour input of
+  // its own, and it carries no data-i to be read as a legend slot.
+  BACKDROP.querySelectorAll('.symlist input[type=color]').forEach(function (inp) {
     inp.addEventListener('input', function () {
       d.set(+inp.getAttribute('data-i'), inp.value);
       d.redraw(); saveLegendColors();
     });
   });
+  wireOutlineFld(key);
   document.getElementById('sym-close').addEventListener('click', closeDlg);
   document.getElementById('sym-reset').addEventListener('click', function () {
     var def = SYM_DEFAULTS[L.pal()] || [];
     for (var j = 0; j < total; j++) if (def[j]) d.set(j, def[j]);
-    d.redraw(); saveLegendColors(); closeDlg();
+    d.redraw(); saveLegendColors();
+    if (ol) {
+      OUTLINE[key] = { color: null, width: null, on: true };
+      applyOutline(key); saveOutlines();
+    }
+    closeDlg();
     showToast('Reset ' + esc(L.title) + ' to its original colours.', 'Dismiss', function () {});
   });
+}
+
+// The outline is one setting for the whole layer, so it gets its own block under
+// the per-class colours instead of a row among them. Absent for the point and
+// line layers, which have no fill to outline.
+function outlineFld(key) {
+  var o = OUTLINES[key], s = o && OUTLINE[key];
+  if (!o) return '';
+  return '<div class="fld" style="margin-bottom:0">' +
+    '<label>Outline</label>' +
+    '<div class="dwrap" style="padding:8px 11px">' +
+      '<label class="symrow"><input type="checkbox" id="out-on"' +
+        (s.on ? ' checked' : '') + '><span>Draw an outline</span></label>' +
+      '<label class="symrow"><input type="checkbox" id="out-def"' +
+        (s.color ? '' : ' checked') + '><span>Keep this layer&rsquo;s own colour</span></label>' +
+      '<label class="symrow"><input type="color" id="out-col" value="' +
+        esc(outlineHex(key)) + '"' + (s.color ? '' : ' disabled') + '><span>Outline colour</span></label>' +
+      '<label class="symrow"><span style="flex:1">Width in pixels</span>' +
+        '<input type="number" id="out-w" min="0" max="8" step="0.1" placeholder="auto" value="' +
+        (s.width === null ? '' : esc(String(s.width))) + '"></label>' +
+    '</div>' +
+    '<div class="hint">On its own colour, the outline follows the fill where the layer ' +
+    'derives it from the fill and stays a neutral hairline where it does not. A blank ' +
+    'width keeps the original, which on most layers thickens as you zoom in.</div>' +
+  '</div>';
+}
+
+function wireOutlineFld(key) {
+  var o = OUTLINES[key], s = o && OUTLINE[key];
+  if (!o) return;
+  var onCb = document.getElementById('out-on'),
+      defCb = document.getElementById('out-def'),
+      colIn = document.getElementById('out-col'),
+      wIn = document.getElementById('out-w');
+  function push() {
+    s.on = onCb.checked;
+    s.color = defCb.checked ? null : colIn.value;
+    var w = parseFloat(wIn.value);
+    s.width = (wIn.value === '' || isNaN(w)) ? null : Math.max(0, Math.min(8, w));
+    colIn.disabled = defCb.checked;
+    applyOutline(key); saveOutlines();
+  }
+  onCb.addEventListener('change', push);
+  defCb.addEventListener('change', function () {
+    // Back on the default, the chip has to catch up with whatever the layer
+    // derives now -- the fill may have been recoloured in the list above.
+    if (defCb.checked) { s.color = null; colIn.value = outlineHex(key); }
+    push();
+  });
+  colIn.addEventListener('input', push);
+  wIn.addEventListener('input', push);
 }
 
 var swPop = null;
@@ -2158,6 +2228,117 @@ document.addEventListener('keydown', function (e) {
 // Restore any saved swatch colours now: after the palette arrays exist, before
 // the first legend renders or the first paint expression is built from them.
 loadLegendColors();
+
+// ================= Polygon outlines =================
+// A fill colour belongs to a class; an outline belongs to the layer, so it is
+// stored per table-of-contents entry rather than per legend slot. Keys here are
+// exactly the polygon entries in LAYER_SYM -- the point layers have no outline
+// to offer, and faults, contours and pipelines are lines already.
+//
+// def() is the outline the layer shipped with, asked for fresh each time rather
+// than captured once: on the hazard layers it is derived from the fill, so the
+// answer changes whenever the fill does.
+var OUTLINES = {
+  geo:     { lines: ['geo-line'],   def: function () { return 'rgba(60,60,55,.35)'; } },
+  soils:   { lines: ['soil-line'],  def: function () { return 'rgba(50,50,45,.3)'; } },
+  blocks:  { lines: ['cb-line'],    def: function () { return 'rgba(30,45,70,.35)'; } },
+  parcels: { lines: ['pc-line', 'pc2-line'],
+                                    def: function () { return 'rgba(40,40,40,.45)'; } },
+  scag:    { lines: ['scag-line'],  def: function () { return 'rgba(60,55,45,.35)'; } },
+  mf:      { lines: ['mf-line'],    def: function () { return '#141c3a'; } },
+  ap:      { lines: ['ap-line'],    def: function () { return darken(AP_COLOR, 0.62); } },
+  tsu:     { lines: ['tsu-line'],   def: function () { return darken(TSU_COLOR, 0.7); } },
+  slide:   { lines: ['sld-line'],   def: function () { return darken(SLD_COLOR, 0.62); } },
+  liq:     { lines: ['liq-line'],   def: function () { return darken(LIQ_COLOR, 0.62); } },
+  hab:     { lines: ['hab-line'],   def: function () { return habColorExpr(); } },
+  fhsz:    { lines: ['fhsz-line'],  def: function () { return fhszColorExpr(); } },
+  // flood-min is deliberately not listed: that hairline is the only way the
+  // minimal-hazard class is drawn at all, not an outline around a fill, and
+  // switching outlines off should not erase a class from the map.
+  flood:   { lines: ['flood-line'], def: function () { return fldColorExpr(); } },
+  inund:   { lines: ['inund-line'], def: function () { return inuColorExpr(); } }
+};
+
+// color null means "whatever def() says"; width null means the shipped width.
+var OUTLINE = {};
+Object.keys(OUTLINES).forEach(function (k) {
+  OUTLINE[k] = { color: null, width: null, on: true };
+});
+
+// Most of these widths are zoom interpolations and two carry a dash pattern, so
+// the shipped values are read off the layer rather than written down a second
+// time here. Captured on first touch, which is before anything has been
+// overridden, so 'default' restores the expression instead of flattening it to
+// one number.
+var OUTLINE_BASE = {};
+function outlineBase(id) {
+  if (!OUTLINE_BASE[id]) {
+    var op = map.getPaintProperty(id, 'line-opacity');
+    OUTLINE_BASE[id] = {
+      width: map.getPaintProperty(id, 'line-width'),
+      opacity: op === undefined ? 1 : op
+    };
+  }
+  return OUTLINE_BASE[id];
+}
+
+// The one place that paints an outline. Going through here means a fill-colour
+// change that re-derives the line cannot quietly drop an override, and an
+// override cannot freeze a derived outline at an old fill colour.
+//
+// Off is line-opacity 0, not visibility none: applyState() owns visibility on
+// several of these layers and would turn the outline back on at the next redraw.
+function applyOutline(key) {
+  var o = OUTLINES[key], s = OUTLINE[key];
+  if (!o || !s || typeof map === 'undefined' || !map.getLayer) return;
+  o.lines.forEach(function (id) {
+    if (!map.getLayer(id)) return;
+    var base = outlineBase(id);
+    map.setPaintProperty(id, 'line-color', s.color || o.def());
+    map.setPaintProperty(id, 'line-width', s.width === null ? base.width : s.width);
+    map.setPaintProperty(id, 'line-opacity', s.on ? base.opacity : 0);
+  });
+}
+function applyOutlines() { Object.keys(OUTLINES).forEach(applyOutline); }
+
+// What the colour chip shows while the outline is on its default. The hazard
+// layers derive a hex from their fill, which is worth showing; the rest default
+// to a translucent hairline that input[type=color] cannot represent, so the chip
+// starts on a neutral grey and only means anything once the box above is cleared.
+function outlineHex(key) {
+  var o = OUTLINES[key], s = o && OUTLINE[key];
+  if (!o) return '#4a4a45';
+  if (s.color) return s.color;
+  var d = o.def();
+  return (typeof d === 'string' && /^#[0-9a-f]{6}$/i.test(d)) ? d : '#4a4a45';
+}
+
+// Survives a reload, beside the legend colours. Only layers actually changed are
+// written, so a later default change reaches anyone who never touched that layer.
+var OUTLINE_KEY = 'tlc.legendOutlines.v1';
+function saveOutlines() {
+  var out = {};
+  Object.keys(OUTLINE).forEach(function (k) {
+    var s = OUTLINE[k];
+    if (s.color || s.width !== null || !s.on) out[k] = s;
+  });
+  try { localStorage.setItem(OUTLINE_KEY, JSON.stringify(out)); } catch (e) {}
+}
+function loadOutlines() {
+  var raw;
+  try { raw = localStorage.getItem(OUTLINE_KEY); } catch (e) { return; }
+  if (!raw) return;
+  var saved;
+  try { saved = JSON.parse(raw); } catch (e) { return; }
+  Object.keys(OUTLINE).forEach(function (k) {
+    var s = saved[k];
+    if (!s) return;
+    if (typeof s.color === 'string' && /^#[0-9a-f]{6}$/i.test(s.color)) OUTLINE[k].color = s.color;
+    if (typeof s.width === 'number' && s.width >= 0 && s.width <= 8) OUTLINE[k].width = s.width;
+    if (typeof s.on === 'boolean') OUTLINE[k].on = s.on;
+  });
+}
+loadOutlines();
 
 // Orange County's single-digit USE_PROP_T, mapped onto the shared class colours
 // through OC_USE. The labels are the county's own, no longer inferred.
@@ -2323,7 +2504,7 @@ function addLayers() {
     });
   }
   if (!map.getSource('parcels')) {
-    map.addSource('parcels', { type: 'vector', url: 'mapbox://jdevoy.la-parcels' });
+    map.addSource('parcels', { type: 'vector', url: 'mapbox://jdevoy.la-parcels-2026' });
   }
   if (!map.getLayer('pc-fill')) {
     map.addLayer({
@@ -3026,6 +3207,9 @@ function addLayers() {
   } catch (err) {
     console.error('addLayers failed:', err);
   }
+  // After the layers exist, so the shipped widths can be read off them, and
+  // before applyState() so the first frame already shows any saved outline.
+  applyOutlines();
   applyState();
 }
 
@@ -4386,11 +4570,11 @@ function parcelLegend() {
     meta.innerHTML = parcelColorBy === 'value'
       ? 'Assessed land value. Class breaks are the 25th, 50th, 75th and 90th ' +
         'percentiles of the LA County roll.<br>' +
-        '<b>LA County</b> 2,397,061 parcels (2016 roll) · ' +
-        '<b>Orange County</b> 674,851 parcels'
-      : '<b>LA County</b> 2,397,061 parcels (2016 roll), classed on the leading ' +
+        '<b>LA County</b> 2,433,140 parcels (2026 roll) · ' +
+        '<b>Orange County</b> 982,155 parcels'
+      : '<b>LA County</b> 2,433,140 parcels (2026 roll), classed on the leading ' +
         'digit of the four-character Assessor use code.<br>' +
-        '<b>Orange County</b> 674,851 parcels, classed on its single-digit ' +
+        '<b>Orange County</b> 982,155 parcels, classed on its single-digit ' +
         'USE_PROP_T: residential, multifamily, commercial, industrial, public.<br>' +
         'The two assessors number classes differently, so each county is read ' +
         'against its own table. Multifamily is Orange-only — LA\'s leading digit ' +
@@ -5295,7 +5479,8 @@ var LAYER_TABLE = { contours: ['contour-line'], gwct: ['gwct-line'] };
 function parcelAddress(p) {
   // situs_no is 0, not blank, on records with no street number.
   var no = (p.situs_no && +p.situs_no !== 0) ? String(p.situs_no) : '';
-  var line = [no, p.situs_street].filter(Boolean).join(' ').trim();
+  var line = [no, p.situs_dir, p.situs_street, p.situs_unit]
+               .filter(Boolean).join(' ').trim();
   var city = [p.situs_city, p.situs_zip].filter(Boolean).join(' ').trim();
   return [line, city].filter(Boolean).join(', ');
 }
