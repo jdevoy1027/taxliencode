@@ -683,9 +683,15 @@
             <b>Multifamily_Criteria.docx</b>: redevelopment potential (30),
             site suitability (25), zoning and housing capacity (25), location
             and rental market appeal (10), development constraints (5).<br>
-            185,082 parcels in Los Angeles and Orange counties were scored
+            155,283 parcels in Los Angeles and Orange counties were scored
             after gating on lot area of 8,000 sq ft or more and a general plan
             designation that permits housing or plausibly converts to it.<br>
+            Parcels currently zoned industrial are excluded &mdash; 29,799 of
+            them, a sixth of the pool &mdash; because reuse of an industrial
+            zone needs a rezone, which is a different exercise from siting on
+            land where housing is already permitted. Zoning is read from SCAG's
+            normalised code, not the Assessor's; a warehouse standing on
+            commercially zoned land is still a candidate.<br>
             <b>Scored out of 90, not 100.</b> Height limits, setbacks and
             parking minimums are numeric standards held in each of the 89
             jurisdictions' zoning ordinance text; no layer here expresses them,
@@ -1725,7 +1731,8 @@ function wellColorExpr() {
 // that ramp, so meeting the standard does not read as a mild exceedance.
 // ================= Multifamily candidates =================
 // Scored sites from Multifamily_Criteria.docx, built by tools/mf_score.py.
-// 185,082 parcels were scored; the layer carries the best 500 and the panel
+// 155,283 parcels were scored, industrial zoning excluded; the layer carries
+// the best 500 and the panel
 // lists the 50 the document asked for.
 //
 // Score is a magnitude, so the ramp is one hue light to dark rather than a set
@@ -5240,7 +5247,7 @@ function openMfDlg() {
       '<th class="lun">Look</th>' +
       '</tr></thead><tbody id="mf-body"></tbody></table>' +
     '</div>' +
-    '<div class="hint">Scored against Multifamily_Criteria.docx over 185,082 ' +
+    '<div class="hint">Scored against Multifamily_Criteria.docx over 155,283 ' +
     'parcels in Los Angeles and Orange counties. <b>Out of 90, not 100</b> — ' +
     'height, setback and parking standards sit in each jurisdiction\'s zoning ' +
     'ordinance text and are in no layer here, so those five points are ' +
