@@ -223,6 +223,187 @@ function jurisdictionFallback(r){
     note:'inferred from the situs city alone — this parcel carries no zoning code'};
 }
 
+/* ---------- neighbourhood narrative ----------------------------------------
+   Written from the numbers in the row rather than about them: every clause
+   below is a statement some field makes, and nothing is asserted that the data
+   does not carry. Comparisons are against the other 499 sites in this
+   assessment -- a benchmark the report actually holds -- rather than against a
+   county or national median it does not. */
+function pctileOf(vals,v){
+  if(typeof v!=='number'||!vals.length) return null;
+  var n=0; for(var i=0;i<vals.length;i++) if(vals[i]<v) n++;
+  return Math.round(100*n/vals.length);
+}
+/* `positive` drops zeros from the comparison set. The block-group layer writes
+   0 for "not reported" on the money fields -- 22 of these 500 carry a home
+   value of 0 -- and leaving those in the distribution would both drag the
+   benchmark down and let a site with no data be described as cheap. */
+function peerVals(peers,f,positive){
+  var out=[];
+  for(var i=0;i<peers.length;i++){
+    var v=peers[i]&&peers[i][f];
+    if(typeof v==='number'&&isFinite(v)&&(!positive||v>0)) out.push(v);
+  }
+  return out;
+}
+function standing(p){
+  if(p==null) return null;
+  if(p>=90) return 'among the highest of the 500 sites assessed here';
+  if(p>=75) return 'in the top quarter of the 500 sites assessed here';
+  if(p>=60) return 'above the median of the sites assessed here';
+  if(p>=40) return 'close to the median of the sites assessed here';
+  if(p>=25) return 'below the median of the sites assessed here';
+  return 'among the lowest of the 500 sites assessed here';
+}
+
+function narrative(r,b,tap,J,peers){
+  var out=[];
+  /* --- income and wealth --- */
+  var s='';
+  if(r.medinc!=null){
+    s+='Median household income here is <b>'+usd(r.medinc)+'</b>';
+    if(tap&&tap.income){
+      var d=Math.round((r.medinc/tap.income-1)*100);
+      s+=', '+(Math.abs(d)<5?'close to':(d>0?d+'% above':Math.abs(d)+'% below'))+
+         ' the national figure for '+esc(tap.name)+' households ('+usd(tap.income)+')';
+    }
+    s+='. ';
+  }
+  if(b.wealth_mednw_cy){
+    var pw=pctileOf(peerVals(peers,'wealth_mednw_cy',true),b.wealth_mednw_cy);
+    s+='Median net worth stands at <b>'+usd(b.wealth_mednw_cy)+'</b>'+
+       (standing(pw)?', '+standing(pw):'')+'. ';
+  }
+  if(b.Pct_Poverty!=null){
+    s+=(b.Pct_Poverty<5?'Poverty is low at ':b.Pct_Poverty<12?'Poverty runs at ':
+        'Poverty is elevated at ')+pct(b.Pct_Poverty)+'. ';
+  }
+  if(b.educationalattainment_BACHDEG_CY_P!=null){
+    s+=pct(b.educationalattainment_BACHDEG_CY_P)+" of adults hold a bachelor's "+
+       'degree or better.';
+  }
+  if(s) out.push(s);
+
+  /* --- housing values --- */
+  s='';
+  if(!b.homevalue_AVGVAL_CY_1){
+    // 0 means not reported, not worthless. Saying so beats an em-dash in a
+    // sentence that then reasons about the number it does not have.
+    s='The block-group data carries no average home value for this area, and '+
+      'no five-year projection with it, so the local price level has to be '+
+      'established from comparable sales rather than from this report.';
+  } else {
+    var pv=pctileOf(peerVals(peers,'homevalue_AVGVAL_CY_1',true),b.homevalue_AVGVAL_CY_1);
+    s+='The average home in this block group is worth <b>'+usd(b.homevalue_AVGVAL_CY_1)+
+       '</b>'+(standing(pv)?', '+standing(pv):'')+'. ';
+    if(b.homevalue_AVGVAL_FY_1&&b.PCT_gain!=null){
+      var up=b.homevalue_AVGVAL_FY_1>=b.homevalue_AVGVAL_CY_1;
+      s+='The five-year projection carried in the block-group data puts it at <b>'+
+         usd(b.homevalue_AVGVAL_FY_1)+'</b>, '+(up?'a gain':'a fall')+' of '+
+         pct(Math.abs(b.PCT_gain))+
+         (b.RE_GROWTH?' and characterised there as '+
+            esc(String(b.RE_GROWTH).toLowerCase()):'')+'. ';
+      var pg=pctileOf(peerVals(peers,'PCT_gain'),b.PCT_gain);
+      if(pg!=null) s+='That rate of appreciation is '+standing(pg)+'. ';
+    }
+    s+='Values of this order set the floor for what new units must achieve to '+
+       'justify construction, and the projection is a vendor estimate rather '+
+       'than a forecast made here.';
+  }
+  if(s) out.push(s);
+
+  /* --- who lives here --- */
+  var g=[{k:'White',v:b.White_Pct},{k:'Hispanic',v:b.Hispanic_Pct},
+         {k:'Asian',v:b.Asian_Pct},{k:'Black',v:b.Black_Pct}]
+        .filter(function(x){return typeof x.v==='number';});
+  if(g.length){
+    g.sort(function(a,c){return c.v-a.v;});
+    s='';
+    if(g[0].v>=65) s+='Residents are predominantly '+g[0].k+' ('+pct(g[0].v)+')';
+    else if(g[0].v>=50) s+='A majority of residents are '+g[0].k+' ('+pct(g[0].v)+')';
+    else s+='The largest group is '+g[0].k+' at '+pct(g[0].v)+', short of a majority';
+    var rest=g.slice(1).filter(function(x){return x.v>=1;})
+                 .map(function(x){return x.k+' at '+pct(x.v);});
+    if(rest.length) s+=', with '+(rest.length>1
+      ? rest.slice(0,-1).join(', ')+' and '+rest[rest.length-1]
+      : rest[0]);
+    s+='. ';
+    if(g[0].v<50) s+='No single group forms a majority, so the immediate '+
+      'catchment is mixed. ';
+    s+='These shares are reported independently of one another and Hispanic '+
+       'origin overlaps the race categories, so they are not expected to total '+
+       '100%. They are set out as market composition; nothing in this '+
+       'assessment weighs them in a site\'s favour or against it.';
+    out.push(s);
+  }
+
+  /* --- tenure --- */
+  if(b.PCT_RENTER!=null){
+    var pr=pctileOf(peerVals(peers,'PCT_RENTER'),b.PCT_RENTER);
+    s='<b>'+pct(b.PCT_RENTER,0)+'</b> of occupied homes are rented and '+
+      pct(b.PCT_OWNER,0)+' owner-occupied'+
+      (standing(pr)?' — a renter share '+standing(pr):'')+'. ';
+    s+=(b.PCT_RENTER>=65
+        ? 'A renter share this high means the surrounding market already '+
+          'functions as a rental one, and new units compete with existing '+
+          'stock rather than having to create the habit.'
+        : b.PCT_RENTER>=40
+        ? 'That is a substantial renting population without the area being '+
+          'dominated by it — the mix that usually supports new multifamily '+
+          'without saturating it.'
+        : 'This is a predominantly owner-occupied area, so new rental units '+
+          'would be entering a market that is not primarily a renting one; '+
+          'that is a demand question to test before committing.');
+    if(b.VacancyRate!=null){
+      var pvac=pctileOf(peerVals(peers,'VacancyRate'),b.VacancyRate);
+      s+=' Vacancy runs at '+pct(b.VacancyRate,0)+
+         (pvac!=null&&pvac<=25?', tight against the other sites assessed':
+          pvac!=null&&pvac>=75?', loose against the other sites assessed':'')+'.';
+    }
+    out.push(s);
+  }
+
+  /* --- the place itself --- */
+  s='';
+  var where=J&&J.name?J.name:(r.city||'this area');
+  if(b.DENSITY!=null){
+    s+='The site sits in '+esc(where)+' at '+num(b.DENSITY)+' people per square '+
+       'mile'+(b.DENSITY_DESC?', '+esc(String(b.DENSITY_DESC).toLowerCase()):'')+
+       ' for the block group';
+    if(b.pop1mile!=null) s+=', with '+num(b.pop1mile)+' people within a mile and '+
+      num(b.pop3mile)+' within three';
+    s+='. ';
+  }
+  if(b.PopInc_comment){
+    // The source string already starts "POPULATION ...", and already carries
+    // its own bracketed range, so neither is repeated around it.
+    var trend=String(b.PopInc_comment).toLowerCase().replace(/^population\s+/,'');
+    s+='Population is '+esc(trend)+
+       (b.PctPopIncrease2227!=null?', '+pct(b.PctPopIncrease2227)+' projected':'')+'. ';
+  }
+  if(b.F5yearincrements_medage_cy!=null){
+    var pa=pctileOf(peerVals(peers,'F5yearincrements_medage_cy'),b.F5yearincrements_medage_cy);
+    s+='Median age is '+b.F5yearincrements_medage_cy+
+       (pa!=null&&pa<=25?', young against the other sites assessed':
+        pa!=null&&pa>=75?', older than most of the sites assessed':'')+
+       (b.AverageHouseholdSize?', and households average '+b.AverageHouseholdSize+
+        ' people':'')+'. ';
+  }
+  if(r.transit_m!=null) s+=(r.transit_m<400?'A transit stop is '+num(r.transit_m)+
+      ' m away, within an easy walk':r.transit_m<800?'The nearest transit stop is '+
+      num(r.transit_m)+' m away':'The nearest transit stop is '+num(r.transit_m)+
+      ' m away, beyond a comfortable walk')+'. ';
+  if(b.TOTALCRIMEPERCENTILE!=null) s+='The block group indexes at '+
+    Math.round(b.TOTALCRIMEPERCENTILE)+' on the total crime percentile, where 100 '+
+    'is the national maximum'+
+    (b.PROPERTYCRIMEPERCENTILE!=null?' ('+Math.round(b.PROPERTYCRIMEPERCENTILE)+
+      ' for property crime, '+Math.round(b.PERSONALCRIMEPERCENTILE)+' personal)':'')+'. ';
+  if(r.mf_near) s+=num(r.mf_near)+' other parcels meeting the same multifamily '+
+    'criteria lie within 300 m, so this is not an isolated opportunity.';
+  if(s) out.push(s);
+  return out;
+}
+
 /* ---------- interpretation helpers (rule-based, never invented) ---------- */
 function geoNote(code){
   var fam=(typeof GEO_FAMILY!=='undefined'&&GEO_FAMILY[code])||null;
@@ -280,6 +461,11 @@ function render(mf,extra,taps){
     return;
   }
   var x=extra[String(r.rank)]||{}, b=x.block||{};
+  // Needed in section 1 as well as section 3, and the peer set is every other
+  // site in this assessment -- the only benchmark this report actually holds.
+  var J=jurisdiction(r,x);
+  var peers=[];
+  for(var pk in extra){ if(extra[pk]&&extra[pk].block) peers.push(extra[pk].block); }
   var tap=null, tn=(r.tapestry||'').trim().toLowerCase();
   taps.forEach(function(t){ if(String(t.name||'').trim().toLowerCase()===tn) tap=t; });
 
@@ -319,7 +505,13 @@ function render(mf,extra,taps){
     S.push('<h3>Market segment: '+esc(r.tapestry)+'</h3>');
   }
 
-  S.push('<h3>This block group</h3>');
+  var narr=narrative(r,b,tap,J,peers);
+  if(narr.length){
+    S.push('<h3>This neighborhood in particular</h3>');
+    narr.forEach(function(para){ S.push('<p>'+para+'</p>'); });
+  }
+
+  S.push('<h3>The numbers</h3>');
   var nb=[];
   nb.push(['Median household income',usd(r.medinc)]);
   nb.push(['Median net worth',usd(b.wealth_mednw_cy)]);
@@ -448,7 +640,6 @@ function render(mf,extra,taps){
 
   /* ===== 3. land use, zoning, surroundings, government ===== */
   S.push('<section><h2>3 · Land Use, Zoning and Jurisdiction</h2>');
-  var J=jurisdiction(r,x);
   var lu=[];
   lu.push(['Jurisdiction','<b>'+esc(J.name)+'</b>'+
     (J.note?'<div style="color:#7a7a72;font-size:12px;margin-top:2px">'+J.note+'</div>':'')]);
