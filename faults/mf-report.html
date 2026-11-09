@@ -125,6 +125,27 @@ function staticMap(lon,lat,style,zoom,pin,wide){
          '('+lon+','+lat+')/'+lon+','+lat+','+zoom+',0/'+size+'?access_token='+
          encodeURIComponent(TOKEN);
 }
+/* The parcel outline drawn over the aerial in white, and the frame fitted to
+   the parcel rather than pinned to one zoom -- these sites run from 0.6 to 19
+   acres, so no single zoom suits them. 'auto' sizes the view to the overlay;
+   the padding keeps the boundary off the edge of the image.
+   White alone, with no dark casing beneath it: a casing means a second copy of
+   the geometry in the URL, and the longest outline here already encodes to
+   4,136 characters against the Static API's 8,192-character URL limit. */
+function boundaryMap(ring,lon,lat,wide){
+  if(!ring) return null;
+  var ov={type:'Feature',
+          properties:{'stroke':'#ffffff','stroke-width':3,'stroke-opacity':1,
+                      'fill':'#ffffff','fill-opacity':0},
+          geometry:ring};
+  var enc=encodeURIComponent(JSON.stringify(ov));
+  var size=(wide?'640x300':'400x300')+'@2x';
+  var url='https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/geojson('+
+          enc+')/auto/'+size+'?padding=40&access_token='+encodeURIComponent(TOKEN);
+  /* Over the limit would come back as an error image rather than a map, so fall
+     back to the plain pinned aerial instead of showing a broken figure. */
+  return url.length<=8000?url:null;
+}
 
 /* ---------- interpretation helpers (rule-based, never invented) ---------- */
 function geoNote(code){
@@ -278,16 +299,22 @@ function render(mf,extra,taps){
 
   /* ===== 2. property ===== */
   S.push('<section><h2>2 · The Property</h2>');
+  var bmap=boundaryMap(x.ring,r.lon,r.lat), outlined=!!bmap;
   S.push('<figure class="two">'+
-    '<div><img alt="Aerial view of the site" loading="lazy" src="'+
-      staticMap(r.lon,r.lat,'satellite-streets-v12',17,'b91c1c')+'"></div>'+
+    '<div><img alt="Aerial view with the parcel boundary outlined in white" '+
+      'loading="lazy" src="'+(bmap||staticMap(r.lon,r.lat,'satellite-streets-v12',17,'b91c1c'))+'"></div>'+
     '<div><img alt="Neighbourhood context" loading="lazy" src="'+
       staticMap(r.lon,r.lat,'light-v11',13,'2d6a5a')+'"></div>'+
-    '</figure><figcaption style="margin-top:-12px"><b>Figure 4.</b> Left: the '+
-    'parcel at '+esc(r.addr||r.apn)+' in aerial view at zoom 17. Right: the same '+
-    'point at zoom 13 for neighbourhood context. Pins mark the parcel centroid, '+
-    'which on an irregular lot is not necessarily within the buildable '+
-    'area.</figcaption>');
+    '</figure><figcaption style="margin-top:-12px"><b>Figure 4.</b> Left: '+
+    (outlined
+      ? 'the boundary of '+esc(r.addr||r.apn)+' outlined in white over aerial '+
+        'imagery, the view fitted to the parcel. The outline is the assessor\'s '+
+        'recorded boundary, simplified to about a metre; it is not a survey, and '+
+        'it does not show easements or setbacks.'
+      : 'the parcel at '+esc(r.addr||r.apn)+' in aerial view at zoom 17.')+
+    ' Right: the same point at zoom 13 for neighbourhood context, pinned at the '+
+    'parcel centroid — which on an irregular lot need not fall inside the '+
+    'buildable area.</figcaption>');
   var pb=[];
   pb.push(['Lot area',num(r.area)+' sq ft · '+(r.acres!=null?r.acres+' acres':'')]);
   pb.push(['Dimensions',ft(r.w_ft)+' × '+ft(r.d_ft)+
