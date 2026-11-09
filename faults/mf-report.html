@@ -1,0 +1,512 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Multifamily Site Report</title>
+<!-- GEO_FAMILY / GEO_COLORS: the same geology lookups the map uses, so a unit
+     code is described here exactly as it is described there. -->
+<script src="./palette.js"></script>
+<style>
+  :root{
+    --ink:#1a1a18; --ink2:#44443e; --mute:#7a7a72; --line:#e2e2db;
+    --paper:#ffffff; --tint:#f7f7f2; --accent:#2d6a5a; --warn:#8a2b1c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#edede7;color:var(--ink);
+       font:15px/1.55 "Helvetica Neue",Helvetica,Arial,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  .sheet{max-width:860px;margin:24px auto;background:var(--paper);
+         box-shadow:0 2px 18px rgba(0,0,0,.12)}
+  .pad{padding:34px 44px}
+  /* ---- masthead ---- */
+  header{border-bottom:3px solid var(--accent);padding:30px 44px 22px}
+  .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--accent);font-weight:700}
+  h1{margin:6px 0 2px;font-size:27px;line-height:1.18;font-weight:650;letter-spacing:-.01em}
+  .sub{color:var(--ink2);font-size:14.5px}
+  .badges{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .badge{border:1px solid var(--line);border-radius:9px;padding:7px 12px;background:var(--tint);min-width:92px}
+  .badge .k{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);font-weight:650}
+  .badge .v{font-size:19px;font-weight:650;line-height:1.25}
+  .badge .v small{font-size:12px;font-weight:500;color:var(--mute)}
+  /* ---- sections ---- */
+  h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);
+     margin:0 0 14px;padding-bottom:7px;border-bottom:1px solid var(--line);font-weight:700}
+  section{padding:28px 44px;border-top:1px solid var(--line)}
+  section:first-of-type{border-top:0}
+  h3{font-size:14.5px;margin:22px 0 8px;font-weight:650}
+  h3:first-child{margin-top:0}
+  p{margin:0 0 11px}
+  .lede{font-size:15.5px;color:var(--ink2)}
+  /* ---- data tables ---- */
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:4px 0 14px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid #f0f0ea;vertical-align:top}
+  th{width:42%;font-weight:600;color:var(--ink2)}
+  td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  tr:last-child th,tr:last-child td{border-bottom:0}
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:0 26px}
+  @media(max-width:640px){.kv{grid-template-columns:1fr}}
+  /* ---- figures ---- */
+  figure{margin:16px 0 20px}
+  figure img{width:100%;display:block;border:1px solid var(--line);border-radius:7px;background:var(--tint)}
+  figcaption{font-size:12px;color:var(--mute);margin-top:7px;line-height:1.45}
+  figcaption b{color:var(--ink2);font-weight:650}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:640px){.two{grid-template-columns:1fr}}
+  /* ---- callouts ---- */
+  .note{background:var(--tint);border-left:3px solid var(--accent);padding:12px 15px;
+        font-size:13px;color:var(--ink2);margin:14px 0;border-radius:0 6px 6px 0}
+  .gap{background:#fdf6ec;border-left:3px solid #b8860b;padding:12px 15px;
+       font-size:13px;color:#5c4a1e;margin:14px 0;border-radius:0 6px 6px 0}
+  .hz{display:flex;align-items:flex-start;gap:11px;padding:9px 0;border-bottom:1px solid #f0f0ea;font-size:13.5px}
+  .hz:last-child{border-bottom:0}
+  .dot{width:11px;height:11px;border-radius:50%;flex:none;margin-top:5px}
+  .hz .nm{font-weight:600;min-width:188px}
+  .hz .dt{color:var(--ink2)}
+  .ok{background:#4e9a6a}.bad{background:var(--warn)}.unk{background:#b9b9b2}
+  footer{padding:22px 44px 30px;border-top:1px solid var(--line);font-size:11.5px;
+         color:var(--mute);line-height:1.5}
+  .err{padding:60px 44px;text-align:center;color:var(--warn)}
+  @media print{
+    body{background:#fff}
+    .sheet{box-shadow:none;margin:0;max-width:none}
+    section{page-break-inside:avoid}
+    figure{page-break-inside:avoid}
+  }
+</style>
+<div class="sheet" id="out"><div class="err">Loading…</div></div>
+<script>
+var TOKEN = atob('cGsuZXlKMUlqb2lhbVJsZG05NUlpd2lZU0k2SW1OdGN6bGljVE0xZURCamRHWXpNRzlsYkhZMmVub3hPRFFpZlEuWTBrbWgxTzNWbVpuV2tQX0lMaWJuQQ==');
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function num(v,d){return v==null||v===''||isNaN(v)?(d==null?'—':d)
+  :Number(v).toLocaleString(undefined,{maximumFractionDigits:0});}
+function usd(v){return v==null||v===''||isNaN(v)||+v===0?'—':'$'+num(v);}
+function pct(v,dp){return v==null||v===''||isNaN(v)?'—':(+v).toFixed(dp==null?1:dp)+'%';}
+function ft(v){return v==null||isNaN(v)?'—':num(Math.round(v))+' ft';}
+
+/* ---------- charts: inline SVG, no library ---------- */
+function barChart(rows,opt){
+  opt=opt||{};
+  var w=opt.w||420, bh=opt.bh||22, gap=8, lw=opt.lw||150, pad=4;
+  var max=opt.max||Math.max.apply(null,rows.map(function(r){return r.v||0;}))||1;
+  var h=rows.length*(bh+gap)-gap+pad*2;
+  var s='<svg viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" role="img">';
+  rows.forEach(function(r,i){
+    var y=pad+i*(bh+gap), bw=Math.max(1,(w-lw-58)*((r.v||0)/max));
+    s+='<text x="0" y="'+(y+bh*0.72)+'" font-size="12" fill="#44443e">'+esc(r.k)+'</text>';
+    s+='<rect x="'+lw+'" y="'+y+'" width="'+bw+'" height="'+bh+'" rx="3" fill="'+(r.c||'#6a51a3')+'"/>';
+    s+='<text x="'+(lw+bw+7)+'" y="'+(y+bh*0.72)+'" font-size="12" fill="#1a1a18" '+
+       'font-weight="600">'+esc(r.lbl!=null?r.lbl:r.v)+'</text>';
+  });
+  return s+'</svg>';
+}
+function stackBar(parts,w){
+  w=w||420; var h=26, x=0, tot=parts.reduce(function(a,b){return a+(b.v||0);},0)||1;
+  var s='<svg viewBox="0 0 '+w+' '+(h+22)+'" width="100%" height="'+(h+22)+'" role="img">';
+  parts.forEach(function(p){
+    var pw=w*((p.v||0)/tot);
+    s+='<rect x="'+x+'" y="0" width="'+Math.max(0,pw-2)+'" height="'+h+'" rx="3" fill="'+p.c+'"/>';
+    if(pw>58) s+='<text x="'+(x+7)+'" y="'+(h*0.68)+'" font-size="12" fill="#fff" '+
+      'font-weight="600">'+(+p.v).toFixed(0)+'%</text>';
+    x+=pw;
+  });
+  x=0;
+  parts.forEach(function(p){
+    var pw=w*((p.v||0)/tot);
+    if(pw>58) s+='<text x="'+(x+7)+'" y="'+(h+16)+'" font-size="11" fill="#7a7a72">'+esc(p.k)+'</text>';
+    x+=pw;
+  });
+  return s+'</svg>';
+}
+function staticMap(lon,lat,style,zoom,pin,wide){
+  var size=(wide?'640x300':'400x300')+'@2x';
+  return 'https://api.mapbox.com/styles/v1/mapbox/'+style+'/static/pin-s+'+pin+
+         '('+lon+','+lat+')/'+lon+','+lat+','+zoom+',0/'+size+'?access_token='+
+         encodeURIComponent(TOKEN);
+}
+
+/* ---------- interpretation helpers (rule-based, never invented) ---------- */
+function geoNote(code){
+  var fam=(typeof GEO_FAMILY!=='undefined'&&GEO_FAMILY[code])||null;
+  var q=/^Q/.test(code||'');
+  return {fam:fam,
+    read: q ? 'Unconsolidated to weakly consolidated Quaternary sediment. '+
+              'Typical of basin-floor sites: adequate bearing for low- and '+
+              'mid-rise construction once compacted or over-excavated, but it '+
+              'is also the setting where liquefaction and differential '+
+              'settlement arise, so a geotechnical investigation governs '+
+              'foundation type.'
+            : 'Pre-Quaternary bedrock or semi-consolidated unit. Generally '+
+              'stronger bearing than basin sediment, with excavation cost and '+
+              'rippability, not bearing capacity, usually the governing issue '+
+              'for a four-storey structure.'};
+}
+function gwNote(g){
+  if(!g||g.depth_ft==null) return null;
+  var d=g.depth_ft, far=g.dist_m>1000;
+  var t;
+  if(d<=10) t='Very shallow. Expect dewatering for any below-grade work and '+
+    'treat liquefaction potential as live.';
+  else if(d<=30) t='Shallow. Subterranean parking or a basement would likely '+
+    'require dewatering and a waterproofing design.';
+  else if(d<=50) t='Moderate. A single below-grade level is usually feasible '+
+    'without permanent dewatering.';
+  else t='Deep. Groundwater is unlikely to govern foundation or excavation design.';
+  return t+(far?' Note the nearest contour is '+num(g.dist_m)+' m away, so this '+
+    'is a regional reading rather than a site measurement.':'');
+}
+</script>
+<script>
+/* ---------- build ---------- */
+function qs(k){var m=new RegExp('[?&]'+k+'=([^&]*)').exec(location.search);
+  return m?decodeURIComponent(m[1]):null;}
+
+Promise.all([
+  fetch('./multifamily.json').then(function(r){return r.json();}),
+  fetch('./mf_report.json').then(function(r){return r.json();}).catch(function(){return {};}),
+  fetch('./tapestry.json').then(function(r){return r.json();}).catch(function(){return [];})
+]).then(function(a){ render(a[0],a[1],a[2]); })
+ .catch(function(e){
+   document.getElementById('out').innerHTML='<div class="err">Could not load the '+
+     'report data.<br><small>'+esc(e&&e.message)+'</small></div>';});
+
+function render(mf,extra,taps){
+  var rank=qs('rank'), apn=qs('apn'), rows=mf.rows||[];
+  var r=null;
+  if(rank) r=rows.filter(function(x){return String(x.rank)===String(rank);})[0];
+  if(!r&&apn) r=rows.filter(function(x){return String(x.apn)===String(apn);})[0];
+  if(!r){
+    document.getElementById('out').innerHTML='<div class="err">No candidate '+
+      'matched <code>'+esc(location.search||'(no query)')+'</code>.<br>'+
+      '<small>Open a report from a candidate on the map.</small></div>';
+    return;
+  }
+  var x=extra[String(r.rank)]||{}, b=x.block||{};
+  var tap=null, tn=(r.tapestry||'').trim().toLowerCase();
+  taps.forEach(function(t){ if(String(t.name||'').trim().toLowerCase()===tn) tap=t; });
+
+  var H=[];
+  /* ===== masthead ===== */
+  H.push('<header>'+
+    '<div class="eyebrow">Multifamily Development Site Report</div>'+
+    '<h1>'+esc(r.addr||('APN '+r.apn))+'</h1>'+
+    '<div class="sub">'+esc(r.city||'')+(r.zip?' '+esc(r.zip):'')+
+      ' · '+(r.co==='OC'?'Orange County':'Los Angeles County')+
+      ' · APN '+esc(r.apn)+'</div>'+
+    '<div class="badges">'+
+      badge('Rank','#'+r.rank,'of '+(mf.scored!=null?num(mf.scored):'')+' scored')+
+      badge('Score',(r.score!=null?r.score:'—'),'of '+(mf.max_score||90))+
+      badge('Site area',(r.acres!=null?r.acres:'—'),'acres')+
+      badge('Capacity',num(r.cap_units),'units at '+num(r.du_acre)+'/ac')+
+      badge('Land value',usd(r.land),'assessor')+
+    '</div></header>');
+
+  /* ===== 1. neighbourhood ===== */
+  var S=['<section><h2>1 · Neighborhood</h2>'];
+  if(tap){
+    S.push('<h3>Market segment: '+esc(tap.name)+
+      (tap.code?' <span style="color:#7a7a72;font-weight:400">('+esc(tap.code)+')</span>':'')+'</h3>');
+    S.push('<p class="lede">'+esc(tap.desc||'')+'</p>');
+    var tb=[];
+    if(tap.lifemode) tb.push(['LifeMode group',esc(tap.lifemode)]);
+    if(tap.urban) tb.push(['Urbanization',esc(tap.urban)]);
+    if(tap.conc) tb.push(['Where it concentrates',esc(tap.conc)]);
+    if(tap.alt) tb.push(['Related segments',esc(tap.alt)]);
+    if(tap.income!=null) tb.push(['Segment median income',usd(tap.income)]);
+    if(tap.worth!=null) tb.push(['Segment median net worth',usd(tap.worth)]);
+    if(tap.age!=null) tb.push(['Segment median age',tap.age]);
+    if(tap.hh!=null) tb.push(['Persons per household',tap.hh]);
+    S.push(tbl(tb));
+  } else if(r.tapestry){
+    S.push('<h3>Market segment: '+esc(r.tapestry)+'</h3>');
+  }
+
+  S.push('<h3>This block group</h3>');
+  var nb=[];
+  nb.push(['Median household income',usd(r.medinc)]);
+  nb.push(['Median net worth',usd(b.wealth_mednw_cy)]);
+  nb.push(['Average home value, current',usd(b.homevalue_AVGVAL_CY_1)]);
+  nb.push(['Average home value, 5-year estimate',usd(b.homevalue_AVGVAL_FY_1)]);
+  if(b.PCT_gain!=null) nb.push(['Implied 5-year change',pct(b.PCT_gain)+
+    (b.RE_GROWTH?' · '+esc(b.RE_GROWTH).toLowerCase():'')]);
+  nb.push(['Median age',b.F5yearincrements_medage_cy!=null?b.F5yearincrements_medage_cy:'—']);
+  nb.push(['Households',num(b.TotalHouseholds)]);
+  nb.push(['Housing units',num(b.TotalHousingUnits)+
+    (b.VacancyRate!=null?' · '+pct(b.VacancyRate,0)+' vacant':'')]);
+  nb.push(['Population within 1 mile',num(b.pop1mile)]);
+  nb.push(['Population within 3 / 5 miles',num(b.pop3mile)+' / '+num(b.pop5mile)]);
+  nb.push(['Block-group density',(b.DENSITY!=null?num(b.DENSITY)+'/sq mi':'—')+
+    (b.DENSITY_DESC?' · '+esc(String(b.DENSITY_DESC).toLowerCase()):'')]);
+  if(b.PopInc_comment) nb.push(['Population trend',esc(String(b.PopInc_comment).toLowerCase())]);
+  if(b.educationalattainment_BACHDEG_CY_P!=null)
+    nb.push(["Bachelor's degree or higher",pct(b.educationalattainment_BACHDEG_CY_P)]);
+  if(b.Pct_Poverty!=null) nb.push(['Poverty rate',pct(b.Pct_Poverty)]);
+  S.push('<div class="kv">'+tbl(nb.slice(0,Math.ceil(nb.length/2)))+
+         tbl(nb.slice(Math.ceil(nb.length/2)))+'</div>');
+
+  if(b.White_Pct!=null){
+    S.push('<figure>'+barChart([
+      {k:'White',v:+b.White_Pct,lbl:pct(b.White_Pct),c:'#6a51a3'},
+      {k:'Hispanic',v:+b.Hispanic_Pct,lbl:pct(b.Hispanic_Pct),c:'#807dba'},
+      {k:'Asian',v:+b.Asian_Pct,lbl:pct(b.Asian_Pct),c:'#9e9ac8'},
+      {k:'Black',v:+b.Black_Pct,lbl:pct(b.Black_Pct),c:'#bcbddc'}
+    ],{max:100,lw:90})+
+    '<figcaption><b>Figure 1.</b> Population by race and ethnicity, '+
+    'census block group '+esc(b.GEOID||'')+'. Shares are reported independently '+
+    'and Hispanic origin overlaps the race categories, so the bars are not '+
+    'expected to total 100%.</figcaption></figure>');
+  }
+  if(b.PCT_OWNER!=null){
+    S.push('<figure>'+stackBar([
+      {k:'Owner-occupied',v:+b.PCT_OWNER,c:'#2d6a5a'},
+      {k:'Renter-occupied',v:+b.PCT_RENTER,c:'#6a51a3'}
+    ])+'<figcaption><b>Figure 2.</b> Tenure split. A renter share of '+
+    pct(b.PCT_RENTER,0)+' is the demand-side signal for this site: the higher '+
+    'it runs, the more of the local market already rents.</figcaption></figure>');
+  }
+  if(b.homevalue_AVGVAL_CY_1!=null&&b.homevalue_AVGVAL_FY_1!=null){
+    S.push('<figure>'+barChart([
+      {k:'Current',v:+b.homevalue_AVGVAL_CY_1,lbl:usd(b.homevalue_AVGVAL_CY_1),c:'#54278f'},
+      {k:'5-year estimate',v:+b.homevalue_AVGVAL_FY_1,lbl:usd(b.homevalue_AVGVAL_FY_1),c:'#9e9ac8'}
+    ],{lw:120})+'<figcaption><b>Figure 3.</b> Average home value now against the '+
+    'five-year estimate carried in the block-group layer'+
+    (b.RE_ASSESS_2022_2027?' ("'+esc(String(b.RE_ASSESS_2022_2027).toLowerCase())+'")':'')+
+    '. A vendor projection, not a forecast produced here.</figcaption></figure>');
+  }
+  S.push('</section>');
+
+  /* ===== 2. property ===== */
+  S.push('<section><h2>2 · The Property</h2>');
+  S.push('<figure class="two">'+
+    '<div><img alt="Aerial view of the site" loading="lazy" src="'+
+      staticMap(r.lon,r.lat,'satellite-streets-v12',17,'b91c1c')+'"></div>'+
+    '<div><img alt="Neighbourhood context" loading="lazy" src="'+
+      staticMap(r.lon,r.lat,'light-v11',13,'2d6a5a')+'"></div>'+
+    '</figure><figcaption style="margin-top:-12px"><b>Figure 4.</b> Left: the '+
+    'parcel at '+esc(r.addr||r.apn)+' in aerial view at zoom 17. Right: the same '+
+    'point at zoom 13 for neighbourhood context. Pins mark the parcel centroid, '+
+    'which on an irregular lot is not necessarily within the buildable '+
+    'area.</figcaption>');
+  var pb=[];
+  pb.push(['Lot area',num(r.area)+' sq ft · '+(r.acres!=null?r.acres+' acres':'')]);
+  pb.push(['Dimensions',ft(r.w_ft)+' × '+ft(r.d_ft)+
+    (r.reg!=null?' · regularity '+(+r.reg).toFixed(2):'')]);
+  pb.push(['Year built',r.yr?r.yr:'no building of record']);
+  pb.push(['Building area',r.bsqft?num(r.bsqft)+' sq ft':'none of record']);
+  pb.push(['Assessed land',usd(r.land)]);
+  pb.push(['Assessed improvements',usd(r.impr)]);
+  pb.push(['Owner of record',esc(r.owner||'—')]);
+  pb.push(['Currently vacant',r.vacant?'yes':'no']);
+  pb.push(['APNs in this site',num(r.apn_n)+(r.grouped?' · '+r.grouped+' adjoining parcel(s) folded in':'')]);
+  pb.push(['Transit, nearest stop',r.transit_m!=null?num(r.transit_m)+' m':'—']);
+  S.push(tbl(pb));
+
+  S.push('<h3>Suitability metrics</h3>');
+  var cats=[
+    {k:'Redevelopment potential',v:r.c_redevelopment,m:30},
+    {k:'Site suitability',v:r.c_site,m:25},
+    {k:'Zoning and capacity',v:r.c_zoning,m:20},
+    {k:'Location and market',v:r.c_location,m:10},
+    {k:'Constraints',v:r.c_constraints,m:5}
+  ];
+  S.push('<figure>'+barChart(cats.map(function(c){
+      return {k:c.k,v:(c.v||0)/c.m*100,lbl:(c.v!=null?(+c.v).toFixed(1):'—')+' / '+c.m,
+              c:'#2d6a5a'};}),{max:100,lw:160})+
+    '<figcaption><b>Figure 5.</b> Score by category, each drawn as a share of '+
+    'the points available in that category, with the raw score beside it. '+
+    'Total '+(r.score!=null?r.score:'—')+' of '+(mf.max_score||90)+
+    '.</figcaption></figure>');
+  if(r.why) S.push('<p><b>Why it scores where it does.</b> '+esc(r.why)+'</p>');
+
+  S.push('<h3>Obstacles to development</h3>');
+  var obs=[];
+  if(r.flags) obs.push('Hazard designations recorded on the site: '+esc(r.flags)+
+    '. Each is set out in section 4.');
+  if(r.c_constraints!=null&&r.c_constraints<5) obs.push('The constraints category '+
+    'scores '+(+r.c_constraints).toFixed(1)+' of 5, the deduction being those designations.');
+  if(r.reg!=null&&r.reg<0.75) obs.push('Lot regularity is '+(+r.reg).toFixed(2)+
+    ', so the parcel departs materially from a rectangle; expect usable area below '+
+    'the gross figure.');
+  if(r.w_ft!=null&&r.w_ft<75) obs.push('Lot width of '+ft(r.w_ft)+' is below the '+
+    '75 ft the criteria prefer, which constrains double-loaded corridor layouts.');
+  if(r.impr&&r.land&&(r.impr/r.land)>0.25) obs.push('Improvements carry '+
+    pct(r.impr/r.land*100,0)+' of land value, so acquisition must buy out a '+
+    'standing asset rather than bare land.');
+  if(r.missing) obs.push('Scored without: '+esc(r.missing)+
+    '. Those points were not awarded or deducted either way.');
+  if(r.gp_src==='spatial') obs.push('The general plan designation was matched to '+
+    'this parcel by location rather than by APN, so confirm it against the '+
+    "jurisdiction's own map before relying on the capacity figure.");
+  if(!obs.length) obs.push('No hazard designation, shape penalty or standing '+
+    'improvement of significance was recorded against this parcel.');
+  S.push('<ul>'+obs.map(function(o){return '<li>'+o+'</li>';}).join('')+'</ul>');
+  S.push('</section>');
+
+  /* ===== 3. land use, zoning, surroundings, government ===== */
+  S.push('<section><h2>3 · Land Use, Zoning and Jurisdiction</h2>');
+  var lu=[];
+  lu.push(['SCAG general plan',esc(r.gp_lbl||'—')+(r.gp?' ('+esc(r.gp)+')':'')]);
+  lu.push(['SCAG zoning code',r.zn?esc(r.zn):'—']);
+  lu.push(['Assessor zoning string',r.zoning?esc(r.zoning):'—']);
+  lu.push(['Permitted density',r.du_acre!=null?num(r.du_acre)+' du/acre':'—']);
+  lu.push(['Implied capacity',num(r.cap_units)+' units']);
+  lu.push(['Specific plan',r.sp?esc(r.sp):'none recorded']);
+  lu.push(['Pathway tier',r.tier==='mf'?'multifamily by right':'conversion pathway']);
+  S.push(tbl(lu));
+  S.push('<div class="note">Zoning here is read two ways on purpose. '+
+    '<b>'+esc(r.zoning||'—')+'</b> is the Assessor\'s string, which is the '+
+    "jurisdiction's own vocabulary — city code for an incorporated parcel, county "+
+    'code for unincorporated land. <b>'+esc(r.zn||'—')+'</b> is SCAG\'s '+
+    'normalisation of the same thing onto one scheme across all 89 jurisdictions, '+
+    'which is what makes parcels comparable. Where they disagree, the '+
+    "jurisdiction's own code governs.</div>");
+
+  S.push('<h3>Expansion onto surrounding parcels</h3>');
+  var ex=[];
+  ex.push(['Adjoining parcels in common ownership',num(r.asm_n)]);
+  ex.push(['Additional area available that way',r.asm_sqft?num(r.asm_sqft)+' sq ft':'—']);
+  ex.push(['Candidate parcels within 300 m',num(r.mf_near)]);
+  S.push(tbl(ex));
+  S.push('<p>'+(r.asm_n>0
+    ? 'This site adjoins '+num(r.asm_n)+' parcel(s) held by the same owner, '+
+      'adding '+num(r.asm_sqft)+' sq ft if assembled — the cheapest form of '+
+      'expansion, since it needs one negotiation rather than several.'
+    : 'No adjoining parcel is held by the same owner, so assembly here means '+
+      'separate negotiations.')+
+    (r.mf_near>0?' '+num(r.mf_near)+' other parcel(s) meeting the same '+
+      'multifamily criteria lie within 300 m, which indicates how far a larger '+
+      'programme could extend.':'')+'</p>');
+
+  S.push('<h3>Local government and other agencies</h3>');
+  S.push('<div class="gap"><b>Not covered by this dataset.</b> The criteria ask '+
+    "for the local government's stance on new development and for other agencies "+
+    'that must be consulted. Neither is a mapped quantity, and nothing in the '+
+    'layers behind this report expresses them, so no assessment is offered here '+
+    'rather than one being inferred. For '+esc(r.city||'this jurisdiction')+
+    ', the items to establish directly are: the current Housing Element and its '+
+    'RHNA allocation; any inclusionary or density-bonus ordinance; design review '+
+    'and CEQA posture on infill; and, where applicable, review by the regional '+
+    'water board, air district, Caltrans for state-highway access, or the Coastal '+
+    'Commission. Treat the capacity figure above as a zoning entitlement ceiling, '+
+    'not as a political forecast.</div>');
+  S.push('</section>');
+
+  /* ===== 4. hazards ===== */
+  S.push('<section><h2>4 · Hazards and Environmental Constraints</h2>');
+  var flags=(r.flags||'').toLowerCase(), miss=(r.missing||'').toLowerCase();
+  function hz(name,test,detail,checked){
+    var on=test, unknown=!checked;
+    return '<div class="hz"><span class="dot '+(unknown?'unk':on?'bad':'ok')+'"></span>'+
+      '<span class="nm">'+esc(name)+'</span><span class="dt">'+
+      (unknown?'not evaluated — '+esc(detail||''):on?esc(detail||'within a mapped zone')
+        :'no mapped zone at this location')+'</span></div>';
+  }
+  var hzs='';
+  hzs+=hz('Alquist-Priolo fault zone',/alquist|fault zone/.test(flags),
+          flags.match(/alquist[^;]*/)?RegExp.lastMatch:'within an A-P zone',
+          miss.indexOf('ap')<0);
+  hzs+=hz('Dam inundation',/dam inundation/.test(flags),
+          (flags.match(/dam inundation[^;]*/)||[''])[0],miss.indexOf('dam')<0);
+  hzs+=hz('FEMA flood zone',/flood/.test(flags),
+          (flags.match(/fema flood[^;]*/)||[''])[0],miss.indexOf('flood')<0);
+  hzs+=hz('Liquefaction',/liquefaction/.test(flags),'within a liquefaction zone',
+          miss.indexOf('liq')<0);
+  hzs+=hz('Tsunami inundation',!!x.tsunami,
+          x.tsunami?('mapped zone'+(x.tsunami.county?' · '+esc(x.tsunami.county):'')):'',
+          x.tsunami!==undefined);
+  hzs+=hz('Earthquake-induced landslide',/landslide/.test(flags),
+          'within a seismic landslide zone',miss.indexOf('slide')<0);
+  hzs+=hz('Fire hazard severity',/fire hazard/.test(flags),
+          (flags.match(/[a-z ]*fire hazard[^;]*/)||[''])[0],miss.indexOf('fire')<0);
+  hzs+=hz('USFWS critical habitat',!!x.habitat,
+          x.habitat?('designated for '+esc(x.habitat.sp||x.habitat.sci||'a listed species')):'',
+          x.habitat!==undefined);
+  S.push(hzs);
+  S.push('<figcaption style="margin-top:12px"><b>Table 1.</b> Each layer '+
+    'point-tested at the parcel centroid. Green is a tested negative, not an '+
+    'untested one. A zone boundary can cross a large parcel, so a negative at '+
+    'the centroid does not clear the whole site.</figcaption>');
+  S.push('</section>');
+
+  /* ===== 5. geology ===== */
+  S.push('<section><h2>5 · Geologic Suitability to Four Storeys</h2>');
+  var gcode=(x.geology||{}).PTYPE, gn=geoNote(gcode), soil=x.soil||{}, slope=x.slope;
+  var gl=[];
+  gl.push(['Geologic unit',gcode?esc(gcode)+(gn.fam?' — '+esc(gn.fam):''):'—']);
+  gl.push(['Soil order',soil.o?esc(soil.o):'—']);
+  gl.push(['Soil map unit',soil.n?esc(soil.n):'—']);
+  gl.push(['Slope class',slope?(slope.low_pct===slope.high_pct
+        ?slope.high_pct+'%':slope.low_pct+'–'+slope.high_pct+'%')+
+        ' (from the soil map unit)':'not stated by the soil map unit']);
+  gl.push(['Depth to groundwater',(x.gw&&x.gw.depth_ft!=null)
+        ?(x.gw.depth_ft+' ft, nearest contour '+num(x.gw.dist_m)+' m away'):'—']);
+  S.push(tbl(gl));
+  if(gcode) S.push('<p><b>Bearing and foundations.</b> '+gn.read+'</p>');
+  var gwn=gwNote(x.gw);
+  if(gwn) S.push('<p><b>Groundwater.</b> '+gwn+'</p>');
+  if(slope) S.push('<p><b>Slope.</b> The SSURGO map unit states '+
+    (slope.low_pct===slope.high_pct?slope.high_pct+'%':slope.low_pct+'–'+slope.high_pct+'%')+
+    '. That is a property of a map unit covering tens of acres, not a measured '+
+    'gradient across this parcel, so a flat class does not rule out a steep '+
+    'corner. No parcel-scale terrain model exists in this dataset.</p>');
+  if(/liquefaction/.test(flags)&&/^Q/.test(gcode||''))
+    S.push('<div class="note"><b>Read these two together.</b> A Quaternary '+
+      'sedimentary unit inside a mapped liquefaction zone is the combination '+
+      'that drives ground-improvement or deep-foundation cost. For four '+
+      'storeys this is routinely engineered, but it belongs in the pro forma '+
+      'from the outset rather than arriving with the soils report.</div>');
+  S.push('</section>');
+
+  /* ===== 6. summary ===== */
+  S.push('<section><h2>6 · Summary of Development Suitability</h2>');
+  var pos=[],neg=[];
+  if(r.score!=null&&mf.max_score) pos.push('scores '+r.score+' of '+mf.max_score+
+    ', ranking #'+r.rank+' of '+num(mf.scored)+' parcels assessed');
+  if(r.cap_units) pos.push('zoning supports roughly '+num(r.cap_units)+' units at '+
+    num(r.du_acre)+' du/acre');
+  if(r.vacant) pos.push('the lot carries no building of record, so there is no '+
+    'demolition or tenant relocation');
+  if(r.transit_m!=null&&r.transit_m<800) pos.push('a transit stop lies '+
+    num(r.transit_m)+' m away');
+  if(b.PCT_RENTER!=null&&+b.PCT_RENTER>40) pos.push('renters are already '+
+    pct(b.PCT_RENTER,0)+' of the block group');
+  if(r.asm_n>0) pos.push(num(r.asm_n)+' adjoining parcel(s) in the same ownership '+
+    'offer expansion without a second counterparty');
+  if(r.reg!=null&&r.reg>0.9) pos.push('the lot is close to rectangular '+
+    '(regularity '+(+r.reg).toFixed(2)+')');
+  if(r.flags) neg.push('hazard designations: '+esc(r.flags));
+  if(x.gw&&x.gw.depth_ft!=null&&x.gw.depth_ft<=30) neg.push('groundwater at '+
+    x.gw.depth_ft+' ft complicates below-grade construction');
+  if(r.w_ft!=null&&r.w_ft<75) neg.push('lot width '+ft(r.w_ft)+' is below the preferred 75 ft');
+  if(r.tier!=='mf') neg.push('housing is a conversion pathway here rather than '+
+    'permitted by right');
+  if(r.missing) neg.push('some criteria could not be evaluated: '+esc(r.missing));
+  neg.push("the jurisdiction's political posture and the agency review path are "+
+    'outside this dataset and remain to be established');
+  S.push('<h3>In favour</h3><ul>'+pos.map(function(p){return '<li>'+p+'</li>';}).join('')+'</ul>');
+  S.push('<h3>Against, or to be resolved</h3><ul>'+neg.map(function(p){return '<li>'+p+'</li>';}).join('')+'</ul>');
+  S.push('<div class="note">This report assembles mapped and assessor data. It '+
+    'is a screening instrument: it narrows a two-county parcel fabric to sites '+
+    'worth a site visit, a title search and a geotechnical scope. It is not an '+
+    'appraisal, a feasibility study, or entitlement advice, and no figure here '+
+    'has been verified against a jurisdiction\'s own records.</div>');
+  S.push('</section>');
+
+  var now=new Date().toISOString().slice(0,10);
+  S.push('<footer>Generated '+now+' from the Geonomics multifamily siting '+
+    'assessment · scoring per Multifamily_Criteria.docx, reported out of '+
+    (mf.max_score||90)+' · parcel and roll data from the LA County and Orange '+
+    'County assessors · demographics from census block groups · hazards from CGS, '+
+    'FEMA, DSOD, CAL FIRE and USFWS · geology CGS, soils SSURGO, groundwater DWR.'+
+    '<br>Centroid '+(+r.lat).toFixed(6)+', '+(+r.lon).toFixed(6)+
+    ' · <a href="./">back to the map</a></footer>');
+
+  document.getElementById('out').innerHTML=H.join('')+S.join('');
+  document.title=(r.addr||('APN '+r.apn))+' — Multifamily Site Report';
+}
+function badge(k,v,s){return '<div class="badge"><div class="k">'+esc(k)+
+  '</div><div class="v">'+esc(v)+(s?' <small>'+esc(s)+'</small>':'')+'</div></div>';}
+function tbl(rows){return '<table>'+rows.map(function(r){
+  return '<tr><th>'+r[0]+'</th><td>'+r[1]+'</td></tr>';}).join('')+'</table>';}
+</script>

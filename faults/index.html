@@ -3732,6 +3732,16 @@ map.on('load', function () {
         'style="color:#85857e;font-size:11px">General plan matched by location ' +
         'rather than APN</div>';
       html += mfLinks(mf.lat, mf.lon);
+      // The full written report for this candidate. Keyed on rank, not APN:
+      // five shortlisted sites share Orange County APN 125-162-63 and two share
+      // 124-101-34, so an APN link would be ambiguous for seven of the 500.
+      if (mf.rank != null) {
+        html += '<div class="pop-row mf-links">' +
+          '<a href="./mf-report.html?rank=' + encodeURIComponent(mf.rank) +
+          '" target="_blank" rel="noopener"><b>Create Report</b></a>' +
+          '<div class="mf-hint">Neighbourhood, property, zoning, hazards and ' +
+          'geology for this parcel, formatted to print</div></div>';
+      }
     }
 
     if (rf && showRedfin) {
