@@ -3691,6 +3691,28 @@ map.on('load', function () {
               (mf.apn ? ' · APN ' + esc(mf.apn) : '') +
               (mf.apn_n > 1 ? ' <span style="color:#85857e">(' + mf.apn_n +
                               ' APNs on one footprint)</span>' : '') + '</div>';
+      // The body that actually governs land use here, from the Census
+      // municipal boundaries rather than from the line above it: the situs
+      // city is a postal address, and on a county island -- or on a bad
+      // record -- the two are different answers.
+      if (mf.juris) {
+        // The two cases read differently. Inside a city, naming a different
+        // situs city is a contradiction worth flagging. On county land it is
+        // not a contradiction at all -- the parcel has a postal address like
+        // anywhere else -- so it is labelled rather than negated. A substring
+        // test would have missed this: "Los Angeles" sits inside
+        // "Unincorporated Los Angeles County".
+        var jc = /^City of (.+)$/.exec(mf.juris), mc = String(mf.city || '').trim();
+        var tail = '';
+        if (jc && mc && jc[1].toLowerCase() !== mc.toLowerCase()) {
+          tail = ' <span style="color:#85857e">(not ' + esc(mc) + ')</span>';
+        } else if (!jc && mc && !/^unincorp/i.test(mc)) {
+          tail = ' <span style="color:#85857e">· ' + esc(mc) +
+                 ' is the postal address</span>';
+        }
+        html += '<div class="pop-row"><b>Jurisdiction:</b> ' +
+                esc(mf.juris) + tail + '</div>';
+      }
       html += '<div class="pop-row"><b>' + esc(mf.score) + '</b> of 90 ' +
               '<span style="color:#85857e">· ' + esc(mf.pct_avail) +
               '% of the points that could be scored</span></div>';
@@ -5668,8 +5690,8 @@ var LAYER_COLS = {
   slide: { lead: ['q', 'rl', 'rv', 'pdf', 'rpt'] },
   tsu: { lead: ['county'] },
   hab: { lead: ['sp', 'sci', 'lst', 'st', 'pub', 'fr'] },
-  mf: { lead: ['rank', 'score', 'addr', 'city', 'apn', 'area', 'cap_units',
-               'du_acre', 'gp_lbl', 'yr', 'transit_m'] },
+  mf: { lead: ['rank', 'score', 'addr', 'city', 'juris', 'apn', 'area',
+               'cap_units', 'du_acre', 'gp_lbl', 'yr', 'transit_m'] },
   scag: { derive: { land_use: function (p) { return scagLabel(p.lu) ||
                                               SCAG_NAMES[p.cat] || ''; } },
           lead: ['ain', 'land_use', 'lu', 'cat', 'cty'] },
