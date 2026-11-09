@@ -248,6 +248,39 @@ function jurisdictionFallback(r){
     note:'inferred from the situs city alone — this parcel carries no zoning code'};
 }
 
+/* "KG" and "06" are how TIGER writes the grade span. */
+function gradeSpan(d){
+  function g(v){ v=String(v||'').trim();
+    return v==='KG'?'K':v.replace(/^0/,''); }
+  if(!d||!d.lo||!d.hi) return '';
+  return ' <span style="color:#7a7a72">(' + g(d.lo) + '–' + g(d.hi) + ')</span>';
+}
+function schoolsBlock(sch){
+  if(!sch) return '';
+  var rows=[];
+  if(sch.unified) rows.push(['Unified district',
+    esc(sch.unified.name)+gradeSpan(sch.unified)]);
+  if(sch.elementary) rows.push(['Elementary district',
+    esc(sch.elementary.name)+gradeSpan(sch.elementary)]);
+  if(sch.secondary) rows.push(['Secondary district',
+    esc(sch.secondary.name)+gradeSpan(sch.secondary)]);
+  if(!rows.length) return '';
+  return '<h3>Schools</h3>'+tbl(rows)+
+    '<div class="gap"><b>No school rating is given here, because none is in '+
+    'this data.</b> The district boundaries above come from the Census '+
+    'TIGER/Line school district layers, which carry names and grade spans and '+
+    'nothing about performance. California also publishes no single school '+
+    '"rating": the state reports CAASPP results — the share of pupils meeting '+
+    'or exceeding standard in English and mathematics — and the California '+
+    'School Dashboard, which uses colour indicators across several measures '+
+    'rather than one score. The familiar 1-to-10 numbers come from commercial '+
+    'services under their own licences. Any of those can be joined to the '+
+    'districts named above; none of them is asserted here.<br><br>'+
+    'Note also that a district boundary is not an attendance area. Which '+
+    'school a given address feeds into is set by the district and changes; for '+
+    'a specific parcel it has to be confirmed with the district itself.</div>';
+}
+
 /* ---------- neighbourhood narrative ----------------------------------------
    Written from the numbers in the row rather than about them: every clause
    below is a statement some field makes, and nothing is asserted that the data
@@ -609,6 +642,7 @@ function render(mf,extra,taps){
     'Percentiles rank the area; they are not rates, and they say nothing about '+
     'the trend.</figcaption></figure>');
   }
+  S.push(schoolsBlock(x.schools));
   S.push('</section>');
 
   /* ===== 2. property ===== */
