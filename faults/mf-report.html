@@ -161,13 +161,48 @@ var OC_CITIES={'Aliso Viejo':1,'Anaheim':1,'Brea':1,'Buena Park':1,'Costa Mesa':
 
 /* Which authority actually governs land use here -- the first thing a developer
    needs, because everything else in this section is that body's to decide.
-   In LA County the Assessor's zoning string answers it directly: it is the
-   jurisdiction's own code behind a two-letter tag, 'LC' for unincorporated
-   county and 'LA' for the City of Los Angeles. That tag beats the situs city,
-   which is a postal address: eight of the fourteen unincorporated sites on this
-   shortlist carry a city name like Covina or Inglewood while sitting in a
-   county island those cities do not govern. */
-function jurisdiction(r){
+
+   Answered by point-in-polygon against the Census TIGER/Line places for
+   California: inside an incorporated city or town, that city governs; inside a
+   census designated place or outside every place, the county does, a CDP being
+   a statistical area with no government of its own.
+
+   The Assessor zoning tag is kept as a cross-check rather than the answer. It
+   agreed on 489 of these 500 and the municipal boundary was right in all
+   eleven exceptions -- including two Palmdale parcels whose situs city reads
+   'Pearland', which is in Texas. Where the two still disagree the report says
+   so, because a county zoning tag inside a city boundary usually means a
+   recent annexation the Assessor string has not caught up with, and that is
+   worth a developer's phone call rather than a silent decision here. */
+function jurisdiction(r,x){
+  var p=x&&x.place;
+  if(p&&p.authority){
+    var z=String(r.zoning||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+    var city=String(r.city||'').trim();
+    var notes=[];
+    if(!p.incorporated&&p.namelsad)
+      notes.push('The site lies in '+esc(p.namelsad)+', a census designated '+
+        'place — a statistical area, not a government. The county is the '+
+        'land-use authority.');
+    if(p.incorporated&&city&&city.toLowerCase()!==String(p.name||'').toLowerCase())
+      notes.push('The parcel\'s recorded situs city reads '+esc(city)+
+        ', which the municipal boundary does not bear out; the boundary governs.');
+    // Only worth saying when the postal city is a different name from the CDP;
+    // on Rancho Mission Viejo parcels the two are the same string and saying it
+    // twice reads like a stutter.
+    if(!p.incorporated&&city&&!/^unincorp/i.test(city)&&
+       city.toLowerCase()!==String(p.name||'').toLowerCase())
+      notes.push(esc(city)+' is the postal address, not the land-use authority.');
+    if(r.co!=='OC'&&p.incorporated&&z.indexOf('LC')===0)
+      notes.push('The Assessor zoning code begins LC, the unincorporated-county '+
+        'tag, inside an incorporated boundary — usually a parcel annexed since '+
+        'the zoning string was written. Confirm with '+esc(p.name)+'.');
+    return {name:p.authority,note:notes.join(' ')||null};
+  }
+  return jurisdictionFallback(r);
+}
+/* Used only if the supporting data file predates the places lookup. */
+function jurisdictionFallback(r){
   var z=String(r.zoning||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
   var city=String(r.city||'').trim();
   if(r.co==='OC'){
@@ -413,7 +448,7 @@ function render(mf,extra,taps){
 
   /* ===== 3. land use, zoning, surroundings, government ===== */
   S.push('<section><h2>3 · Land Use, Zoning and Jurisdiction</h2>');
-  var J=jurisdiction(r);
+  var J=jurisdiction(r,x);
   var lu=[];
   lu.push(['Jurisdiction','<b>'+esc(J.name)+'</b>'+
     (J.note?'<div style="color:#7a7a72;font-size:12px;margin-top:2px">'+J.note+'</div>':'')]);
@@ -425,12 +460,12 @@ function render(mf,extra,taps){
   lu.push(['Specific plan',r.sp?esc(r.sp):'none recorded']);
   lu.push(['Pathway tier',r.tier==='mf'?'multifamily by right':'conversion pathway']);
   S.push(tbl(lu));
-  S.push('<div class="note">Jurisdiction is read from the Assessor zoning code, '+
-    'not from the mailing address. In Los Angeles County that code carries the '+
-    "jurisdiction's own two-letter tag — LC for unincorporated county, LA for "+
-    'the City of Los Angeles — and it governs where the two disagree, which on '+
-    'a county island they often do.<br><br>'+
-    'Zoning itself is read two ways on purpose. '+
+  S.push('<div class="note">Jurisdiction is established by the parcel centroid '+
+    'against the Census TIGER/Line municipal boundaries for California, not by '+
+    'the mailing address: inside an incorporated city or town that city '+
+    'governs, and inside a census designated place — or outside every place — '+
+    'the county does. The Assessor zoning tag is used only to cross-check it.'+
+    '<br><br>Zoning itself is read two ways on purpose. '+
     '<b>'+esc(r.zoning||'—')+'</b> is the Assessor\'s string, which is the '+
     "jurisdiction's own vocabulary — city code for an incorporated parcel, county "+
     'code for unincorporated land. <b>'+esc(r.zn||'—')+'</b> is SCAG\'s '+
