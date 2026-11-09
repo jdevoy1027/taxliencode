@@ -119,6 +119,31 @@ function stackBar(parts,w){
   });
   return s+'</svg>';
 }
+/* Percentile bars against a marked national median. The reference line matters
+   more than the bars: 50 is the middle of all US block groups, so a bar near it
+   is unremarkable and a reader without the line has no way to know that.
+   One hue, no red/amber/green banding -- thresholds would assert a judgement
+   about what counts as a safe area that this data does not support. */
+function crimeChart(rows,w){
+  w=w||420; var bh=24, gap=10, lw=132, pad=6, right=46;
+  var plot=w-lw-right, h=rows.length*(bh+gap)-gap+pad*2+16;
+  var s='<svg viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" role="img">';
+  var x50=lw+plot*0.5;
+  s+='<line x1="'+x50+'" y1="'+(pad-3)+'" x2="'+x50+'" y2="'+(h-18)+'" '+
+     'stroke="#b9b9b2" stroke-width="1" stroke-dasharray="3 3"/>';
+  s+='<text x="'+x50+'" y="'+(h-5)+'" font-size="10.5" fill="#7a7a72" '+
+     'text-anchor="middle">national median</text>';
+  rows.forEach(function(r,i){
+    var y=pad+i*(bh+gap), v=Math.max(0,Math.min(100,r.v||0)), bw=plot*(v/100);
+    s+='<text x="0" y="'+(y+bh*0.7)+'" font-size="12" fill="#44443e">'+esc(r.k)+'</text>';
+    s+='<rect x="'+lw+'" y="'+y+'" width="'+plot+'" height="'+bh+
+       '" rx="3" fill="#f0f0ea"/>';
+    s+='<rect x="'+lw+'" y="'+y+'" width="'+bw+'" height="'+bh+'" rx="3" fill="#6a51a3"/>';
+    s+='<text x="'+(lw+plot+6)+'" y="'+(y+bh*0.7)+'" font-size="12" '+
+       'font-weight="600" fill="#1a1a18">'+Math.round(v)+'</text>';
+  });
+  return s+'</svg>';
+}
 function staticMap(lon,lat,style,zoom,pin,wide){
   var size=(wide?'640x300':'400x300')+'@2x';
   return 'https://api.mapbox.com/styles/v1/mapbox/'+style+'/static/pin-s+'+pin+
@@ -531,6 +556,13 @@ function render(mf,extra,taps){
   if(b.educationalattainment_BACHDEG_CY_P!=null)
     nb.push(["Bachelor's degree or higher",pct(b.educationalattainment_BACHDEG_CY_P)]);
   if(b.Pct_Poverty!=null) nb.push(['Poverty rate',pct(b.Pct_Poverty)]);
+  if(b.TOTALCRIMEPERCENTILE!=null){
+    nb.push(['Crime percentile, total',Math.round(b.TOTALCRIMEPERCENTILE)+
+      ' of 100 <span style="color:#7a7a72">(50 = national median)</span>']);
+    nb.push(['Crime percentile, personal / property',
+      Math.round(b.PERSONALCRIMEPERCENTILE)+' / '+
+      Math.round(b.PROPERTYCRIMEPERCENTILE)]);
+  }
   S.push('<div class="kv">'+tbl(nb.slice(0,Math.ceil(nb.length/2)))+
          tbl(nb.slice(Math.ceil(nb.length/2)))+'</div>');
 
@@ -563,6 +595,20 @@ function render(mf,extra,taps){
     (b.RE_ASSESS_2022_2027?' ("'+esc(String(b.RE_ASSESS_2022_2027).toLowerCase())+'")':'')+
     '. A vendor projection, not a forecast produced here.</figcaption></figure>');
   }
+  if(b.TOTALCRIMEPERCENTILE!=null){
+    var pc=pctileOf(peerVals(peers,'TOTALCRIMEPERCENTILE'),b.TOTALCRIMEPERCENTILE);
+    S.push('<figure>'+crimeChart([
+      {k:'Personal crime',v:b.PERSONALCRIMEPERCENTILE},
+      {k:'Property crime',v:b.PROPERTYCRIMEPERCENTILE},
+      {k:'Total crime',v:b.TOTALCRIMEPERCENTILE}
+    ])+'<figcaption><b>Figure 4.</b> Crime percentile for this block group '+
+    'against all US block groups: 50 is the national median and <b>higher means '+
+    'more reported crime</b>, so a short bar is the favourable direction. '+
+    'This block group sits at '+Math.round(b.TOTALCRIMEPERCENTILE)+
+    ' on the total measure'+(standing(pc)?', '+standing(pc):'')+'. '+
+    'Percentiles rank the area; they are not rates, and they say nothing about '+
+    'the trend.</figcaption></figure>');
+  }
   S.push('</section>');
 
   /* ===== 2. property ===== */
@@ -573,7 +619,7 @@ function render(mf,extra,taps){
       'loading="lazy" src="'+(bmap||staticMap(r.lon,r.lat,'satellite-streets-v12',17,'b91c1c'))+'"></div>'+
     '<div><img alt="Neighbourhood context" loading="lazy" src="'+
       staticMap(r.lon,r.lat,'light-v11',13,'2d6a5a')+'"></div>'+
-    '</figure><figcaption style="margin-top:-12px"><b>Figure 4.</b> Left: '+
+    '</figure><figcaption style="margin-top:-12px"><b>Figure 5.</b> Left: '+
     (outlined
       ? 'the boundary of '+esc(r.addr||r.apn)+' outlined in white over aerial '+
         'imagery, the view fitted to the parcel. The outline is the assessor\'s '+
@@ -608,7 +654,7 @@ function render(mf,extra,taps){
   S.push('<figure>'+barChart(cats.map(function(c){
       return {k:c.k,v:(c.v||0)/c.m*100,lbl:(c.v!=null?(+c.v).toFixed(1):'—')+' / '+c.m,
               c:'#2d6a5a'};}),{max:100,lw:160})+
-    '<figcaption><b>Figure 5.</b> Score by category, each drawn as a share of '+
+    '<figcaption><b>Figure 6.</b> Score by category, each drawn as a share of '+
     'the points available in that category, with the raw score beside it. '+
     'Total '+(r.score!=null?r.score:'—')+' of '+(mf.max_score||90)+
     '.</figcaption></figure>');
