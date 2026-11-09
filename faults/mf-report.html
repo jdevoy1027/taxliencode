@@ -147,6 +147,47 @@ function boundaryMap(ring,lon,lat,wide){
   return url.length<=8000?url:null;
 }
 
+/* Orange County's 34 incorporated cities. Anything else the parcel claims as a
+   city there -- Rancho Mission Viejo, Ladera Ranch, Coto de Caza, North Tustin
+   -- is a community inside unincorporated county, not a jurisdiction. */
+var OC_CITIES={'Aliso Viejo':1,'Anaheim':1,'Brea':1,'Buena Park':1,'Costa Mesa':1,
+  'Cypress':1,'Dana Point':1,'Fountain Valley':1,'Fullerton':1,'Garden Grove':1,
+  'Huntington Beach':1,'Irvine':1,'La Habra':1,'La Palma':1,'Laguna Beach':1,
+  'Laguna Hills':1,'Laguna Niguel':1,'Laguna Woods':1,'Lake Forest':1,
+  'Los Alamitos':1,'Mission Viejo':1,'Newport Beach':1,'Orange':1,'Placentia':1,
+  'Rancho Santa Margarita':1,'San Clemente':1,'San Juan Capistrano':1,
+  'Santa Ana':1,'Seal Beach':1,'Stanton':1,'Tustin':1,'Villa Park':1,
+  'Westminster':1,'Yorba Linda':1};
+
+/* Which authority actually governs land use here -- the first thing a developer
+   needs, because everything else in this section is that body's to decide.
+   In LA County the Assessor's zoning string answers it directly: it is the
+   jurisdiction's own code behind a two-letter tag, 'LC' for unincorporated
+   county and 'LA' for the City of Los Angeles. That tag beats the situs city,
+   which is a postal address: eight of the fourteen unincorporated sites on this
+   shortlist carry a city name like Covina or Inglewood while sitting in a
+   county island those cities do not govern. */
+function jurisdiction(r){
+  var z=String(r.zoning||'').toUpperCase().replace(/[^A-Z0-9.]/g,'');
+  var city=String(r.city||'').trim();
+  if(r.co==='OC'){
+    if(city&&OC_CITIES[city]) return {name:'City of '+city};
+    if(city) return {name:'Unincorporated Orange County',
+      note:esc(city)+' is a community within the unincorporated county, not an incorporated city'};
+    return {name:'Orange County — not determined',
+      note:'no city recorded against this parcel'};
+  }
+  if(z.indexOf('LC')===0) return {name:'Unincorporated Los Angeles County',
+    note:(city&&!/^unincorp/i.test(city))
+      ? esc(city)+' is the postal address; the County, not that city, is the land-use authority':null};
+  if(z.indexOf('LA')===0) return {name:'City of Los Angeles',
+    note:(city&&city.toLowerCase()!=='los angeles')
+      ? esc(city)+' is a district within the city':null};
+  if(z) return {name:city?('City of '+city):'Incorporated city — name not recorded'};
+  return {name:city?('City of '+city):'Not determined',
+    note:'inferred from the situs city alone — this parcel carries no zoning code'};
+}
+
 /* ---------- interpretation helpers (rule-based, never invented) ---------- */
 function geoNote(code){
   var fam=(typeof GEO_FAMILY!=='undefined'&&GEO_FAMILY[code])||null;
@@ -372,7 +413,10 @@ function render(mf,extra,taps){
 
   /* ===== 3. land use, zoning, surroundings, government ===== */
   S.push('<section><h2>3 · Land Use, Zoning and Jurisdiction</h2>');
+  var J=jurisdiction(r);
   var lu=[];
+  lu.push(['Jurisdiction','<b>'+esc(J.name)+'</b>'+
+    (J.note?'<div style="color:#7a7a72;font-size:12px;margin-top:2px">'+J.note+'</div>':'')]);
   lu.push(['SCAG general plan',esc(r.gp_lbl||'—')+(r.gp?' ('+esc(r.gp)+')':'')]);
   lu.push(['SCAG zoning code',r.zn?esc(r.zn):'—']);
   lu.push(['Assessor zoning string',r.zoning?esc(r.zoning):'—']);
@@ -381,7 +425,12 @@ function render(mf,extra,taps){
   lu.push(['Specific plan',r.sp?esc(r.sp):'none recorded']);
   lu.push(['Pathway tier',r.tier==='mf'?'multifamily by right':'conversion pathway']);
   S.push(tbl(lu));
-  S.push('<div class="note">Zoning here is read two ways on purpose. '+
+  S.push('<div class="note">Jurisdiction is read from the Assessor zoning code, '+
+    'not from the mailing address. In Los Angeles County that code carries the '+
+    "jurisdiction's own two-letter tag — LC for unincorporated county, LA for "+
+    'the City of Los Angeles — and it governs where the two disagree, which on '+
+    'a county island they often do.<br><br>'+
+    'Zoning itself is read two ways on purpose. '+
     '<b>'+esc(r.zoning||'—')+'</b> is the Assessor\'s string, which is the '+
     "jurisdiction's own vocabulary — city code for an incorporated parcel, county "+
     'code for unincorporated land. <b>'+esc(r.zn||'—')+'</b> is SCAG\'s '+
