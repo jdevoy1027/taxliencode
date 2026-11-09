@@ -614,7 +614,7 @@
 
       <div class="toc">
         <div class="tr">
-          <input type="checkbox" id="t-syn" checked>
+          <input type="checkbox" id="t-syn">
           <button class="tw" type="button" data-sym="sym-syn" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
           <span class="lbl" data-layer="syn" tabindex="0" role="button">Synergy sites</span>
@@ -663,7 +663,7 @@
 
       <div class="toc">
         <div class="tr">
-          <input type="checkbox" id="t-mf">
+          <input type="checkbox" id="t-mf" checked>
           <button class="tw" type="button" data-sym="sym-mf" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
           <span class="lbl" data-layer="mf" tabindex="0" role="button">Multifamily candidates</span>
@@ -751,7 +751,7 @@
 
       <div class="toc">
         <div class="tr">
-          <input type="checkbox" id="t-bores" checked>
+          <input type="checkbox" id="t-bores">
           <button class="tw" type="button" data-sym="sym-bores" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
           <span class="lbl" data-layer="bores" tabindex="0" role="button">Boreholes (CGS)</span>
@@ -771,7 +771,7 @@
 
       <div class="toc">
         <div class="tr">
-          <input type="checkbox" id="t-faults" checked>
+          <input type="checkbox" id="t-faults">
           <button class="tw" type="button" data-sym="sym-faults" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
           <span class="lbl" data-layer="faults" tabindex="0" role="button">CGS Faults</span>
@@ -986,7 +986,7 @@
 
       <div class="toc">
         <div class="tr">
-          <input type="checkbox" id="t-parcels">
+          <input type="checkbox" id="t-parcels" checked>
           <button class="tw" type="button" data-sym="sym-parcels" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
           <span class="lbl" data-layer="parcels" tabindex="0" role="button">Parcels (LA + Orange)</span>
@@ -998,7 +998,7 @@
             <option value="value">Colour by land value</option>
           </select>
           <div class="slider">
-            <input type="range" id="pc-op" min="0" max="100" value="35" disabled>
+            <input type="range" id="pc-op" min="0" max="100" value="35">
             <span id="pc-op-v">35%</span>
           </div>
           <div id="pc-legend"></div>
@@ -1051,7 +1051,7 @@
 
       <div class="toc">
         <div class="tr">
-          <input type="checkbox" id="t-geo" checked>
+          <input type="checkbox" id="t-geo">
           <button class="tw" type="button" data-sym="sym-geo" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
           <span class="lbl" data-layer="geo" tabindex="0" role="button">Geology (by unit)</span>
@@ -1181,7 +1181,12 @@ var SOILS = [
 // active layer, fault-age filters and the camera. Read before the map is
 // constructed so the saved centre and zoom can seed it directly -- restoring the
 // view afterwards would show the default position first and then jump.
-var STATE_KEY = 'tlc.mapState.v1';
+// Bumped from v1 to retire saved sessions once. The opening layer set below
+// changed -- multifamily candidates and parcels on a light base map, nothing
+// else -- and a returning visitor carrying v1 state would never see it, because
+// restoreState() prefers what was saved over any default. Legend colours live
+// under their own key and are NOT discarded by this.
+var STATE_KEY = 'tlc.mapState.v2';
 var panelOpen = true;
 var SAVED = (function () {
   try {
@@ -1229,13 +1234,13 @@ var visibleAge = {};
 AGES.forEach(function (a) {
   visibleAge[a.code] = !(SAVED && SAVED.ages && SAVED.ages[a.code] === false);
 });
-var showGeo = true, showFaults = true, showLabels = true, geoOpacity = 0.5;
+var showGeo = false, showFaults = false, showLabels = true, geoOpacity = 0.5;
 var showSoils = false, showSoilLabels = true, soilOpacity = 0.75, soilsRequested = false;
-var showBores = true, showBoreLabels = true;
+var showBores = false, showBoreLabels = true;
 // Off by default: 10,300 points over a few square miles, which would bury the
 // rest of the map for anyone not looking for them.
 var showExide = false;
-var showMf = false;
+var showMf = true;
 var mfTop = 50;        // how many ranks the layer draws
 var showFlood = false;
 var showInund = false;
@@ -1247,12 +1252,12 @@ var showHab = false;
 var showFhsz = false;
 var showGwCt = false;
 var showUsgsCt = false;
-var baseMap = (SAVED && SAVED.base) || 'naip';   // 'light' | 'sat' | 'naip'
+var baseMap = (SAVED && SAVED.base) || 'light';  // 'light' | 'sat' | 'naip'
 var showContours = false;
 var showAP = false;
 var showLiq = false;
 var showPipe = false;
-var showSyn = true;   // small site layer, on by default
+var showSyn = false;
 var SYN_FEATURES = null;   // pristine site features, kept so values can be re-applied
 var SYN_COLOR = '#e6007e';
 // Layers whose colour was written straight into the paint. Variables now, so
@@ -1507,7 +1512,7 @@ function pipeColorExpr() {
   return e;
 }
 var showBlocks = false, blockOpacity = 0.6;
-var showParcels = false, parcelOpacity = 0.35, parcelColorBy = 'use';
+var showParcels = true, parcelOpacity = 0.35, parcelColorBy = 'use';
 var showWells = false;
 var showWater = false;
 
@@ -3591,13 +3596,23 @@ map.on('load', function () {
   // Re-apply if the style reloads for any reason; the guard above makes this
   // idempotent.
   map.on('styledata', hideNamedLabels);
-  var done = {};
-  map.on('sourcedata', function (e) {
-    if ((e.sourceId === 'geology' || e.sourceId === 'faults') && map.isSourceLoaded(e.sourceId)) {
-      done[e.sourceId] = 1;
-      if (done.geology && done.faults) document.getElementById('loading').hidden = true;
-    }
-  });
+  // The overlay used to wait for the geology and faults sources specifically,
+  // which worked only while both layers were on at startup. They are not any
+  // more, and a hidden vector layer never requests tiles, so isSourceLoaded
+  // would never have come true for geology and 'Loading map data…' would have
+  // sat on the map for ever. 'idle' is the signal that actually means what the
+  // overlay claims: everything the current view needs has been fetched and
+  // drawn, whichever layers those happen to be.
+  var hideLoading = function () {
+    var el = document.getElementById('loading');
+    if (el) el.hidden = true;
+  };
+  map.once('idle', hideLoading);
+  // Belt and braces: a source that errors leaves 'idle' unreached, and an
+  // overlay that outlives the map it describes is worse than one that goes
+  // early.
+  setTimeout(hideLoading, 15000);
+  map.on('error', hideLoading);
 
   if (window.initAnnotate) {
     initAnnotate(map);
@@ -8793,8 +8808,29 @@ function saveState() {
   saveTimer = setTimeout(flushState, 350);
 }
 
+// Which sliders and sub-toggles are usable follows which layers are on. This
+// has to run on a first visit as well as a restored one: the opening set now
+// has parcels on, and the early return below used to skip straight past it,
+// leaving the parcel opacity slider greyed out under a layer that was drawing.
+function syncControlState() {
+  var pcOpEl = document.getElementById('pc-op');
+  if (pcOpEl) pcOpEl.disabled = !showParcels;
+  var cbOpEl = document.getElementById('cb-op');
+  if (cbOpEl) cbOpEl.disabled = !showBlocks;
+  var soOpEl = document.getElementById('soil-op');
+  if (soOpEl) soOpEl.disabled = !showSoils;
+  var slEl = document.getElementById('t-soil-labels');
+  if (slEl) slEl.disabled = !showSoils;
+}
+
 function restoreState() {
-  if (!SAVED) { setBase(baseMap); applyState(); return; }
+  if (!SAVED) {
+    syncControlState();
+    parcelLegend();
+    setBase(baseMap);
+    applyState();
+    return;
+  }
   LAYER_FLAGS.forEach(function (f) {
     var v = SAVED.layers && SAVED.layers[f[0]];
     if (typeof v !== 'boolean') return;
@@ -8822,11 +8858,7 @@ function restoreState() {
     if (SAVED.by.water) { waterColorBy = SAVED.by.water;
       var wb = document.getElementById('wt-by'); if (wb) wb.value = waterColorBy; }
   }
-  // sliders are disabled until their layer is on
-  var pcOpEl = document.getElementById('pc-op'); if (pcOpEl) pcOpEl.disabled = !showParcels;
-  var cbOpEl = document.getElementById('cb-op'); if (cbOpEl) cbOpEl.disabled = !showBlocks;
-  var soOpEl = document.getElementById('soil-op'); if (soOpEl) soOpEl.disabled = !showSoils;
-  var slEl = document.getElementById('t-soil-labels'); if (slEl) slEl.disabled = !showSoils;
+  syncControlState();
 
   parcelLegend(); waterLegend();
   setBase(baseMap);
