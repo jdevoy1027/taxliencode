@@ -1181,12 +1181,17 @@ var SOILS = [
 // active layer, fault-age filters and the camera. Read before the map is
 // constructed so the saved centre and zoom can seed it directly -- restoring the
 // view afterwards would show the default position first and then jump.
+// Bumped again (v2 -> v3) with the opening view. A saved view takes precedence
+// over the default, so anyone who loaded the site between the two changes would
+// keep landing state-wide. Worth batching further default changes rather than
+// resetting sessions a third time.
+//
 // Bumped from v1 to retire saved sessions once. The opening layer set below
 // changed -- multifamily candidates and parcels on a light base map, nothing
 // else -- and a returning visitor carrying v1 state would never see it, because
 // restoreState() prefers what was saved over any default. Legend colours live
 // under their own key and are NOT discarded by this.
-var STATE_KEY = 'tlc.mapState.v2';
+var STATE_KEY = 'tlc.mapState.v3';
 var panelOpen = true;
 var SAVED = (function () {
   try {
@@ -1200,8 +1205,15 @@ var SAVED = (function () {
 var map = new mapboxgl.Map({
   container: 'map',
   style: 'mapbox://styles/mapbox/light-v11',
-  center: (SAVED && SAVED.view && SAVED.view.c) || [-119.6, 36.6],
-  zoom:   (SAVED && SAVED.view && typeof SAVED.view.z === 'number') ? SAVED.view.z : 5.1,
+  // Opens on the two counties the data actually covers, not the state. The
+  // centre is the midpoint of the 500 multifamily candidates' own extent --
+  // they span 1.11 deg of longitude and 1.25 of latitude, from Long Beach up
+  // to Lancaster -- so z9 frames all of them on a desktop viewport. The bbox
+  // midpoint is used rather than the median of the points, which would pull
+  // south into the dense basin and push the Antelope Valley candidates off the
+  // top edge. On a narrow phone z9 clips the extreme east and west slightly.
+  center: (SAVED && SAVED.view && SAVED.view.c) || [-118.09, 34.09],
+  zoom:   (SAVED && SAVED.view && typeof SAVED.view.z === 'number') ? SAVED.view.z : 9,
   // Vector tiles overzoom cleanly, so the extra reach costs no tiles and loses
   // no accuracy -- but it adds no accuracy either: a parcel boundary at z20 is
   // the same z16 line drawn larger. The aerial base map resolves genuinely
