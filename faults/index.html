@@ -3713,6 +3713,16 @@ map.on('load', function () {
         html += '<div class="pop-row"><b>Jurisdiction:</b> ' +
                 esc(mf.juris) + tail + '</div>';
       }
+      // Owner of record. This used to print further down as an unlabelled grey
+      // line after the land and improvement values, where it read as a stray
+      // string rather than as the owner. Moved up beside the jurisdiction and
+      // labelled, because the two together are what decide whether a site is
+      // actually gettable: a quarter of this shortlist is held by a city, a
+      // school district, a housing authority or a church, which is not
+      // apparent from an address.
+      if (mf.owner) {
+        html += '<div class="pop-row"><b>Owner:</b> ' + esc(mf.owner) + '</div>';
+      }
       html += '<div class="pop-row"><b>' + esc(mf.score) + '</b> of 90 ' +
               '<span style="color:#85857e">· ' + esc(mf.pct_avail) +
               '% of the points that could be scored</span></div>';
@@ -3757,8 +3767,6 @@ map.on('load', function () {
       }
       if (mf.land) html += '<div class="pop-row">Land ' + usd(mf.land) +
         (mf.impr != null ? ' · improvements ' + usd(mf.impr) : '') + '</div>';
-      if (mf.owner) html += '<div class="pop-row" style="color:#55554f">' +
-        esc(mf.owner) + '</div>';
       if (mf.asm_n) html += '<div class="pop-row">' + esc(mf.asm_n) +
         ' adjoining parcel' + (mf.asm_n > 1 ? 's' : '') + ' in the same ownership' +
         (mf.asm_sqft ? ' (' + Number(mf.asm_sqft).toLocaleString() + ' sq ft more)' : '') +
