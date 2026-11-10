@@ -18,7 +18,15 @@
          box-shadow:0 2px 18px rgba(0,0,0,.12)}
   .pad{padding:34px 44px}
   /* ---- masthead ---- */
-  header{border-bottom:3px solid var(--accent);padding:30px 44px 22px}
+  header{border-bottom:3px solid var(--accent);padding:26px 44px 22px}
+  .brand{display:flex;align-items:center;justify-content:space-between;
+         gap:18px;margin-bottom:18px}
+  .brand img{height:42px;width:auto;display:block}
+  .pdf{font:inherit;font-size:13px;font-weight:560;padding:8px 15px;
+       border-radius:8px;cursor:pointer;border:1px solid var(--accent);
+       background:var(--accent);color:#fff;white-space:nowrap}
+  .pdf:hover{background:#255a4c}
+  @media(max-width:560px){.brand{flex-direction:column;align-items:flex-start}}
   .eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;
            color:var(--accent);font-weight:700}
   h1{margin:6px 0 2px;font-size:27px;line-height:1.18;font-weight:650;letter-spacing:-.01em}
@@ -71,7 +79,18 @@
     .sheet{box-shadow:none;margin:0;max-width:none}
     section{page-break-inside:avoid}
     figure{page-break-inside:avoid}
+    /* The button is a control, not content. */
+    .pdf{display:none}
+    /* Without this the swatches, score bars and crime chart print as empty
+       outlines -- browsers drop background fills by default, and every colour
+       in this report carries meaning. */
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    a{text-decoration:none;color:inherit}
+    /* A URL after every link is noise in a printed report; the Redfin and
+       source links are not the point of the page. */
+    a[href]:after{content:none}
   }
+  @page{margin:14mm 12mm}
 </style>
 <div class="sheet" id="out"><div class="err">Loading…</div></div>
 <script>
@@ -560,6 +579,10 @@ function render(mf,extra,taps){
   var H=[];
   /* ===== masthead ===== */
   H.push('<header>'+
+    '<div class="brand">'+
+      '<img src="./geonomics-logo.png" alt="Geonomics">'+
+      '<button type="button" class="pdf" id="pdf-btn">Export as PDF</button>'+
+    '</div>'+
     '<div class="eyebrow">Multifamily Development Site Report</div>'+
     '<h1>'+esc(r.addr||('APN '+r.apn))+'</h1>'+
     '<div class="sub">'+esc(r.city||'')+(r.zip?' '+esc(r.zip):'')+
@@ -916,6 +939,13 @@ function render(mf,extra,taps){
 
   document.getElementById('out').innerHTML=H.join('')+S.join('');
   document.title=(r.addr||('APN '+r.apn))+' — Multifamily Site Report';
+  // The browser's own print path, not a PDF library: every browser offers
+  // "Save as PDF" as a print destination, it honours the @page and @media
+  // print rules above, and it keeps the text selectable and the figures as
+  // vectors. A client-side PDF library would rasterise the SVG charts and add
+  // a megabyte of script to do worse.
+  var pb=document.getElementById('pdf-btn');
+  if(pb) pb.addEventListener('click',function(){ window.print(); });
 }
 function badge(k,v,s){return '<div class="badge"><div class="k">'+esc(k)+
   '</div><div class="v">'+esc(v)+(s?' <small>'+esc(s)+'</small>':'')+'</div></div>';}
