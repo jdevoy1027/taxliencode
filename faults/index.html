@@ -701,6 +701,29 @@
             Open the panel from the menu for the ranked table.</div>
         </div>
         <div class="tr">
+          <input type="checkbox" id="t-ar">
+          <button class="tw" type="button" data-sym="sym-ar" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="ar" tabindex="0" role="button">Adaptive reuse candidates</span>
+          <span class="cnt">250</span>
+        </div>
+        <div class="sym" id="sym-ar" hidden>
+          <div class="symh">Year the building went up</div>
+          <div id="ar-legend"></div>
+          <div class="ctmeta">
+            A separate shortlist from the multifamily one: older commercial and
+            mixed-use buildings in neighbourhoods whose schools rate well.<br>
+            Every one is commercial or mixed-use by general plan, built 1980 or
+            earlier, carries at least 5,000 sq ft of building, and has every
+            nearby rated school &mdash; elementary, middle and high &mdash; at
+            or above the 80th percentile statewide. 1,810 parcels qualify; the
+            best 250 by score are drawn.<br>
+            The multifamily shortlist cannot surface these: its redevelopment
+            score awards full marks to a lot with no building at all, so vacant
+            land crowds standing structures out. Scored the same way, selected
+            differently.</div>
+        </div>
+        <div class="tr">
           <input type="checkbox" id="t-schools">
           <button class="tw" type="button" data-sym="sym-schools" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -1280,6 +1303,7 @@ var showSlide = false;
 var showScag = false;
 var showRedfin = false;
 var showSchools = false;
+var showAR = false, arOpacity = 0.72;
 var showTsu = false;
 var showHab = false;
 var showFhsz = false;
@@ -1837,6 +1861,26 @@ function mfLegend() {
 // the 3,023 here -- takes the recessive grey. The state neither grades nor
 // ranks them, so a fourth strong hue would promise a rating that does not
 // exist.
+// Adaptive-reuse candidates: older commercial buildings where every nearby
+// rated school clears the 80th percentile. A separate list from the
+// multifamily shortlist, scored the same way but selected on different
+// criteria, so it gets its own layer rather than being mixed in.
+//
+// Coloured by the age of the building, which is the thing being reused. A
+// sequential ramp, oldest darkest: age here is a magnitude, not a category.
+var AR_BANDS = [
+  [1940, '#f2e4d4', 'Before 1940'],
+  [1960, '#dcc1a0', '1940s – 50s'],
+  [1970, '#c09a6b', '1960s'],
+  [1980, '#9c7343', '1970s'],
+  [9999, '#6b4a24', '1980']
+];
+function arColorExpr() {
+  var e = ['step', ['coalesce', ['get', 'yr'], 0], AR_BANDS[0][1]];
+  AR_BANDS.slice(0, -1).forEach(function (b, i) { e.push(b[0], AR_BANDS[i + 1][1]); });
+  return e;
+}
+
 var SCHOOL_LEVELS = [
   ['elem',   '#1b7f79', 'Elementary'],
   ['middle', '#d4a017', 'Middle'],
@@ -2086,6 +2130,7 @@ var LAYER_SYM = {
   exide: { title: 'Exide soil lead — by concentration', pal: function () { return 'exide'; } },
   redfin: { title: 'Recent Sales — by price', pal: function () { return 'redfin'; } },
   schools: { title: 'Schools — by level', pal: function () { return 'schools'; } },
+  ar: { title: 'Adaptive reuse — by building age', pal: function () { return 'ar'; } },
   mf: { title: 'Multifamily candidates — by score', pal: function () { return 'mf'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
@@ -2138,6 +2183,16 @@ PALETTES.fireSev = withRedraw(
     applyOutline('fhsz');
     fhszLegend();
   });
+
+PALETTES.ar = withRedraw({
+  n: function () { return AR_BANDS.length; },
+  get: function (i) { return AR_BANDS[i][1]; },
+  set: function (i, c) { AR_BANDS[i][1] = c; },
+  name: function (i) { return AR_BANDS[i][2]; }
+}, function () {
+  if (map.getLayer('ar-fill')) map.setPaintProperty('ar-fill', 'fill-color', arColorExpr());
+  arLegend();
+});
 
 PALETTES.schools = withRedraw({
   n: function () { return SCHOOL_LEVELS.length; },
@@ -2381,6 +2436,7 @@ var OUTLINES = {
   geo:     { lines: ['geo-line'],   def: function () { return 'rgba(60,60,55,.35)'; } },
   soils:   { lines: ['soil-line'],  def: function () { return 'rgba(50,50,45,.3)'; } },
   blocks:  { lines: ['cb-line'],    def: function () { return 'rgba(30,45,70,.35)'; } },
+  ar:      { lines: ['ar-line'],    def: function () { return '#4a3317'; } },
   parcels: { lines: ['pc-line', 'pc2-line'],
                                     def: function () { return 'rgba(40,40,40,.45)'; } },
   scag:    { lines: ['scag-line'],  def: function () { return 'rgba(60,55,45,.35)'; } },
@@ -2806,6 +2862,22 @@ function addLayers() {
       });
     }
   });
+  if (!map.getSource('adaptive')) {
+    map.addSource('adaptive', { type: 'geojson', data: './adaptive_reuse.geojson' });
+  }
+  if (!map.getLayer('ar-fill')) {
+    map.addLayer({
+      id: 'ar-fill', type: 'fill', source: 'adaptive',
+      paint: { 'fill-color': arColorExpr(), 'fill-opacity': arOpacity }
+    });
+  }
+  if (!map.getLayer('ar-line')) {
+    map.addLayer({
+      id: 'ar-line', type: 'line', source: 'adaptive',
+      paint: { 'line-color': '#4a3317',
+               'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 15, 1.4, 18, 2.4] }
+    });
+  }
   if (!map.getSource('schools')) {
     map.addSource('schools', { type: 'geojson', data: './schools.geojson' });
   }
@@ -3545,6 +3617,13 @@ function applyState() {
     map.setLayoutProperty('sat', 'visibility',
       (baseMap === 'sat' || baseMap === 'naip') ? 'visible' : 'none');
   }
+  ['ar-fill', 'ar-line'].forEach(function (id) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', showAR ? 'visible' : 'none');
+  });
+  if (map.getLayer('ar-fill')) {
+    map.setPaintProperty('ar-fill', 'fill-color', arColorExpr());
+    map.setPaintProperty('ar-fill', 'fill-opacity', arOpacity);
+  }
   if (map.getLayer('sch-dot')) {
     map.setLayoutProperty('sch-dot', 'visibility', showSchools ? 'visible' : 'none');
     map.setPaintProperty('sch-dot', 'circle-color', schoolColorExpr());
@@ -3733,7 +3812,7 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null, sch = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null, sch = null, ar = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'mf-fill' && !mf) mf = h.properties;
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
@@ -3754,12 +3833,13 @@ map.on('load', function () {
       if (h.layer.id === 'exide-dot' && !exide) exide = h.properties;
       if (h.layer.id === 'rf-dot' && !rf) rf = h.properties;
       if (h.layer.id === 'sch-dot' && !sch) sch = h.properties;
+      if (h.layer.id === 'ar-fill' && !ar) ar = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf && !rf && !sch) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf && !rf && !sch && !ar) return;
 
     var html = '';
     if (mf && showMf) {
@@ -3879,6 +3959,34 @@ map.on('load', function () {
       }
     }
 
+    if (ar && showAR) {
+      html += '<div class="pop-name">#' + esc(ar.rank) + ' · ' +
+              esc(ar.addr || ('APN ' + ar.apn)) + '</div>';
+      html += '<div class="pop-row">' + esc(ar.city || '') +
+              (ar.juris ? ' · ' + esc(ar.juris) : '') + '</div>';
+      var ab = [];
+      if (ar.yr) ab.push('built <b>' + esc(ar.yr) + '</b>');
+      if (ar.bsqft) ab.push(Number(ar.bsqft).toLocaleString() + ' sq ft building');
+      if (ar.area) ab.push('on ' + Number(ar.area).toLocaleString() + ' sq ft');
+      if (ab.length) html += '<div class="pop-row">' + ab.join(' · ') + '</div>';
+      if (ar.bsqft && ar.area) html += '<div class="pop-row" style="color:#55554f">' +
+        'floor area ratio ' + (ar.bsqft / ar.area).toFixed(2) + '</div>';
+      // The reason this parcel is on this list rather than the other one.
+      var sb = [];
+      if (ar.sch_elem != null) sb.push('elementary ' + esc(ar.sch_elem));
+      if (ar.sch_middle != null) sb.push('middle ' + esc(ar.sch_middle));
+      if (ar.sch_high != null) sb.push('high ' + esc(ar.sch_high));
+      if (sb.length) html += '<div class="pop-row">Nearest rated schools, ' +
+        'percentile: ' + esc(sb.join(' · ')) + '</div>';
+      if (ar.gp_lbl) html += '<div class="pop-row" style="color:#55554f">' +
+        esc(ar.gp_lbl) + '</div>';
+      if (ar.cap_units) html += '<div class="pop-row"><b>' +
+        Number(ar.cap_units).toLocaleString() + '</b> units at ' +
+        esc(ar.du_acre) + '/acre permitted</div>';
+      if (ar.owner) html += '<div class="pop-row"><b>Owner:</b> ' + esc(ar.owner) + '</div>';
+      if (ar.flags) html += '<div class="pop-row" style="color:#8a2b1c">' + esc(ar.flags) + '</div>';
+      if (sch || rf || mf || parc) html += '<div class="pop-sep"></div>';
+    }
     if (sch && showSchools) {
       var scol = '#9a9a92';
       SCHOOL_LEVELS.forEach(function (l) { if (l[0] === sch.level) scol = l[1]; });
@@ -4335,7 +4443,7 @@ map.on('load', function () {
 
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
-var CLICK_LAYERS = ['sch-dot', 'rf-dot', 'mf-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
+var CLICK_LAYERS = ['sch-dot', 'rf-dot', 'ar-fill', 'mf-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill',
                     'tsu-fill', 'hab-fill', 'fhsz-fill', 'scag-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
@@ -4349,6 +4457,7 @@ var LAYER_HITS = {
   exide:    ['exide-dot'],
   redfin:   ['rf-dot'],
   schools:  ['sch-dot'],
+  ar:       ['ar-fill'],
   mf:       ['mf-fill'],
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
@@ -4619,6 +4728,10 @@ document.getElementById('mf-top').addEventListener('change', function () {
   }
   applyState(); saveState();
 });
+document.getElementById('t-ar').addEventListener('change', function () {
+  showAR = this.checked; applyState(); saveState();
+});
+arLegend();
 document.getElementById('t-schools').addEventListener('change', function () {
   showSchools = this.checked; applyState(); saveState();
 });
@@ -4769,6 +4882,17 @@ function initContourLegend() {
 initContourLegend();
 
 // ---- Exide soil lead legend ----
+function arLegend() {
+  var host = document.getElementById('ar-legend');
+  if (!host) return;
+  host.innerHTML = AR_BANDS.map(function (b, i) {
+    return '<div class="ctrow"><span class="sw"><i class="sw-edit" ' +
+           'data-pal="ar" data-idx="' + i + '" style="height:12px;background:' +
+           b[1] + ';border:1px solid rgba(0,0,0,.18)"></i></span><span>' +
+           esc(b[2]) + '</span></div>';
+  }).join('');
+}
+
 function schLegend() {
   var host = document.getElementById('sch-legend');
   if (!host) return;
@@ -5555,7 +5679,7 @@ var LAYER_SRC = {
   tsu: ['tsunami'], hab: ['habitat'], fhsz: ['fhsz'], scag: ['scag'], flood: ['flood'], inund: ['inund'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
-  redfin: ['redfin'], schools: ['schools'],
+  redfin: ['redfin'], schools: ['schools'], ar: ['adaptive'],
   mf: ['mf'],
   gwct: ['gwcontours']
 };
@@ -5565,7 +5689,7 @@ var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
   mf: './multifamily.geojson', redfin: './redfin_sales.geojson',
-  schools: './schools.geojson',
+  schools: './schools.geojson', adaptive: './adaptive_reuse.geojson',
   flood: './flood.geojson', inund: './inundation.geojson',
   tsunami: './tsunami.geojson', habitat: './habitat.geojson', fhsz: './fhsz.geojson',
   gwcontours: './gw_contours.geojson',
@@ -5842,6 +5966,11 @@ var LAYER_COLS = {
     // and a bare 'apn' in a column would say nothing.
     hide: ['fixed']
   },
+  ar: {
+    derive: { far: function (p) {
+      return (p.bsqft && p.area) ? (p.bsqft / p.area).toFixed(2) : ''; } },
+    lead: ['rank', 'score', 'addr', 'city', 'juris', 'yr', 'bsqft', 'far',
+           'area', 'cap_units', 'sch_elem', 'sch_middle', 'sch_high', 'owner'] },
   schools: {
     lead: ['name', 'level_lbl', 'grade', 'pct', 'rank', 'rank_of', 'district',
            'city', 'lo', 'hi', 'students'],
@@ -8942,6 +9071,7 @@ var LAYER_FLAGS = [
   ['exide', 't-exide', function (v) { showExide = v; }, function () { return showExide; }],
   ['redfin', 't-redfin', function (v) { showRedfin = v; }, function () { return showRedfin; }],
   ['schools', 't-schools', function (v) { showSchools = v; }, function () { return showSchools; }],
+  ['ar', 't-ar', function (v) { showAR = v; }, function () { return showAR; }],
   ['mf', 't-mf', function (v) { showMf = v; }, function () { return showMf; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
   ['faults', 't-faults', function (v) { showFaults = v; }, function () { return showFaults; }]
