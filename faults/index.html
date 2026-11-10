@@ -701,6 +701,26 @@
             Open the panel from the menu for the ranked table.</div>
         </div>
         <div class="tr">
+          <input type="checkbox" id="t-schools">
+          <button class="tw" type="button" data-sym="sym-schools" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="schools" tabindex="0" role="button">Schools</span>
+          <span class="cnt">3,023</span>
+        </div>
+        <div class="sym" id="sym-schools" hidden>
+          <div class="symh">School level</div>
+          <div id="sch-legend"></div>
+          <div class="ctmeta">
+            California public schools in Los Angeles and Orange counties, with
+            the state letter grade, percentile and statewide ranking.<br>
+            <b>The ranking is within level</b> &mdash; 5,373 elementary, 1,193
+            middle and 1,045 high schools statewide &mdash; so &ldquo;12 out of
+            1045&rdquo; is twelfth among high schools, not among all schools.<br>
+            879 of these carry no rank. The source writes their percentile as 0,
+            which would read as the worst in California; it is withheld here
+            instead, and the popup says the school is unranked.</div>
+        </div>
+        <div class="tr">
           <input type="checkbox" id="t-redfin">
           <button class="tw" type="button" data-sym="sym-redfin" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -1259,6 +1279,7 @@ var showInund = false;
 var showSlide = false;
 var showScag = false;
 var showRedfin = false;
+var showSchools = false;
 var showTsu = false;
 var showHab = false;
 var showFhsz = false;
@@ -1805,6 +1826,30 @@ function mfLegend() {
 //
 // Breaks are round numbers bracketing the real distribution of this week's
 // sales: p25 $630k, median $899k, p75 $1.5M, p90 $2.4M, max $12.7M.
+// Public schools, coloured by the level they serve. Categorical, not
+// sequential: a middle school is not "more" than an elementary one.
+// Teal / amber / magenta were checked rather than chosen by eye -- worst
+// adjacent separation is 27.0 OKLab ΔE for normal vision and 9.6 under
+// deuteranopia, the tightest of the three simulated deficiencies, against a
+// floor of 8. An orange/indigo pairing failed outright at 4.6 under tritanopia.
+//
+// "Other" -- alternative, continuation and special-education schools, 870 of
+// the 3,023 here -- takes the recessive grey. The state neither grades nor
+// ranks them, so a fourth strong hue would promise a rating that does not
+// exist.
+var SCHOOL_LEVELS = [
+  ['elem',   '#1b7f79', 'Elementary'],
+  ['middle', '#d4a017', 'Middle'],
+  ['high',   '#c2185b', 'High'],
+  ['other',  '#9a9a92', 'Other — not rated by the state']
+];
+function schoolColorExpr() {
+  var e = ['match', ['get', 'level']];
+  SCHOOL_LEVELS.forEach(function (l) { e.push(l[0], l[1]); });
+  e.push('#9a9a92');
+  return e;
+}
+
 var RF_BREAKS = [500000, 750000, 1000000, 1500000, 2500000];
 var RF_COLORS = ['#bcbddc', '#9e9ac8', '#807dba', '#6a51a3', '#54278f', '#3f007d'];
 function rfLabel(i) {
@@ -2040,6 +2085,7 @@ var LAYER_SYM = {
   blocks: { title: 'Census blocks — median net worth', pal: function () { return 'blocks'; } },
   exide: { title: 'Exide soil lead — by concentration', pal: function () { return 'exide'; } },
   redfin: { title: 'Recent Sales — by price', pal: function () { return 'redfin'; } },
+  schools: { title: 'Schools — by level', pal: function () { return 'schools'; } },
   mf: { title: 'Multifamily candidates — by score', pal: function () { return 'mf'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
@@ -2092,6 +2138,16 @@ PALETTES.fireSev = withRedraw(
     applyOutline('fhsz');
     fhszLegend();
   });
+
+PALETTES.schools = withRedraw({
+  n: function () { return SCHOOL_LEVELS.length; },
+  get: function (i) { return SCHOOL_LEVELS[i][1]; },
+  set: function (i, c) { SCHOOL_LEVELS[i][1] = c; },
+  name: function (i) { return SCHOOL_LEVELS[i][2]; }
+}, function () {
+  if (map.getLayer('sch-dot')) map.setPaintProperty('sch-dot', 'circle-color', schoolColorExpr());
+  schLegend();
+});
 
 PALETTES.redfin = withRedraw({
   n: function () { return RF_COLORS.length; },
@@ -2750,6 +2806,23 @@ function addLayers() {
       });
     }
   });
+  if (!map.getSource('schools')) {
+    map.addSource('schools', { type: 'geojson', data: './schools.geojson' });
+  }
+  if (!map.getLayer('sch-dot')) {
+    map.addLayer({
+      id: 'sch-dot', type: 'circle', source: 'schools',
+      paint: {
+        'circle-color': schoolColorExpr(),
+        // Square-ish small dots would collide with the well layers; schools get
+        // a slightly larger radius because there are only 3,023 of them.
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 2.4, 13, 5, 18, 10],
+        'circle-stroke-color': 'rgba(255,255,255,.9)',
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 9, 0.4, 13, 1, 18, 1.8],
+        'circle-opacity': 0.95
+      }
+    });
+  }
   if (!map.getSource('redfin')) {
     map.addSource('redfin', { type: 'geojson', data: './redfin_sales.geojson' });
   }
@@ -3472,6 +3545,10 @@ function applyState() {
     map.setLayoutProperty('sat', 'visibility',
       (baseMap === 'sat' || baseMap === 'naip') ? 'visible' : 'none');
   }
+  if (map.getLayer('sch-dot')) {
+    map.setLayoutProperty('sch-dot', 'visibility', showSchools ? 'visible' : 'none');
+    map.setPaintProperty('sch-dot', 'circle-color', schoolColorExpr());
+  }
   if (map.getLayer('rf-dot')) {
     map.setLayoutProperty('rf-dot', 'visibility', showRedfin ? 'visible' : 'none');
     map.setPaintProperty('rf-dot', 'circle-color', rfColorExpr());
@@ -3656,7 +3733,7 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null, sch = null;
     hits.forEach(function (h) {
       if (h.layer.id === 'mf-fill' && !mf) mf = h.properties;
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
@@ -3676,12 +3753,13 @@ map.on('load', function () {
       if (h.layer.id === 'cb-fill' && !blk) blk = h.properties;
       if (h.layer.id === 'exide-dot' && !exide) exide = h.properties;
       if (h.layer.id === 'rf-dot' && !rf) rf = h.properties;
+      if (h.layer.id === 'sch-dot' && !sch) sch = h.properties;
       if (h.layer.id === 'bore-dot' && !bore) bore = h.properties;
       if (h.layer.id === 'faults-hit' && !fault) fault = h.properties;
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
-    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf && !rf) return;
+    if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf && !rf && !sch) return;
 
     var html = '';
     if (mf && showMf) {
@@ -3801,6 +3879,40 @@ map.on('load', function () {
       }
     }
 
+    if (sch && showSchools) {
+      var scol = '#9a9a92';
+      SCHOOL_LEVELS.forEach(function (l) { if (l[0] === sch.level) scol = l[1]; });
+      html += '<div class="pop-name">' + esc(sch.name || 'School') + '</div>';
+      html += '<div class="pop-row pop-unit"><i style="background:' + scol +
+              '"></i>' + esc(sch.level_lbl || '') +
+              (sch.lo && sch.hi ? ' · grades ' + esc(sch.lo) + '–' + esc(sch.hi) : '') +
+              '</div>';
+      if (sch.district) html += '<div class="pop-row">' + esc(sch.district) + '</div>';
+      // The state grades and ranks only within a level, and leaves a quarter of
+      // schools out altogether. Both facts are said here rather than implied by
+      // a blank.
+      if (sch.grade || sch.pct != null) {
+        var sb = [];
+        if (sch.grade) sb.push('grade <b>' + esc(sch.grade) + '</b>');
+        if (sch.pct != null) sb.push('percentile ' + esc(sch.pct));
+        html += '<div class="pop-row">' + sb.join(' · ') + '</div>';
+        if (sch.rank && sch.rank_of) {
+          html += '<div class="pop-row"><b>' + Number(sch.rank).toLocaleString() +
+            '</b> of ' + Number(sch.rank_of).toLocaleString() + ' ' +
+            esc(String(sch.level_lbl || 'school').toLowerCase()) +
+            's in California</div>';
+        }
+      } else {
+        html += '<div class="pop-row" style="color:#85857e">Not ranked or graded ' +
+                'by the state</div>';
+      }
+      if (sch.students) html += '<div class="pop-row" style="color:#55554f">' +
+        Number(sch.students).toLocaleString() + ' students' +
+        (sch.teachers ? ' · ' + sch.teachers + ' teachers' : '') + '</div>';
+      if (rf || mf || parc || fault || unit || soil || bore || blk || ap) {
+        html += '<div class="pop-sep"></div>';
+      }
+    }
     if (rf && showRedfin) {
       var ri = 0;
       while (ri < RF_BREAKS.length && (rf.price || 0) >= RF_BREAKS[ri]) ri++;
@@ -4223,7 +4335,7 @@ map.on('load', function () {
 
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
-var CLICK_LAYERS = ['rf-dot', 'mf-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
+var CLICK_LAYERS = ['sch-dot', 'rf-dot', 'mf-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill',
                     'tsu-fill', 'hab-fill', 'fhsz-fill', 'scag-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
@@ -4236,6 +4348,7 @@ var LAYER_HITS = {
   bores:    ['bore-dot'],
   exide:    ['exide-dot'],
   redfin:   ['rf-dot'],
+  schools:  ['sch-dot'],
   mf:       ['mf-fill'],
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
@@ -4506,6 +4619,10 @@ document.getElementById('mf-top').addEventListener('change', function () {
   }
   applyState(); saveState();
 });
+document.getElementById('t-schools').addEventListener('change', function () {
+  showSchools = this.checked; applyState(); saveState();
+});
+schLegend();
 document.getElementById('t-redfin').addEventListener('change', function () {
   showRedfin = this.checked; applyState(); saveState();
 });
@@ -4652,6 +4769,16 @@ function initContourLegend() {
 initContourLegend();
 
 // ---- Exide soil lead legend ----
+function schLegend() {
+  var host = document.getElementById('sch-legend');
+  if (!host) return;
+  host.innerHTML = SCHOOL_LEVELS.map(function (l, i) {
+    return '<div class="ctrow"><span class="sw"><i class="dot sw-edit" ' +
+           'data-pal="schools" data-idx="' + i + '" style="background:' + l[1] +
+           '"></i></span><span>' + esc(l[2]) + '</span></div>';
+  }).join('');
+}
+
 function rfLegend() {
   var host = document.getElementById('rf-legend');
   if (!host) return;
@@ -5428,7 +5555,7 @@ var LAYER_SRC = {
   tsu: ['tsunami'], hab: ['habitat'], fhsz: ['fhsz'], scag: ['scag'], flood: ['flood'], inund: ['inund'],
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
-  redfin: ['redfin'],
+  redfin: ['redfin'], schools: ['schools'],
   mf: ['mf'],
   gwct: ['gwcontours']
 };
@@ -5438,6 +5565,7 @@ var SRC_URL = {
   faults: './ca_qt_faults.geojson', apzones: './ap_zones.geojson',
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
   mf: './multifamily.geojson', redfin: './redfin_sales.geojson',
+  schools: './schools.geojson',
   flood: './flood.geojson', inund: './inundation.geojson',
   tsunami: './tsunami.geojson', habitat: './habitat.geojson', fhsz: './fhsz.geojson',
   gwcontours: './gw_contours.geojson',
@@ -5714,6 +5842,10 @@ var LAYER_COLS = {
     // and a bare 'apn' in a column would say nothing.
     hide: ['fixed']
   },
+  schools: {
+    lead: ['name', 'level_lbl', 'grade', 'pct', 'rank', 'rank_of', 'district',
+           'city', 'lo', 'hi', 'students'],
+    hide: ['level'] },
   redfin: {
     lead: ['addr', 'city', 'price', 'sold', 'type', 'beds', 'baths', 'sqft',
            'ppsf', 'yr'],
@@ -8809,6 +8941,7 @@ var LAYER_FLAGS = [
   ['bores', 't-bores', function (v) { showBores = v; }, function () { return showBores; }],
   ['exide', 't-exide', function (v) { showExide = v; }, function () { return showExide; }],
   ['redfin', 't-redfin', function (v) { showRedfin = v; }, function () { return showRedfin; }],
+  ['schools', 't-schools', function (v) { showSchools = v; }, function () { return showSchools; }],
   ['mf', 't-mf', function (v) { showMf = v; }, function () { return showMf; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
   ['faults', 't-faults', function (v) { showFaults = v; }, function () { return showFaults; }]

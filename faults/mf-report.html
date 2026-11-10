@@ -255,30 +255,60 @@ function gradeSpan(d){
   if(!d||!d.lo||!d.hi) return '';
   return ' <span style="color:#7a7a72">(' + g(d.lo) + '–' + g(d.hi) + ')</span>';
 }
-function schoolsBlock(sch){
-  if(!sch) return '';
+function schoolsBlock(sch,near){
   var rows=[];
-  if(sch.unified) rows.push(['Unified district',
+  if(sch&&sch.unified) rows.push(['Unified district',
     esc(sch.unified.name)+gradeSpan(sch.unified)]);
-  if(sch.elementary) rows.push(['Elementary district',
+  if(sch&&sch.elementary) rows.push(['Elementary district',
     esc(sch.elementary.name)+gradeSpan(sch.elementary)]);
-  if(sch.secondary) rows.push(['Secondary district',
+  if(sch&&sch.secondary) rows.push(['Secondary district',
     esc(sch.secondary.name)+gradeSpan(sch.secondary)]);
-  if(!rows.length) return '';
-  return '<h3>Schools</h3>'+tbl(rows)+
-    '<div class="gap"><b>No school rating is given here, because none is in '+
-    'this data.</b> The district boundaries above come from the Census '+
-    'TIGER/Line school district layers, which carry names and grade spans and '+
-    'nothing about performance. California also publishes no single school '+
-    '"rating": the state reports CAASPP results — the share of pupils meeting '+
-    'or exceeding standard in English and mathematics — and the California '+
-    'School Dashboard, which uses colour indicators across several measures '+
-    'rather than one score. The familiar 1-to-10 numbers come from commercial '+
-    'services under their own licences. Any of those can be joined to the '+
-    'districts named above; none of them is asserted here.<br><br>'+
-    'Note also that a district boundary is not an attendance area. Which '+
-    'school a given address feeds into is set by the district and changes; for '+
-    'a specific parcel it has to be confirmed with the district itself.</div>';
+  var out='';
+  if(rows.length) out+=tbl(rows);
+
+  /* Nearest rated school of each level. Unrated schools are excluded from the
+     search rather than shown with a blank: an unrated school displaces the
+     nearest one that actually carries a rating, which is the thing being
+     asked for. */
+  var LV=[['elem','Elementary','#1b7f79'],['middle','Middle','#d4a017'],
+          ['high','High','#c2185b']];
+  var any=LV.some(function(l){ return near&&near[l[0]]; });
+  if(any){
+    var r2=[];
+    LV.forEach(function(l){
+      var n=near&&near[l[0]];
+      if(!n) return;
+      var bits='<b>'+esc(n.name||'')+'</b>';
+      var tail=[];
+      if(n.grade) tail.push('grade '+esc(n.grade));
+      // "94.1th" -- these percentiles carry a decimal, so no ordinal suffix.
+      if(n.pct!=null) tail.push('percentile '+esc(n.pct));
+      if(n.rank&&n.rank_of) tail.push(num(n.rank)+' of '+num(n.rank_of)+
+        ' '+l[1].toLowerCase()+' schools in California');
+      if(tail.length) bits+='<div style="color:#44443e;font-size:12.5px;'+
+        'margin-top:2px">'+tail.join(' · ')+'</div>';
+      bits+='<div style="color:#7a7a72;font-size:12px">'+
+        num(n.m)+' m away'+(n.district?' · '+esc(n.district):'')+'</div>';
+      r2.push(['<span style="display:inline-block;width:9px;height:9px;'+
+        'border-radius:50%;background:'+l[2]+';margin-right:6px"></span>'+
+        l[1]+' school, nearest rated', bits]);
+    });
+    out+='<h4 style="font-size:13px;margin:16px 0 6px;font-weight:650">'+
+         'Nearest rated schools</h4>'+tbl(r2);
+  }
+  if(!out) return '';
+  return '<h3>Schools</h3>'+out+
+    '<div class="note">Two things govern how these figures read. The state '+
+    'ranks <b>within level</b> &mdash; 5,373 elementary, 1,193 middle and '+
+    '1,045 high schools &mdash; so a position is among schools of that kind, '+
+    'not among all of them. And 879 schools in these two counties carry no '+
+    'rank at all; the source writes their percentile as 0, which would read as '+
+    'the worst in California, so they are excluded from the search above rather '+
+    'than shown as bottom-ranked.<br><br>'+
+    'Distance is straight-line from the parcel centroid. A district boundary is '+
+    'not an attendance area and neither is proximity: which school an address '+
+    'actually feeds is set by the district and changes, and only the district '+
+    'can confirm it.</div>';
 }
 
 /* ---------- neighbourhood narrative ----------------------------------------
@@ -642,7 +672,7 @@ function render(mf,extra,taps){
     'Percentiles rank the area; they are not rates, and they say nothing about '+
     'the trend.</figcaption></figure>');
   }
-  S.push(schoolsBlock(x.schools));
+  S.push(schoolsBlock(x.schools, x.near_schools));
   S.push('</section>');
 
   /* ===== 2. property ===== */
