@@ -3946,6 +3946,13 @@ map.on('load', function () {
       if (mf.gp_src === 'spatial') html += '<div class="pop-row" ' +
         'style="color:#85857e;font-size:11px">General plan matched by location ' +
         'rather than APN</div>';
+      // Street access is a gate, so a site shown here has it; the figure says
+      // how comfortably. Distance is to the road centreline, so a parcel
+      // fronting a street reads about half a right-of-way, not zero.
+      var mex = [];
+      if (mf.street_m != null) mex.push('public street ' + esc(mf.street_m) + ' m');
+      if (mf.prime) mex.push('<b>prime format:</b> ' + esc(mf.prime) + ', pre-1980');
+      if (mex.length) html += '<div class="pop-row">' + mex.join(' · ') + '</div>';
       html += mfLinks(mf.lat, mf.lon);
       // The full written report for this candidate. Keyed on rank, not APN:
       // five shortlisted sites share Orange County APN 125-162-63 and two share
@@ -3983,6 +3990,10 @@ map.on('load', function () {
       if (ar.cap_units) html += '<div class="pop-row"><b>' +
         Number(ar.cap_units).toLocaleString() + '</b> units at ' +
         esc(ar.du_acre) + '/acre permitted</div>';
+      var aex = [];
+      if (ar.street_m != null) aex.push('public street ' + esc(ar.street_m) + ' m');
+      if (ar.prime) aex.push('<b>prime format:</b> ' + esc(ar.prime));
+      if (aex.length) html += '<div class="pop-row">' + aex.join(' · ') + '</div>';
       if (ar.owner) html += '<div class="pop-row"><b>Owner:</b> ' + esc(ar.owner) + '</div>';
       if (ar.flags) html += '<div class="pop-row" style="color:#8a2b1c">' + esc(ar.flags) + '</div>';
       if (sch || rf || mf || parc) html += '<div class="pop-sep"></div>';
@@ -5951,7 +5962,8 @@ var LAYER_COLS = {
   tsu: { lead: ['county'] },
   hab: { lead: ['sp', 'sci', 'lst', 'st', 'pub', 'fr'] },
   mf: { lead: ['rank', 'score', 'addr', 'city', 'juris', 'apn', 'area',
-               'cap_units', 'du_acre', 'gp_lbl', 'yr', 'transit_m'] },
+               'cap_units', 'du_acre', 'gp_lbl', 'yr', 'street_m', 'prime',
+               'transit_m'] },
   scag: { derive: { land_use: function (p) { return scagLabel(p.lu) ||
                                               SCAG_NAMES[p.cat] || ''; } },
           lead: ['ain', 'land_use', 'lu', 'cat', 'cty'] },

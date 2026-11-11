@@ -750,6 +750,14 @@ function render(mf,extra,taps){
   pb.push(['Currently vacant',r.vacant?'yes':'no']);
   pb.push(['APNs in this site',num(r.apn_n)+(r.grouped?' · '+r.grouped+' adjoining parcel(s) folded in':'')]);
   pb.push(['Transit, nearest stop',r.transit_m!=null?num(r.transit_m)+' m':'—']);
+  // Measured to the road centreline, so a parcel fronting a street reads about
+  // half a right-of-way rather than zero. Sites without access are excluded
+  // before scoring, so this says how comfortable the access is, not whether
+  // there is any.
+  if(r.street_m!=null) pb.push(['Public street, nearest',
+    num(r.street_m)+' m <span style="color:#7a7a72">(to centreline)</span>']);
+  if(r.prime) pb.push(['Redevelopment format',
+    '<b>'+esc(r.prime)+'</b>, built before 1980 — a format that converts well']);
   S.push(tbl(pb));
 
   S.push('<h3>Suitability metrics</h3>');
