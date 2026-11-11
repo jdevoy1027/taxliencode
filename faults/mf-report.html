@@ -568,6 +568,25 @@ function render(mf,extra,taps){
     return;
   }
   var x=extra[String(r.rank)]||{}, b=x.block||{};
+  // The supporting data is keyed on RANK, and a re-score renumbers every rank.
+  // When that happened the page rendered one parcel's address over another
+  // parcel's neighbourhood, hazards and schools, and said nothing: a report for
+  // 7642 Warner Ave in Huntington Beach carried the block group, geology and
+  // school districts of a Santa Clarita site that had held the same rank
+  // before. Both files carry the APN, so the join can be checked, and a
+  // mismatch has to stop the page rather than decorate it.
+  if(x.apn&&String(x.apn)!==String(r.apn)){
+    document.getElementById('out').innerHTML='<div class="err">'+
+      '<b>This report cannot be rendered.</b><br><br>'+
+      'The supporting data for rank '+esc(r.rank)+' belongs to APN '+
+      esc(x.apn)+', but that rank now holds APN '+esc(r.apn)+' ('+
+      esc(r.addr||'')+').<br><br>'+
+      'The shortlist has been re-scored since the supporting data was built, '+
+      'so the two are keyed to different rankings. Re-run '+
+      '<code>tools/mf_report_data.py</code> against the current list.'+
+      '</div>';
+    return;
+  }
   // Needed in section 1 as well as section 3, and the peer set is every other
   // site in this assessment -- the only benchmark this report actually holds.
   var J=jurisdiction(r,x);
@@ -638,7 +657,10 @@ function render(mf,extra,taps){
   nb.push(['Population within 3 / 5 miles',num(b.pop3mile)+' / '+num(b.pop5mile)]);
   nb.push(['Block-group density',(b.DENSITY!=null?num(b.DENSITY)+'/sq mi':'—')+
     (b.DENSITY_DESC?' · '+esc(String(b.DENSITY_DESC).toLowerCase()):'')]);
-  if(b.PopInc_comment) nb.push(['Population trend',esc(String(b.PopInc_comment).toLowerCase())]);
+  // Same doubling the narrative already avoids: the source string begins
+  // "POPULATION ...", so the label must not repeat it.
+  if(b.PopInc_comment) nb.push(['Population trend',
+    esc(String(b.PopInc_comment).toLowerCase().replace(/^population\s+/,''))]);
   if(b.educationalattainment_BACHDEG_CY_P!=null)
     nb.push(["Bachelor's degree or higher",pct(b.educationalattainment_BACHDEG_CY_P)]);
   if(b.Pct_Poverty!=null) nb.push(['Poverty rate',pct(b.Pct_Poverty)]);
