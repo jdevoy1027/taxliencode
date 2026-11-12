@@ -1635,6 +1635,101 @@ function fmtApn(a) {
   return a.length === 8 ? a.slice(0, 3) + '-' + a.slice(3, 6) + '-' + a.slice(6) : a;
 }
 
+// Floor Area Ratio, City of Los Angeles only. The tileset cannot carry it --
+// it is derived from the City zoning layer plus Ord. 184,802, and re-tiling
+// 2.4M parcels to add two numbers is not a trade worth making -- so it lives in
+// the same sharded-by-map-book form as the AIN index and is fetched on click.
+// faults/far/ is built by tools/build_far_index.py; see that file for the row
+// encoding. Absent AIN means the parcel is outside the City, which is the
+// common case countywide, so nothing is rendered rather than a negative claim.
+var FAR_DIR = './far/', farCache = {}, farMeta = null, farSeq = 0;
+
+function farFetchMeta() {
+  if (farMeta) return Promise.resolve(farMeta);
+  return fetch(FAR_DIR + 'meta.json')
+    .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+    .then(function (j) { farMeta = j; return j; });
+}
+
+// Renders into the placeholder parcelPopupHtml left behind. The popup may be
+// gone by the time this resolves -- a fast double-click, or a closed popup --
+// so a missing element is a no-op, not an error.
+function farFill(ain, id) {
+  var book = ain.slice(0, 4), key = ain.slice(4);
+  Promise.all([farFetchMeta(), farCache[book] ? Promise.resolve(farCache[book])
+    : fetch(FAR_DIR + book + '.json')
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (j) { farCache[book] = j; return j; })])
+    .then(function (both) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      var html = farHtml(both[1][key], both[0], el.getAttribute('data-sqft'));
+      if (html) el.innerHTML = html;
+      else el.parentNode.removeChild(el);
+    })
+    .catch(function () {
+      var el = document.getElementById(id);
+      if (el) el.parentNode.removeChild(el);
+    });
+}
+
+function farHtml(row, meta, builtAttr) {
+  if (!row) return '';
+  var built = Number(builtAttr) || 0;
+  var sq = function (n) { return Number(n).toLocaleString() + ' sq ft'; };
+  var h = '<div class="pop-sep"></div><div class="pop-row"><b>Floor area ratio</b></div>';
+
+  if (row[0] === 0) {
+    h += '<div class="pop-row">FAR <b>' + (row[2] / 1000).toFixed(2) + '</b>' +
+         (row[3] ? ' · up to ' + sq(row[3]) : '') + '</div>';
+    if (built && row[3]) {
+      // The headroom, which is the number a developer actually acts on.
+      var pct = Math.round(100 * built / row[3]);
+      h += '<div class="pop-row">Built ' + sq(built) + ' — ' + pct +
+           '% of allowed' + (built > row[3] ? ' (over)' :
+             ', ' + sq(row[3] - built) + ' remaining') + '</div>';
+    }
+  } else if (row[0] === 1) {
+    h += '<div class="pop-row">FAR <b>' + (row[2] / 1000).toFixed(2) + ' – ' +
+         (row[3] / 1000).toFixed(2) + '</b> <span style="opacity:.7">(hillside)' +
+         '</span></div>' +
+         '<div class="pop-row">' + Number(row[4]).toLocaleString() + ' – ' +
+         sq(row[5]) + '</div>' +
+         '<div class="pop-row" style="font-size:11.5px;opacity:.75">Bounded, not ' +
+         'exact: the ratio applies per slope band and no surveyed slope ' +
+         'analysis exists for this lot.</div>';
+    if (built) h += '<div class="pop-row">Built ' + sq(built) + '</div>';
+  } else {
+    h += '<div class="pop-row">Not assigned</div>' +
+         '<div class="pop-row" style="font-size:11.5px;opacity:.75">' +
+         esc(meta.reasons[row[2]] || '') + '</div>';
+  }
+
+  if (row[1]) h += '<div class="pop-row" style="font-size:11.5px;opacity:.75">' +
+                   'Lot ' + sq(row[1]) + '</div>';
+  var mi = row[0] === 0 ? row[4] : (row[0] === 1 ? row[6] : null);
+  if (mi != null && meta.methods[mi]) {
+    h += '<div class="pop-row" style="font-size:11.5px;opacity:.75">' +
+         esc(meta.methods[mi]) + '</div>';
+  }
+  // Index by record type: exact rows are [0,lot,far,rfa,m,cav,bonus] and
+  // bounded rows [1,lot,fmin,fmax,rfamin,rfamax,m,cav,bonus] -- two slots wider.
+  var cav = row[0] === 0 ? (row[5] || 0) : (row[0] === 1 ? (row[7] || 0) : 0);
+  if (cav) {
+    var names = [];
+    for (var i = 0; i < meta.caveats.length; i++) {
+      if (cav & (1 << i)) names.push(meta.caveats[i]);
+    }
+    h += '<div class="pop-row" style="font-size:11.5px;color:#b45309">' +
+         'Zoning maximum only — ' + esc(names.join(', ')) +
+         ' may cap this lower.</div>';
+  }
+  var bonus = row[0] === 0 ? (row[6] || 0) : (row[0] === 1 ? (row[8] || 0) : 0);
+  if (bonus) h += '<div class="pop-row" style="font-size:11.5px;opacity:.75">' +
+                  '+' + bonus + '% design bonus available.</div>';
+  return h;
+}
+
 // Shared by the click handler and the search box so a parcel reads identically
 // however you arrived at it.
 function parcelPopupHtml(parc) {
@@ -1671,6 +1766,15 @@ function parcelPopupHtml(parc) {
   if (parc.xfer_date) {
     html += '<div class="pop-row"><b>Last transfer:</b> ' + esc(parc.xfer_date) +
             (parc.hox ? ' · homeowner exemption' : '') + '</div>';
+  }
+  // FAR is not in the tileset, so the block arrives a fetch later. The
+  // placeholder is emitted only for LA AINs -- Orange County has no equivalent
+  // index -- and farFill deletes it if the parcel is outside the City. Running
+  // the fetch from here keeps both call sites (click and search) identical.
+  if (parc.ain && String(parc.ain).length === 10 && parc.county !== 'OC') {
+    var farId = 'far-' + (++farSeq);
+    html += '<div id="' + farId + '" data-sqft="' + (parc.sqft || 0) + '"></div>';
+    farFill(String(parc.ain), farId);
   }
   html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
           (parc.county === 'OC' ? 'Orange County assessor roll'

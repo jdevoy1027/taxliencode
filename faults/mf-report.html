@@ -544,23 +544,140 @@ function gwNote(g){
 </script>
 <script>
 /* ---------- build ---------- */
+/* Floor area ratio for section 3. Two independent ceilings govern a site --
+   permitted density (units per acre) and floor area ratio -- and the lower one
+   binds. The report already carries the density figure, so the value here is
+   not the FAR alone but the comparison, which is why the implied floor area per
+   unit is spelled out when both numbers exist.
+
+   Hillside parcels get a range, not a number: the ratio applies per slope band
+   against a surveyed slope analysis map that does not exist for these lots.
+   Reporting the midpoint would read as a measurement. */
+function farRows(far,r){
+  var out={rows:[],note:''};
+  if(!far) return out;
+  var row=far.row, M=far.meta;
+  if(!row){
+    out.note='<b>Floor area ratio is not available for this parcel.</b> The FAR '+
+      'dataset is derived from the City of Los Angeles zoning layer and '+
+      'Ordinance 184,802, so it covers City of LA parcels only. This site is '+
+      'outside the City, and its own jurisdiction publishes floor area limits '+
+      'in its own code.';
+    return out;
+  }
+  var sq=function(n){return num(n)+' sq ft';};
+  var basis=null, cap=null;
+
+  if(row[0]===0){
+    out.rows.push(['Maximum floor area ratio','<b>'+(row[2]/1000).toFixed(2)+'</b>']);
+    if(row[3]){ out.rows.push(['Maximum buildable floor area','<b>'+sq(row[3])+'</b>']); cap=row[3]; }
+    basis=M.methods[row[4]];
+  } else if(row[0]===1){
+    out.rows.push(['Maximum floor area ratio','<b>'+(row[2]/1000).toFixed(2)+' – '+
+      (row[3]/1000).toFixed(2)+'</b> (hillside, bounded)']);
+    out.rows.push(['Maximum buildable floor area',num(row[4])+' – '+sq(row[5])]);
+    basis=M.methods[row[6]];
+  } else {
+    out.rows.push(['Maximum floor area ratio','not assigned']);
+    basis=M.reasons[row[2]];
+  }
+  if(row[1]) out.rows.push(['Lot area (measured from parcel geometry)',sq(row[1])]);
+  if(basis) out.rows.push(['Basis',esc(basis)]);
+
+  var cavBits=row[0]===0?(row[5]||0):(row[0]===1?(row[7]||0):0);
+  if(cavBits){
+    var names=[];
+    for(var i=0;i<M.caveats.length;i++) if(cavBits&(1<<i)) names.push(M.caveats[i]);
+    out.rows.push(['Overlay',esc(names.join(', '))]);
+  }
+  var bonus=row[0]===0?(row[6]||0):(row[0]===1?(row[8]||0):0);
+  if(bonus) out.rows.push(['Design bonus available','+'+bonus+'%']);
+
+  var n=[];
+  if(row[0]===0){
+    n.push('Floor area ratio here is '+(row[2]/1000).toFixed(2)+', computed as '+
+      esc(basis||'')+(row[1]?' against a measured lot of '+sq(row[1]):'')+'.');
+    if(cap&&r.cap_units>0){
+      var per=Math.round(cap/r.cap_units);
+      n.push('Two ceilings apply to this site independently and the lower one '+
+        'governs. Permitted density allows '+num(r.cap_units)+' units; floor '+
+        'area ratio allows '+sq(cap)+'. Building to the density ceiling would '+
+        'leave about '+num(per)+' sq ft of floor area per unit'+
+        (per<600?', which is below a workable unit size — floor area ratio, not '+
+          'density, is the binding constraint on this parcel.'
+         :per<900?', which is tight but workable. The two ceilings are close '+
+          'enough that both should be tested in any concept plan.'
+         :', which is ample. Permitted density, not floor area ratio, is the '+
+          'binding constraint here.'));
+    }
+  } else if(row[0]===1){
+    n.push('This parcel is inside the City of Los Angeles Hillside Ordinance '+
+      'area, where the ratio is applied per slope band (Table 12.21 C.10-2a) '+
+      'against a surveyed slope analysis map. No such survey exists for this '+
+      'lot, so the figure above is a bound, not a measurement: the low end is '+
+      'the guaranteed minimum of Table 12.21 C.10-3, the high end is what the '+
+      'lot would earn if it were entirely flat. A slope analysis is required '+
+      'before any floor area figure here can be relied on.');
+  } else {
+    n.push('No floor area ratio is published for this parcel: '+esc(basis||'')+'.');
+  }
+  if(cavBits){
+    n.push('The figure above is the <b>zoning</b> maximum, not necessarily the '+
+      'legal one. This parcel carries a '+esc(names.join(' and '))+', where a '+
+      'site-specific ordinance can cap floor area below the general rule. The '+
+      'governing ordinance has to be read before the number is relied on.');
+  }
+  if(bonus) n.push('An additional '+bonus+'% is available under the design '+
+    'options in the ordinance, but it is conditional on compliance rather than '+
+    'automatic, so it is not included in the figures above.');
+  out.note=n.join('<br><br>');
+  return out;
+}
+
 function qs(k){var m=new RegExp('[?&]'+k+'=([^&]*)').exec(location.search);
   return m?decodeURIComponent(m[1]):null;}
+
+/* The candidate row has to be chosen in two places -- once to work out which
+   FAR shard to fetch, once to render -- so the selection lives in one function
+   rather than being written twice and drifting. */
+function pickRow(mf){
+  var rank=qs('rank'), apn=qs('apn'), rows=mf.rows||[];
+  var r=null;
+  if(rank) r=rows.filter(function(x){return String(x.rank)===String(rank);})[0];
+  if(!r&&apn) r=rows.filter(function(x){return String(x.apn)===String(apn);})[0];
+  return r||null;
+}
+
+/* Floor area ratio, City of Los Angeles only. The index is sharded by AIN map
+   book (tools/build_far_index.py), so the parcel must be known before the right
+   shard can be fetched -- which is why this is a second stage rather than
+   another entry in the Promise.all. It resolves BEFORE render on purpose: this
+   report is printed, and a block that fills in asynchronously prints blank.
+   Any failure yields null and the report renders without the section rather
+   than not at all. */
+function loadFar(r){
+  var ain=r?String(r.apn||''):'';
+  if(!r||r.co==='OC'||ain.length!==10) return Promise.resolve(null);
+  return Promise.all([
+    fetch('./far/meta.json').then(function(x){return x.json();}),
+    fetch('./far/'+ain.slice(0,4)+'.json').then(function(x){return x.json();})
+  ]).then(function(p){ return {meta:p[0],row:p[1][ain.slice(4)]||null}; })
+   .catch(function(){ return null; });
+}
 
 Promise.all([
   fetch('./multifamily.json').then(function(r){return r.json();}),
   fetch('./mf_report.json').then(function(r){return r.json();}).catch(function(){return {};}),
   fetch('./tapestry.json').then(function(r){return r.json();}).catch(function(){return [];})
-]).then(function(a){ render(a[0],a[1],a[2]); })
+]).then(function(a){
+  return loadFar(pickRow(a[0])).then(function(f){ render(a[0],a[1],a[2],f); });
+})
  .catch(function(e){
    document.getElementById('out').innerHTML='<div class="err">Could not load the '+
      'report data.<br><small>'+esc(e&&e.message)+'</small></div>';});
 
-function render(mf,extra,taps){
-  var rank=qs('rank'), apn=qs('apn'), rows=mf.rows||[];
-  var r=null;
-  if(rank) r=rows.filter(function(x){return String(x.rank)===String(rank);})[0];
-  if(!r&&apn) r=rows.filter(function(x){return String(x.apn)===String(apn);})[0];
+function render(mf,extra,taps,far){
+  var r=pickRow(mf);
   if(!r){
     document.getElementById('out').innerHTML='<div class="err">No candidate '+
       'matched <code>'+esc(location.search||'(no query)')+'</code>.<br>'+
@@ -826,6 +943,13 @@ function render(mf,extra,taps){
     'normalisation of the same thing onto one scheme across all 89 jurisdictions, '+
     'which is what makes parcels comparable. Where they disagree, the '+
     "jurisdiction's own code governs.</div>");
+
+  var FR=farRows(far,r);
+  if(FR.rows.length||FR.note){
+    S.push('<h3>Floor area ratio</h3>');
+    if(FR.rows.length) S.push(tbl(FR.rows));
+    if(FR.note) S.push('<div class="'+(FR.rows.length?'note':'gap')+'">'+FR.note+'</div>');
+  }
 
   S.push('<h3>Expansion onto surrounding parcels</h3>');
   var ex=[];
