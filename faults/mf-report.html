@@ -865,12 +865,19 @@ function render(mf,extra,taps,far){
   pb.push(['Lot area',num(r.area)+' sq ft · '+(r.acres!=null?r.acres+' acres':'')]);
   pb.push(['Dimensions',ft(r.w_ft)+' × '+ft(r.d_ft)+
     (r.reg!=null?' · regularity '+(+r.reg).toFixed(2):'')]);
-  pb.push(['Year built',r.yr?r.yr:'no building of record']);
-  pb.push(['Building area',r.bsqft?num(r.bsqft)+' sq ft':'none of record']);
+  // "no building of record" and "no building" are different claims. The
+  // Assessor leaves year built and building size blank on 46.9% of multi-unit
+  // parcels while still assessing improvements against them, so an empty
+  // column here means unreported, not empty ground.
+  var unrep = r.bstate==='unreported';
+  pb.push(['Year built',r.yr?r.yr:(unrep?'not reported by the Assessor':'no building of record')]);
+  pb.push(['Building area',r.bsqft?num(r.bsqft)+' sq ft'
+            :(unrep?'not reported by the Assessor':'none of record')]);
   pb.push(['Assessed land',usd(r.land)]);
   pb.push(['Assessed improvements',usd(r.impr)]);
   pb.push(['Owner of record',esc(r.owner||'—')]);
-  pb.push(['Currently vacant',r.vacant?'yes':'no']);
+  pb.push(['Currently vacant',unrep?'no \u2014 buildings present, characteristics unreported'
+            :(r.vacant?'yes':'no')]);
   pb.push(['APNs in this site',num(r.apn_n)+(r.grouped?' · '+r.grouped+' adjoining parcel(s) folded in':'')]);
   pb.push(['Transit, nearest stop',r.transit_m!=null?num(r.transit_m)+' m':'—']);
   // Measured to the road centreline, so a parcel fronting a street reads about
@@ -902,8 +909,18 @@ function render(mf,extra,taps,far){
 
   S.push('<h3>Obstacles to development</h3>');
   var obs=[];
-  if(r.flags) obs.push('Hazard designations recorded on the site: '+esc(r.flags)+
+  // The building-state flag is not a hazard designation and must not be read
+  // out as one.
+  var hazf=(r.flags||'').split('; ').filter(function(x){
+    return x && x.indexOf('buildings present')!==0; }).join('; ');
+  if(hazf) obs.push('Hazard designations recorded on the site: '+esc(hazf)+
     '. Each is set out in section 4.');
+  if(unrep) obs.push('The Assessor records improvements against this parcel but '+
+    'reports no year built and no building size for it, so there are buildings '+
+    'here whose age and floor area are unknown. The redevelopment score is '+
+    'reduced to half credit on both counts rather than treating the gap as bare '+
+    'land \u2014 but what stands here has to be established on site before the '+
+    'parcel can be costed.');
   if(r.c_constraints!=null&&r.c_constraints<5) obs.push('The constraints category '+
     'scores '+(+r.c_constraints).toFixed(1)+' of 5, the deduction being those designations.');
   if(r.reg!=null&&r.reg<0.75) obs.push('Lot regularity is '+(+r.reg).toFixed(2)+

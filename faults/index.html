@@ -4019,7 +4019,16 @@ map.on('load', function () {
         (mf.gp ? ' <span style="color:#85857e">' + esc(mf.gp) + '</span>' : '') + '</div>';
       if (mf.sp) html += '<div class="pop-row">Specific plan: ' + esc(mf.sp) + '</div>';
       if (mf.zoning) html += '<div class="pop-row">Assessor zoning ' + esc(mf.zoning) + '</div>';
-      if (mf.vacant) {
+      // "Unreported" is not "none". The Assessor leaves year built and
+      // building size blank on 46.9% of multi-unit parcels while still
+      // assessing improvements, so these two cases must read differently.
+      if (mf.bstate === 'unreported') {
+        html += '<div class="pop-row">Buildings present, characteristics unreported</div>' +
+          '<div class="pop-row" style="color:#85857e;font-size:11px">The Assessor ' +
+          'records improvements here but no year built and no building area, so the ' +
+          'redevelopment score takes half credit on both rather than reading the ' +
+          'gap as bare land</div>';
+      } else if (mf.vacant) {
         html += '<div class="pop-row">No building on the lot</div>';
         if (mf.yr) html += '<div class="pop-row" style="color:#85857e;font-size:11px">' +
           'Assessor records a ' + esc(mf.yr) + ' structure; the parcel carries no ' +
@@ -5631,7 +5640,8 @@ function mfRender(q) {
       ' · APN ' + esc(r.apn || '') + '</div></td>' +
       '<td class="lun">' + Number(r.area).toLocaleString() + '</td>' +
       '<td class="lun">' + (r.cap_units ? Number(r.cap_units).toLocaleString() : '—') + '</td>' +
-      '<td class="lun">' + (r.vacant ? 'vacant' : (r.yr || '—')) + '</td>' +
+      '<td class="lun">' + (r.bstate === 'unreported' ? 'unreported'
+                            : (r.vacant ? 'vacant' : (r.yr || '—'))) + '</td>' +
       '<td class="lun" style="min-width:86px">' +
         '<div style="display:flex;align-items:center;gap:5px">' +
         '<span style="flex:1;height:6px;background:#ececeb;border-radius:3px;overflow:hidden">' +
