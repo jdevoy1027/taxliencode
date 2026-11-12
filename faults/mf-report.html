@@ -658,11 +658,17 @@ function pickRow(mf){
 function loadFar(r){
   var ain=r?String(r.apn||''):'';
   if(!r||r.co==='OC'||ain.length!==10) return Promise.resolve(null);
-  return Promise.all([
-    fetch('./far/meta.json').then(function(x){return x.json();}),
-    fetch('./far/'+ain.slice(0,4)+'.json').then(function(x){return x.json();})
-  ]).then(function(p){ return {meta:p[0],row:p[1][ain.slice(4)]||null}; })
-   .catch(function(){ return null; });
+  return fetch('./far/meta.json').then(function(x){return x.json();})
+    .then(function(meta){
+      // A missing map book is not an error: it means no parcel in that book
+      // lies inside the City of LA, which is the answer. Treating the 404 as a
+      // failure made the report silent for exactly the candidates that most
+      // need the explanation -- 329 of the 500 sites are outside the City.
+      return fetch('./far/'+ain.slice(0,4)+'.json')
+        .then(function(x){ return x.ok?x.json():{}; })
+        .then(function(sh){ return {meta:meta,row:sh[ain.slice(4)]||null}; });
+    })
+    .catch(function(){ return null; });
 }
 
 Promise.all([
