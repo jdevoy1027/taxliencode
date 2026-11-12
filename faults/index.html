@@ -4067,12 +4067,28 @@ map.on('load', function () {
       if (mf.prime) mex.push('<b>prime format:</b> ' + esc(mf.prime) + ', pre-1980');
       if (mex.length) html += '<div class="pop-row">' + mex.join(' · ') + '</div>';
       html += mfLinks(mf.lat, mf.lon);
-      // The full written report for this candidate. Keyed on rank, not APN:
-      // five shortlisted sites share Orange County APN 125-162-63 and two share
-      // 124-101-34, so an APN link would be ambiguous for seven of the 500.
+      // The full written report for this candidate, identified by BOTH APN and
+      // rank.
+      //
+      // Rank alone was the original key, because APN is not unique here: 18 of
+      // the 500 rows share three Orange County APNs (124-101-34 appears seven
+      // times), so an APN link is ambiguous for those. But rank alone is worse,
+      // because rank is not STABLE -- a re-score renumbers every site. A link
+      // built before the November re-score pointed at rank 162, which was 1141
+      // S Norton Ave then and APN 4415021005 afterwards, and the report
+      // rendered the second parcel without complaint: the existing guard
+      // compares mf_report.json against multifamily.json, and those two were
+      // perfectly consistent with each other. It cannot see that the LINK came
+      // from an older vintage of the list.
+      //
+      // So both travel. The report resolves on APN, which identifies the parcel
+      // across re-scores, and uses rank only to pick between rows that share
+      // one. A stale link now either lands on the right parcel or says the
+      // parcel is no longer a candidate.
       if (mf.rank != null) {
         html += '<div class="pop-row mf-links">' +
-          '<a href="./mf-report.html?rank=' + encodeURIComponent(mf.rank) +
+          '<a href="./mf-report.html?apn=' + encodeURIComponent(mf.apn || '') +
+          '&rank=' + encodeURIComponent(mf.rank) +
           '" target="_blank" rel="noopener"><b>Create Report</b></a>' +
           '<div class="mf-hint">Neighbourhood, property, zoning, hazards and ' +
           'geology for this parcel, formatted to print</div></div>';

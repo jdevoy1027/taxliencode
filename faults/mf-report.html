@@ -639,13 +639,29 @@ function qs(k){var m=new RegExp('[?&]'+k+'=([^&]*)').exec(location.search);
 
 /* The candidate row has to be chosen in two places -- once to work out which
    FAR shard to fetch, once to render -- so the selection lives in one function
-   rather than being written twice and drifting. */
+   rather than being written twice and drifting.
+
+   APN is authoritative, rank is a tie-break. Rank identifies a POSITION in the
+   list and a re-score renumbers every position, so a link built against an
+   earlier vintage points at whatever now holds that number: a link to rank 162
+   meant 1141 S Norton Ave before the November re-score and APN 4415021005
+   after it, and the report rendered the second one silently. APN identifies the
+   PARCEL and survives a re-score. It is not unique -- 18 of the 500 rows share
+   three Orange County APNs -- which is why rank still travels alongside it and
+   is used to choose among rows that share one. */
 function pickRow(mf){
   var rank=qs('rank'), apn=qs('apn'), rows=mf.rows||[];
-  var r=null;
-  if(rank) r=rows.filter(function(x){return String(x.rank)===String(rank);})[0];
-  if(!r&&apn) r=rows.filter(function(x){return String(x.apn)===String(apn);})[0];
-  return r||null;
+  if(apn){
+    var byApn=rows.filter(function(x){return String(x.apn)===String(apn);});
+    if(byApn.length===1) return byApn[0];
+    if(byApn.length>1){
+      return byApn.filter(function(x){return String(x.rank)===String(rank);})[0]
+             || byApn[0];
+    }
+    return null;   // named a parcel that is not on the current list
+  }
+  if(rank) return rows.filter(function(x){return String(x.rank)===String(rank);})[0]||null;
+  return null;
 }
 
 /* Floor area ratio, City of Los Angeles only. The index is sharded by AIN map
@@ -683,11 +699,24 @@ Promise.all([
      'report data.<br><small>'+esc(e&&e.message)+'</small></div>';});
 
 function render(mf,extra,taps,far){
-  var r=pickRow(mf);
+  var r=pickRow(mf), qapn=qs('apn'), qrank=qs('rank');
   if(!r){
-    document.getElementById('out').innerHTML='<div class="err">No candidate '+
-      'matched <code>'+esc(location.search||'(no query)')+'</code>.<br>'+
-      '<small>Open a report from a candidate on the map.</small></div>';
+    var out=document.getElementById('out');
+    if(qapn){
+      // The link named a real parcel that the current shortlist no longer
+      // holds -- almost always because a re-score dropped it. Saying so is the
+      // answer; falling back to the rank would render a different site.
+      out.innerHTML='<div class="err"><b>APN '+esc(qapn)+' is not on the '+
+        'current shortlist.</b><br><br>It was a candidate when this link was '+
+        'made, and a later re-score removed it. Nothing is shown here rather '+
+        'than the parcel that now holds rank '+esc(qrank||'?')+', which is a '+
+        'different site.<br><br><small>Reload the map and pick the site again '+
+        'to see what replaced it.</small></div>';
+    } else {
+      out.innerHTML='<div class="err">No candidate matched <code>'+
+        esc(location.search||'(no query)')+'</code>.<br>'+
+        '<small>Open a report from a candidate on the map.</small></div>';
+    }
     return;
   }
   var x=extra[String(r.rank)]||{}, b=x.block||{};
@@ -719,6 +748,24 @@ function render(mf,extra,taps,far){
   taps.forEach(function(t){ if(String(t.name||'').trim().toLowerCase()===tn) tap=t; });
 
   var H=[];
+  // The link resolved to the right parcel but carried a rank it no longer
+  // holds, so it was made against an earlier vintage of the list. The report
+  // below is correct; the number the user clicked is not, and if that is not
+  // said they will reasonably assume the ranking they saw still stands.
+  if(qapn && qrank && String(r.rank)!==String(qrank)){
+    H.push('<div class="err" style="background:#fdf6e3;border-color:#b45309;'+
+      'color:#6b4a0b"><b>This site has been re-ranked.</b><br>The link was made '+
+      'when APN '+esc(qapn)+' was #'+esc(qrank)+'. It is now #'+esc(r.rank)+
+      ' of '+(mf.scored!=null?num(mf.scored):'')+' scored. The report below is '+
+      'for the right parcel \u2014 only its position has moved.</div>');
+  } else if(!qapn && qrank){
+    H.push('<div class="err" style="background:#fdf6e3;border-color:#b45309;'+
+      'color:#6b4a0b"><b>This link identifies a position, not a parcel.</b><br>'+
+      'It asks for #'+esc(qrank)+', and rank is reassigned every time the list '+
+      'is re-scored, so it may not be the site you meant. Links made from the '+
+      'map now carry the APN as well. Check the APN below against the site you '+
+      'expected.</div>');
+  }
   /* ===== masthead ===== */
   H.push('<header>'+
     '<div class="brand">'+
