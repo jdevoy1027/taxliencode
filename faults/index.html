@@ -1642,24 +1642,35 @@ function fmtApn(a) {
 // faults/far/ is built by tools/build_far_index.py; see that file for the row
 // encoding. Absent AIN means the parcel is outside the City, which is the
 // common case countywide, so nothing is rendered rather than a negative claim.
-var FAR_DIR = './far/', farCache = {}, farMeta = null, farSeq = 0;
+// Keyed on APN length, the same split faults/ain/ and faults/ain-oc/ already
+// use for the parcel search: a 10-digit LA AIN shards on its 4-digit map book,
+// an 8-digit Orange APN on a 3-digit one. Separate directories keep the two key
+// lengths from colliding and let each county intern its own string tables.
+var FAR_SRC = {
+  10: { dir: './far/',    book: 4 },
+  8:  { dir: './far-oc/', book: 3 }
+};
+var farCache = {}, farMeta = {}, farSeq = 0;
 
-function farFetchMeta() {
-  if (farMeta) return Promise.resolve(farMeta);
-  return fetch(FAR_DIR + 'meta.json')
+function farFetchMeta(dir) {
+  if (farMeta[dir]) return Promise.resolve(farMeta[dir]);
+  return fetch(dir + 'meta.json')
     .then(function (r) { if (!r.ok) throw 0; return r.json(); })
-    .then(function (j) { farMeta = j; return j; });
+    .then(function (j) { farMeta[dir] = j; return j; });
 }
 
 // Renders into the placeholder parcelPopupHtml left behind. The popup may be
 // gone by the time this resolves -- a fast double-click, or a closed popup --
 // so a missing element is a no-op, not an error.
 function farFill(ain, id) {
-  var book = ain.slice(0, 4), key = ain.slice(4);
-  Promise.all([farFetchMeta(), farCache[book] ? Promise.resolve(farCache[book])
-    : fetch(FAR_DIR + book + '.json')
+  var cfg = FAR_SRC[ain.length];
+  if (!cfg) { var g = document.getElementById(id); if (g) g.parentNode.removeChild(g); return; }
+  var book = ain.slice(0, cfg.book), key = ain.slice(cfg.book),
+      ck = cfg.dir + book;
+  Promise.all([farFetchMeta(cfg.dir), farCache[ck] ? Promise.resolve(farCache[ck])
+    : fetch(cfg.dir + book + '.json')
         .then(function (r) { if (!r.ok) throw 0; return r.json(); })
-        .then(function (j) { farCache[book] = j; return j; })])
+        .then(function (j) { farCache[ck] = j; return j; })])
     .then(function (both) {
       var el = document.getElementById(id);
       if (!el) return;
@@ -1796,11 +1807,11 @@ function parcelPopupHtml(parc) {
     html += '<div class="pop-row"><b>Last transfer:</b> ' + esc(parc.xfer_date) +
             (parc.hox ? ' · homeowner exemption' : '') + '</div>';
   }
-  // FAR is not in the tileset, so the block arrives a fetch later. The
-  // placeholder is emitted only for LA AINs -- Orange County has no equivalent
-  // index -- and farFill deletes it if the parcel is outside the City. Running
-  // the fetch from here keeps both call sites (click and search) identical.
-  if (parc.ain && String(parc.ain).length === 10 && parc.county !== 'OC') {
+  // FAR is not in the tileset, so the block arrives a fetch later, and
+  // farFill deletes the placeholder if the parcel has no row. Running the
+  // fetch from here keeps both call sites (click and search) identical.
+  // Both counties now, keyed on APN length.
+  if (parc.ain && FAR_SRC[String(parc.ain).length]) {
     var farId = 'far-' + (++farSeq);
     html += '<div id="' + farId + '" data-sqft="' + (parc.sqft || 0) + '"></div>';
     farFill(String(parc.ain), farId);

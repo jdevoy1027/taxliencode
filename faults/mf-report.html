@@ -560,12 +560,12 @@ function farRows(far,r){
   if(!row){
     out.note='<b>No floor area ratio is published for this parcel in the '+
       'sources used here.</b> Those are the City of Los Angeles zoning layer '+
-      'with Ordinance 184,802 inside the City, SCAG\'s 2019 regional land use '+
-      'layer across all 89 jurisdictions, and Title 22 with the County zoning '+
-      'layer on unincorporated land. SCAG carries a floor area ratio for only '+
-      '13.5% of the county, and this parcel is not among them: it sits in an '+
-      'incorporated city other than Los Angeles, whose own code governs floor '+
-      'area and which SCAG did not record a figure for.';
+      'with Ordinance 184,802 inside the City, Title 22 with the County zoning '+
+      'layer on unincorporated land, and SCAG\'s 2019 regional land use layer '+
+      'everywhere else in both counties. SCAG carries a floor area ratio for '+
+      'only 13.5% of Los Angeles County and 9.0% of Orange, concentrated in '+
+      'commercial and industrial zones, and this parcel is not among them. Its '+
+      'own jurisdiction governs floor area in its own code.';
     return out;
   }
   var sq=function(n){return num(n)+' sq ft';};
@@ -680,18 +680,24 @@ function pickRow(mf){
    report is printed, and a block that fills in asynchronously prints blank.
    Any failure yields null and the report renders without the section rather
    than not at all. */
+/* Keyed on APN length, as the popup is: a 10-digit LA AIN shards on a 4-digit
+   map book under far/, an 8-digit Orange APN on a 3-digit book under far-oc/.
+   Orange was excluded outright until it had an index of its own. */
+var FAR_SRC={10:{dir:'./far/',book:4}, 8:{dir:'./far-oc/',book:3}};
+
 function loadFar(r){
   var ain=r?String(r.apn||''):'';
-  if(!r||r.co==='OC'||ain.length!==10) return Promise.resolve(null);
-  return fetch('./far/meta.json').then(function(x){return x.json();})
+  var cfg=FAR_SRC[ain.length];
+  if(!r||!cfg) return Promise.resolve(null);
+  return fetch(cfg.dir+'meta.json').then(function(x){return x.json();})
     .then(function(meta){
-      // A missing map book is not an error: it means no parcel in that book
-      // lies inside the City of LA, which is the answer. Treating the 404 as a
-      // failure made the report silent for exactly the candidates that most
-      // need the explanation -- 329 of the 500 sites are outside the City.
-      return fetch('./far/'+ain.slice(0,4)+'.json')
+      // A missing map book is not an error: it means no parcel in that book has
+      // a row, which is the answer. Treating the 404 as a failure made the
+      // report silent for exactly the candidates that most need the
+      // explanation.
+      return fetch(cfg.dir+ain.slice(0,cfg.book)+'.json')
         .then(function(x){ return x.ok?x.json():{}; })
-        .then(function(sh){ return {meta:meta,row:sh[ain.slice(4)]||null}; });
+        .then(function(sh){ return {meta:meta,row:sh[ain.slice(cfg.book)]||null}; });
     })
     .catch(function(){ return null; });
 }
