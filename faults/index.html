@@ -1730,6 +1730,32 @@ function farHtml(row, meta, builtAttr) {
   var bonus = row[0] === 0 ? (row[6] || 0) : (row[0] === 1 ? (row[8] || 0) : 0);
   if (bonus) h += '<div class="pop-row" style="font-size:11.5px;opacity:.75">' +
                   '+' + bonus + '% design bonus available.</div>';
+
+  // Permitted unit capacity rides as a tail on every row type, two slots wide:
+  // density x10, then the floored unit count. It covers 2,136,847 parcels
+  // against the floor-area index's 1,335,272, so for most of the county outside
+  // the City of LA this is the only development ceiling on offer.
+  var ti = row[0] === 0 ? 7 : (row[0] === 1 ? 9 : 3);
+  var den = (row[ti] || 0) / 10;
+  if (den > 0) {
+    // A floored zero is legitimate and common -- the lot is smaller than one
+    // unit's worth of land at this density -- so it is stated plainly rather
+    // than shown as a blank.
+    var units = row[ti + 1] || 0;
+    h += '<div class="pop-sep"></div><div class="pop-row"><b>Permitted density' +
+         '</b></div><div class="pop-row">' + den.toFixed(den < 10 ? 1 : 0) +
+         ' units per acre' + (row[1] ? ' on ' +
+           (row[1] / 43560).toFixed(2) + ' acres' : '') + '</div>';
+    h += '<div class="pop-row">' + (units > 0
+          ? '<b>' + units.toLocaleString() + ' unit' + (units > 1 ? 's' : '') +
+            '</b> permitted'
+          : 'Under one unit: this lot is smaller than the density allows for a ' +
+            'single unit') + '</div>';
+    h += '<div class="pop-row" style="font-size:11.5px;opacity:.75">SCAG 2019 ' +
+         'regional land use. A zoning ceiling on this parcel alone — it ignores ' +
+         'assembly, density bonus, SB 9/SB 10 and AB 2011, setbacks, parking ' +
+         'and height.</div>';
+  }
   return h;
 }
 

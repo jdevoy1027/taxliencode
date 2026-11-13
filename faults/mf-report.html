@@ -1005,11 +1005,29 @@ function render(mf,extra,taps,far){
   lu.push(['SCAG general plan',esc(r.gp_lbl||'—')+(r.gp?' ('+esc(r.gp)+')':'')]);
   lu.push(['SCAG zoning code',r.zn?esc(r.zn):'—']);
   lu.push(['Assessor zoning string',r.zoning?esc(r.zoning):'—']);
-  lu.push(['Permitted density',r.du_acre!=null?num(r.du_acre)+' du/acre':'—']);
+  // The vintage is load-bearing. The shortlist was re-based on SCAG's 2019
+  // densities, but the re-base is uneven: Los Angeles's APN join to 2019
+  // reaches 56% of candidates and Orange's 15%, because Orange's 2019 layer
+  // carries 690,288 rows against roughly 987,000 present-day parcels. A reader
+  // comparing two sites needs to know which figure each was scored on.
+  lu.push(['Permitted density',(r.du_acre!=null?num(r.du_acre)+' du/acre':'—')+
+    (r.dens_src?' <span style="color:#7a7a72;font-size:12px">('+esc(r.dens_src)+
+      ')</span>':'')]);
   lu.push(['Implied capacity',num(r.cap_units)+' units']);
   lu.push(['Specific plan',r.sp?esc(r.sp):'none recorded']);
   lu.push(['Pathway tier',r.tier==='mf'?'multifamily by right':'conversion pathway']);
   S.push(tbl(lu));
+  if(r.dens_src==='SCAG 2016'){
+    S.push('<div class="note"><b>This site\'s density is the 2016 figure, not '+
+      'the 2019 one.</b> SCAG\'s 2019 regional land use layer has no density '+
+      'row for this parcel \u2014 which on inspection usually means the parcel '+
+      'is there with a density of zero, zoned commercial, industrial or mixed '+
+      'use, and SCAG records no residential density for it rather than omitting '+
+      'it. The 2016 figure is kept because a zero there is an absence of data '+
+      'and not a prohibition, but it is a decade old: where the two vintages '+
+      'could be compared across the shortlist, 50 of 337 sites differed by more '+
+      'than 15%, and two thirds of those were overstated in 2016.</div>');
+  }
   S.push('<div class="note">Jurisdiction is established by the parcel centroid '+
     'against the Census TIGER/Line municipal boundaries for California, not by '+
     'the mailing address: inside an incorporated city or town that city '+
