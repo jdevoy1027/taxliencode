@@ -558,11 +558,14 @@ function farRows(far,r){
   if(!far) return out;
   var row=far.row, M=far.meta;
   if(!row){
-    out.note='<b>Floor area ratio is not available for this parcel.</b> The FAR '+
-      'dataset is derived from the City of Los Angeles zoning layer and '+
-      'Ordinance 184,802, so it covers City of LA parcels only. This site is '+
-      'outside the City, and its own jurisdiction publishes floor area limits '+
-      'in its own code.';
+    out.note='<b>No floor area ratio is published for this parcel in the '+
+      'sources used here.</b> Those are the City of Los Angeles zoning layer '+
+      'with Ordinance 184,802 inside the City, SCAG\'s 2019 regional land use '+
+      'layer across all 89 jurisdictions, and Title 22 with the County zoning '+
+      'layer on unincorporated land. SCAG carries a floor area ratio for only '+
+      '13.5% of the county, and this parcel is not among them: it sits in an '+
+      'incorporated city other than Los Angeles, whose own code governs floor '+
+      'area and which SCAG did not record a figure for.';
     return out;
   }
   var sq=function(n){return num(n)+' sq ft';};
@@ -578,7 +581,10 @@ function farRows(far,r){
     out.rows.push(['Maximum buildable floor area',num(row[4])+' – '+sq(row[5])]);
     basis=M.methods[row[6]];
   } else {
-    out.rows.push(['Maximum floor area ratio','not assigned']);
+    // Not "not assigned": for a parcel inside a Community Standards District
+    // the floor area IS set, by a Title 22 chapter not yet transcribed. The
+    // reason sentence distinguishes the cases; a two-word label cannot.
+    out.rows.push(['Maximum floor area ratio','not derived — see below']);
     basis=M.reasons[row[2]];
   }
   if(row[1]) out.rows.push(['Lot area (measured from parcel geometry)',sq(row[1])]);
@@ -619,7 +625,10 @@ function farRows(far,r){
       'lot would earn if it were entirely flat. A slope analysis is required '+
       'before any floor area figure here can be relied on.');
   } else {
-    n.push('No floor area ratio is published for this parcel: '+esc(basis||'')+'.');
+    // The reason stands on its own. Wrapping it in "No floor area ratio is
+    // published for this parcel: ..." contradicted itself on a CSD parcel,
+    // where one IS published.
+    n.push(esc(basis||'')+'.');
   }
   if(cavBits){
     n.push('The figure above is the <b>zoning</b> maximum, not necessarily the '+

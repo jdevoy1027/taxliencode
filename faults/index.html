@@ -1700,8 +1700,11 @@ function farHtml(row, meta, builtAttr) {
          'analysis exists for this lot.</div>';
     if (built) h += '<div class="pop-row">Built ' + sq(built) + '</div>';
   } else {
-    h += '<div class="pop-row">Not assigned</div>' +
-         '<div class="pop-row" style="font-size:11.5px;opacity:.75">' +
+    // No lead line here. "Not assigned" is wrong for a parcel whose floor area
+    // IS set -- by a Community Standards District chapter that simply has not
+    // been transcribed yet -- and the reason sentence below says which case
+    // this is far better than a two-word label can.
+    h += '<div class="pop-row" style="font-size:11.5px;opacity:.85">' +
          esc(meta.reasons[row[2]] || '') + '</div>';
   }
 
