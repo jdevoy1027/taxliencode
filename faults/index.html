@@ -1674,7 +1674,8 @@ function farFill(ain, id) {
     .then(function (both) {
       var el = document.getElementById(id);
       if (!el) return;
-      var html = farHtml(both[1][key], both[0], el.getAttribute('data-sqft'));
+      var html = farHtml(both[1][key], both[0], el.getAttribute('data-sqft'),
+                         el.getAttribute('data-impr'), el.getAttribute('data-yr'));
       if (html) el.innerHTML = html;
       else el.parentNode.removeChild(el);
     })
@@ -1684,9 +1685,10 @@ function farFill(ain, id) {
     });
 }
 
-function farHtml(row, meta, builtAttr) {
+function farHtml(row, meta, builtAttr, imprAttr, yrAttr) {
   if (!row) return '';
   var built = Number(builtAttr) || 0;
+  var impr = Number(imprAttr) || 0, yr = Number(yrAttr) || 0;
   var sq = function (n) { return Number(n).toLocaleString() + ' sq ft'; };
   var h = '<div class="pop-sep"></div><div class="pop-row"><b>Floor area ratio</b></div>';
 
@@ -1753,15 +1755,28 @@ function farHtml(row, meta, builtAttr) {
     // unit's worth of land at this density -- so it is stated plainly rather
     // than shown as a blank.
     var units = row[ti + 1] || 0;
+    var raw = row[1] ? (row[1] / 43560) * den : 0;
     h += '<div class="pop-sep"></div><div class="pop-row"><b>Permitted density' +
          '</b></div><div class="pop-row">' + den.toFixed(den < 10 ? 1 : 0) +
          ' units per acre' + (row[1] ? ' on ' +
            (row[1] / 43560).toFixed(2) + ' acres' : '') + '</div>';
-    h += '<div class="pop-row">' + (units > 0
-          ? '<b>' + units.toLocaleString() + ' unit' + (units > 1 ? 's' : '') +
-            '</b> permitted'
-          : 'Under one unit: this lot is smaller than the density allows for a ' +
-            'single unit') + '</div>';
+    if (units > 0) {
+      h += '<div class="pop-row"><b>' + units.toLocaleString() + ' unit' +
+           (units > 1 ? 's' : '') + '</b> permitted</div>';
+    } else if (impr > 0 || built > 0 || yr > 1700) {
+      // The raw product is shown rather than the floored zero: 0.97 units says
+      // "already built to the permitted density", which is the truth here, and
+      // "0" does not.
+      h += '<div class="pop-row">Density allows <b>' + raw.toFixed(2) +
+           ' units</b> on this lot' + (yr > 1700 ? ', and it was built in ' +
+           yr : ', and it is already built') + ' \u2014 the existing ' +
+           'development already uses the entitlement. No additional unit is ' +
+           'permitted on the lot alone.</div>';
+    } else {
+      h += '<div class="pop-row">Density allows <b>' + raw.toFixed(2) +
+           ' units</b>: under one unit, so this lot is smaller than the ' +
+           'density allows for a single dwelling.</div>';
+    }
     h += '<div class="pop-row" style="font-size:11.5px;opacity:.75">SCAG 2019 ' +
          'regional land use. A zoning ceiling on this parcel alone — it ignores ' +
          'assembly, density bonus, SB 9/SB 10 and AB 2011, setbacks, parking ' +
@@ -1813,7 +1828,15 @@ function parcelPopupHtml(parc) {
   // Both counties now, keyed on APN length.
   if (parc.ain && FAR_SRC[String(parc.ain).length]) {
     var farId = 'far-' + (++farSeq);
-    html += '<div id="' + farId + '" data-sqft="' + (parc.sqft || 0) + '"></div>';
+    // Improvement value travels because a floored capacity of zero means two
+    // opposite things. On a vacant lot it means the lot is smaller than one
+    // unit's worth of land; on a built one it means the existing unit already
+    // uses the entitlement. Without this the popup asserted the first on
+    // parcels that visibly are the second -- APN 099-691-26, a 2,340 sq ft
+    // Garden Grove lot with a house built in 2001, computes to 0.967 units.
+    html += '<div id="' + farId + '" data-sqft="' + (parc.sqft || 0) +
+            '" data-impr="' + (parc.impr_value || 0) +
+            '" data-yr="' + (parc.yr_built || 0) + '"></div>';
     farFill(String(parc.ain), farId);
   }
   html += '<div class="pop-row" style="font-size:11px;opacity:.65">' +
