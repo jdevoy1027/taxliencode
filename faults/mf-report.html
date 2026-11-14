@@ -605,10 +605,18 @@ function farRows(far,r){
       esc(basis||'')+(row[1]?' against a measured lot of '+sq(row[1]):'')+'.');
     if(cap&&r.cap_units>0){
       var per=Math.round(cap/r.cap_units);
-      n.push('Two ceilings apply to this site independently and the lower one '+
-        'governs. Permitted density allows '+num(r.cap_units)+' units; floor '+
-        'area ratio allows '+sq(cap)+'. Building to the density ceiling would '+
-        'leave about '+num(per)+' sq ft of floor area per unit'+
+      // Not "independently". Santa Ana's Land Use Element states that for its
+      // mixed-use designations the two standards bind JOINTLY -- the cumulative
+      // floor area, residential included, must not exceed the ratio AND the
+      // units must not exceed the density. Which applies is a per-jurisdiction
+      // fact, so the basis line carries it rather than this sentence asserting
+      // one reading for everywhere.
+      n.push('Both ceilings apply, and the binding one is whichever is reached '+
+        'first. Some jurisdictions state they bind jointly rather than as '+
+        'alternatives, in which case both must be satisfied at once \u2014 the '+
+        'basis above says which. Permitted density allows '+num(r.cap_units)+
+        ' units; floor area ratio allows '+sq(cap)+'. Building to the density '+
+        'ceiling would leave about '+num(per)+' sq ft of floor area per unit'+
         (per<600?', which is below a workable unit size — floor area ratio, not '+
           'density, is the binding constraint on this parcel.'
          :per<900?', which is tight but workable. The two ceilings are close '+
