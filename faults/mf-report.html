@@ -580,6 +580,28 @@ function farRows(far,r){
       (row[3]/1000).toFixed(2)+'</b> (hillside, bounded)']);
     out.rows.push(['Maximum buildable floor area',num(row[4])+' – '+sq(row[5])]);
     basis=M.methods[row[6]];
+  } else if(row[0]===3){
+    // Two published ranges at once. Without this branch the final else would
+    // read M.reasons[row[2]] with row[2] holding fmin x 1000 and render an
+    // unrelated reason sentence.
+    var f3min=(row[2]||0)/1000, f3max=(row[3]||0)/1000;
+    if(f3max>0){
+      out.rows.push(['Permitted floor area ratio','<b>'+
+        (f3min>0?f3min.toFixed(2)+' \u2013 '+f3max.toFixed(2)
+                :'up to '+f3max.toFixed(2))+'</b>']);
+      if(row[5]){ out.rows.push(['Maximum buildable floor area',
+        (row[4]?num(row[4])+' \u2013 ':'up to ')+sq(row[5])]); cap=row[5]; }
+    } else {
+      out.rows.push(['Permitted floor area ratio','none published \u2014 see below']);
+    }
+    var d3min=(row[7]||0)/10, d3max=(row[8]||0)/10;
+    if(d3max>0){
+      out.rows.push(['Permitted density',
+        (d3min>0?num(d3min)+' \u2013 ':'up to ')+num(d3max)+' units per acre']);
+      if(row[10]) out.rows.push(['Permitted units','<b>'+
+        ((row[9]&&row[9]!==row[10])?num(row[9])+' \u2013 ':'')+num(row[10])+'</b>']);
+    }
+    basis=M.methods[row[6]];
   } else {
     // Not "not assigned": for a parcel inside a Community Standards District
     // the floor area IS set, by a Title 22 chapter not yet transcribed. The
@@ -624,6 +646,25 @@ function farRows(far,r){
          :', which is ample. Permitted density, not floor area ratio, is the '+
           'binding constraint here.'));
     }
+  } else if(row[0]===3){
+    var g3min=(row[2]||0)/1000, g3max=(row[3]||0)/1000;
+    var e3min=(row[7]||0)/10, e3max=(row[8]||0)/10;
+    n.push(esc(basis||'')+'.');
+    if(g3max>0&&g3min>0) n.push('This designation states its intensity as a '+
+      'range, and the minimum is part of the standard rather than a rounding '+
+      'of zero: development below '+g3min.toFixed(2)+' FAR does not implement '+
+      'the designation. Both ends are the General Plan\'s own figures.');
+    if(g3max>0&&e3max>0) n.push('This is a mixed-use designation, where the '+
+      'floor area ratio governs the non-residential component and the density '+
+      'the residential one, so a project can draw on both. The General Plan '+
+      'does not state how they trade off against each other, which makes the '+
+      'split a design decision to be confirmed with the city rather than a '+
+      'figure to be read off.');
+    if(g3max<=0&&e3max>0) n.push('Floor area ratio is not the operative '+
+      'standard here. The designation is residential and states its ceiling as '+
+      'dwelling units per acre, which is the eighth jurisdiction in this '+
+      'dataset to do so \u2014 floor area ratio is consistently a '+
+      'non-residential instrument.');
   } else if(row[0]===1){
     n.push('This parcel is inside the City of Los Angeles Hillside Ordinance '+
       'area, where the ratio is applied per slope band (Table 12.21 C.10-2a) '+
