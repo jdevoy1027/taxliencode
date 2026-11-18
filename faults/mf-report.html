@@ -600,6 +600,13 @@ function farRows(far,r){
         (d3min>0?num(d3min)+' \u2013 ':'up to ')+num(d3max)+' units per acre']);
       if(row[10]) out.rows.push(['Permitted units','<b>'+
         ((row[9]&&row[9]!==row[10])?num(row[9])+' \u2013 ':'')+num(row[10])+'</b>']);
+    } else if(row[10]){
+      // A unit count with no density behind it. Newport Beach states its
+      // multi-unit standard as a minimum site area per dwelling unit against
+      // the net lot area, and caps its two-unit districts at two per lot, so
+      // there is a count to report and no units-per-acre to report it with.
+      out.rows.push(['Permitted units','<b>'+num(row[10])+'</b> '+
+        '(from the minimum site area per dwelling unit, not a density)']);
     }
     basis=M.methods[row[6]];
   } else {
