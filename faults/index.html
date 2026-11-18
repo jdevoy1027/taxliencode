@@ -1650,6 +1650,36 @@ var FAR_SRC = {
   10: { dir: './far/',    book: 4 },
   8:  { dir: './far-oc/', book: 3 }
 };
+// Zoning rides a parallel index on the same Orange book, because it covers
+// 964,211 parcels against the floor-area index's 67,405 exact rows and most of
+// its reach is on parcels that carry no floor area ratio at all. Keeping it
+// separate means the FAR row encodings did not have to change.
+var ZONE_SRC = {8:{dir:'./zoning-oc/',book:3}};
+var zoneMeta = {}, zoneCache = {};
+function zoneFetch(ain) {
+  var cfg = ZONE_SRC[ain.length];
+  if (!cfg) return Promise.resolve(null);
+  var book = ain.slice(0, cfg.book), key = ain.slice(cfg.book),
+      ck = cfg.dir + book;
+  var mp = zoneMeta[cfg.dir] ? Promise.resolve(zoneMeta[cfg.dir])
+    : fetch(cfg.dir + 'meta.json').then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (j) { zoneMeta[cfg.dir] = j; return j; });
+  var bp = zoneCache[ck] ? Promise.resolve(zoneCache[ck])
+    : fetch(cfg.dir + book + '.json').then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (j) { zoneCache[ck] = j; return j; });
+  return Promise.all([mp, bp]).then(function (b) {
+    var v = b[1][key];
+    if (v == null) return null;
+    // An integer is a zone with no building area; an array carries one.
+    var zi = (typeof v === 'number') ? v : v[0];
+    var z = b[0].zones[zi];
+    if (!z) return null;
+    return { code: z[0], desc: z[1], type: z[2], sub: z[3],
+             link: (z[4] != null && z[4] >= 0) ? b[0].links[z[4]] : null,
+             bldg: (typeof v === 'number') ? 0 : (v[1] || 0),
+             total: (typeof v === 'number') ? false : !!v[2] };
+  }).catch(function () { return null; });
+}
 var farCache = {}, farMeta = {}, farSeq = 0;
 
 function farFetchMeta(dir) {
@@ -1670,12 +1700,14 @@ function farFill(ain, id) {
   Promise.all([farFetchMeta(cfg.dir), farCache[ck] ? Promise.resolve(farCache[ck])
     : fetch(cfg.dir + book + '.json')
         .then(function (r) { if (!r.ok) throw 0; return r.json(); })
-        .then(function (j) { farCache[ck] = j; return j; })])
+        .then(function (j) { farCache[ck] = j; return j; }),
+    zoneFetch(ain)])
     .then(function (both) {
       var el = document.getElementById(id);
       if (!el) return;
       var html = farHtml(both[1][key], both[0], el.getAttribute('data-sqft'),
-                         el.getAttribute('data-impr'), el.getAttribute('data-yr'));
+                         el.getAttribute('data-impr'), el.getAttribute('data-yr'),
+                         both[2]);
       if (html) el.innerHTML = html;
       else el.parentNode.removeChild(el);
     })
@@ -1685,12 +1717,38 @@ function farFill(ain, id) {
     });
 }
 
-function farHtml(row, meta, builtAttr, imprAttr, yrAttr) {
-  if (!row) return '';
+function farHtml(row, meta, builtAttr, imprAttr, yrAttr, zone) {
   var built = Number(builtAttr) || 0;
   var impr = Number(imprAttr) || 0, yr = Number(yrAttr) || 0;
   var sq = function (n) { return Number(n).toLocaleString() + ' sq ft'; };
-  var h = '<div class="pop-sep"></div><div class="pop-row"><b>Floor area ratio</b></div>';
+
+  // Orange parcels have never carried a building area here -- the parcel
+  // tileset took improvement value instead -- so the headroom line below has
+  // been dead for the whole county. The zoning index supplies it.
+  var zh = '';
+  if (zone) {
+    if (!built && zone.bldg) built = zone.bldg;
+    zh = '<div class="pop-sep"></div><div class="pop-row"><b>Zoning</b></div>' +
+         '<div class="pop-row"><b>' + esc(zone.code) + '</b>' +
+         (zone.desc ? ' \u00b7 ' + esc(zone.desc) : '') + '</div>';
+    if (zone.type) zh += '<div class="pop-row" style="font-size:11.5px;' +
+         'opacity:.75">' + esc(zone.type) +
+         (zone.sub && zone.sub !== zone.type ? ' \u2014 ' + esc(zone.sub) : '') +
+         '</div>';
+    if (zone.bldg) zh += '<div class="pop-row" style="font-size:11.5px;' +
+         'opacity:.75">Building ' + sq(zone.bldg) +
+         (zone.total ? ' (total area)' : ' (living area, which excludes ' +
+          'garages and accessory structures)') + '</div>';
+    if (zone.link) zh += '<div class="pop-row" style="font-size:11.5px">' +
+         '<a href="' + esc(zone.link) + '" target="_blank" rel="noopener">' +
+         'Governing code</a></div>';
+  }
+  // The zone stands on its own. 964,211 Orange parcels carry one and only
+  // 67,405 carry an exact floor area ratio, so returning nothing when the FAR
+  // row is missing would throw away the common case.
+  if (!row) return zh;
+  var h = zh;
+  h += '<div class="pop-sep"></div><div class="pop-row"><b>Floor area ratio</b></div>';
 
   // Type 3 carries two published ranges at once -- a floor area ratio minimum
   // and maximum, and a density minimum and maximum. Anaheim is the first

@@ -751,18 +751,48 @@ function loadFar(r){
     .catch(function(){ return null; });
 }
 
+/* Zoning, Orange County only, on a parallel index. It resolves before render
+   for the same reason loadFar does: this report is printed. 964,211 parcels
+   carry a zone against 67,405 with an exact floor area ratio, so for most of
+   the county this is the only land use standard on offer. */
+var ZONE_SRC={8:{dir:'./zoning-oc/',book:3}};
+function loadZone(r){
+  var ain=r?String(r.apn||''):'';
+  var cfg=ZONE_SRC[ain.length];
+  if(!r||!cfg) return Promise.resolve(null);
+  return fetch(cfg.dir+'meta.json').then(function(x){return x.json();})
+    .then(function(meta){
+      return fetch(cfg.dir+ain.slice(0,cfg.book)+'.json')
+        .then(function(x){ return x.ok?x.json():{}; })
+        .then(function(sh){
+          var v=sh[ain.slice(cfg.book)];
+          if(v==null) return null;
+          var zi=(typeof v==='number')?v:v[0];
+          var z=meta.zones[zi];
+          if(!z) return null;
+          return {code:z[0],desc:z[1],type:z[2],sub:z[3],
+                  link:(z[4]!=null&&z[4]>=0)?meta.links[z[4]]:null,
+                  bldg:(typeof v==='number')?0:(v[1]||0),
+                  total:(typeof v==='number')?false:!!v[2]};
+        });
+    })
+    .catch(function(){ return null; });
+}
+
 Promise.all([
   fetch('./multifamily.json').then(function(r){return r.json();}),
   fetch('./mf_report.json').then(function(r){return r.json();}).catch(function(){return {};}),
   fetch('./tapestry.json').then(function(r){return r.json();}).catch(function(){return [];})
 ]).then(function(a){
-  return loadFar(pickRow(a[0])).then(function(f){ render(a[0],a[1],a[2],f); });
+  var pr=pickRow(a[0]);
+  return Promise.all([loadFar(pr),loadZone(pr)])
+    .then(function(f){ render(a[0],a[1],a[2],f[0],f[1]); });
 })
  .catch(function(e){
    document.getElementById('out').innerHTML='<div class="err">Could not load the '+
      'report data.<br><small>'+esc(e&&e.message)+'</small></div>';});
 
-function render(mf,extra,taps,far){
+function render(mf,extra,taps,far,zone){
   var r=pickRow(mf), qapn=qs('apn'), qrank=qs('rank');
   if(!r){
     var out=document.getElementById('out');
@@ -1060,6 +1090,22 @@ function render(mf,extra,taps,far){
   lu.push(['SCAG general plan',esc(r.gp_lbl||'—')+(r.gp?' ('+esc(r.gp)+')':'')]);
   lu.push(['SCAG zoning code',r.zn?esc(r.zn):'—']);
   lu.push(['Assessor zoning string',r.zoning?esc(r.zoning):'—']);
+  // The county parcel file carries a zone on 964,211 Orange parcels, which is
+  // the only land use standard available for most of them. It is not a floor
+  // area ratio: the zone is the key and the number lives in each city's own
+  // adopted intensity table.
+  if(zone){
+    lu.push(['Zoning district','<b>'+esc(zone.code)+'</b>'+
+      (zone.desc?' · '+esc(zone.desc):'')+
+      (zone.link?' <a href="'+esc(zone.link)+'" target="_blank" rel="noopener"'+
+        ' style="font-size:12px">governing code</a>':'')]);
+    if(zone.type) lu.push(['Zoning class',esc(zone.type)+
+      (zone.sub&&zone.sub!==zone.type?' — '+esc(zone.sub):'')]);
+    if(zone.bldg) lu.push(['Building area',num(zone.bldg)+' sq ft'+
+      '<span style="color:#7a7a72;font-size:12px"> ('+
+      (zone.total?'total area':'living area, which excludes garages and '+
+       'accessory structures')+')</span>']);
+  }
   // The vintage is load-bearing. The shortlist was re-based on SCAG's 2019
   // densities, but the re-base is uneven: Los Angeles's APN join to 2019
   // reaches 56% of candidates and Orange's 15%, because Orange's 2019 layer
