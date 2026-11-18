@@ -651,9 +651,11 @@ function farRows(far,r){
     var e3min=(row[7]||0)/10, e3max=(row[8]||0)/10;
     n.push(esc(basis||'')+'.');
     if(g3max>0&&g3min>0) n.push('This designation states its intensity as a '+
-      'range, and the minimum is part of the standard rather than a rounding '+
-      'of zero: development below '+g3min.toFixed(2)+' FAR does not implement '+
-      'the designation. Both ends are the General Plan\'s own figures.');
+      'range of '+g3min.toFixed(2)+' to '+g3max.toFixed(2)+' FAR, and both '+
+      'ends are the jurisdiction\'s own figures. Whether the low end is a '+
+      'binding minimum, a second maximum applying to part of the area, or a '+
+      'value selected by some other test varies by jurisdiction \u2014 the '+
+      'basis above says which for this parcel.');
     if(g3max>0&&e3max>0) n.push('This is a mixed-use designation, where the '+
       'floor area ratio governs the non-residential component and the density '+
       'the residential one, so a project can draw on both. The General Plan '+

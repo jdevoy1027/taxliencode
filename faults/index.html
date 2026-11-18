@@ -1773,10 +1773,11 @@ function farHtml(row, meta, builtAttr, imprAttr, yrAttr, zone) {
              '% of the maximum' + (built > row[5] ? ' (over)' :
                ', ' + sq(row[5] - built) + ' remaining') + '</div>';
       }
-      // Anaheim's minimum is a requirement of the designation, so it is not
-      // presented as a rounding of zero.
-      if (fmin > 0) h += '<div class="pop-row" style="font-size:11.5px;' +
-           'opacity:.75">The minimum is required by the designation.</div>';
+      // No generic claim about the low end. Whether it binds is a
+      // per-jurisdiction fact: Anaheim's General Commercial 0.25-0.50 is a
+      // real minimum, Seal Beach's Service Commercial 0.60-0.75 is a range of
+      // MAXIMA whose own table calls them "theoretical maximum", and Costa
+      // Mesa's spread is a traffic category. Each city's basis says which.
     } else {
       // No floor area ratio, but never blank: the basis says which designation
       // this is and why it states none.
