@@ -1108,6 +1108,65 @@ function render(mf,extra,taps,far,zone){
   if(!obs.length) obs.push('No hazard designation, shape penalty or standing '+
     'improvement of significance was recorded against this parcel.');
   S.push('<ul>'+obs.map(function(o){return '<li>'+o+'</li>';}).join('')+'</ul>');
+
+  /* Who is in the building now. Two independent sources, reported separately
+     rather than merged: named points of interest inside the parcel outline,
+     and what the assessor's mailing address implies. Neither states a
+     tenancy, and the wording does not pretend otherwise. */
+  var oc=x.occupant||{}, tn=x.tenure||{};
+  var on=oc.on||[], nb=oc.near||[];
+  if(on.length||nb.length||tn.owner||oc.error){
+    S.push('<h3>Current occupant</h3>');
+    var ob=[];
+    if(on.length){
+      ob.push(['Trading on this parcel', on.map(function(p){
+        return '<b>'+esc(p.name)+'</b>'+(p.kind?' <span class="sub">'+
+          esc(p.kind)+'</span>':'');
+      }).join('<br>')]);
+    }
+    if(tn.owner) ob.push(['Owner of record', esc(tn.owner)]);
+    if(tn.careof) ob.push(['Care of',esc(tn.careof)+
+      ' <span class="sub">the managing agent on the tax roll, not '+
+      'necessarily an occupant</span>']);
+    if(tn.mail) ob.push(['Tax bill goes to', esc(tn.mail)]);
+    if(tn.tenure){
+      var TEN={
+        'owner-occupied':'The tax bill goes to the property itself, so the '+
+          'owner is likely to be in it.',
+        'mail elsewhere in the same city':'The tax bill goes elsewhere in the '+
+          'same city, which is consistent with either a local landlord or an '+
+          'owner with a separate office.',
+        'absentee':'The tax bill goes to another city, so the property is '+
+          'very likely tenant-occupied.'};
+      ob.push(['What that implies','<b>'+esc(tn.tenure)+'</b> — '+
+        (TEN[tn.tenure]||'')]);
+    }
+    if(tn.transfer) ob.push(['Last ownership transfer', esc(tn.transfer)]);
+    // A failed query is not an empty result, and must not read as one.
+    if(oc.error) ob.push(['Business names',
+      '<b>not retrieved</b> <span class="sub">the points-of-interest lookup '+
+      'for this parcel failed ('+esc(oc.error)+'), so nothing is known here '+
+      'either way</span>']);
+    if(nb.length) ob.push(['Nearby, NOT on this parcel',
+      nb.map(function(p){ return esc(p.name)+' <span class="sub">'+
+        (p.kind?esc(p.kind)+', ':'')+num(p.m)+' m</span>'; }).join('<br>')+
+      (oc.near_total>nb.length?'<div class="sub">and '+
+        num(oc.near_total-nb.length)+' more within '+num(oc.radius_m)+
+        ' m</div>':'')]);
+    S.push(tbl(ob));
+    S.push('<p class="sub">Business names are points of interest from Mapbox '+
+      'Streets v8, which is OpenStreetMap-derived. A point inside the parcel '+
+      'outline is evidence of who trades there; it is not a lease, it can be '+
+      'out of date, and an inline tenant in a strip centre may be absent from '+
+      'the source altogether — '+
+      (on.length? 'so treat the name'+(on.length>1?'s':'')+' above as a '+
+        'starting point to confirm on site'
+       : oc.error? 'and the lookup for this parcel did not return'
+                : 'and no named business falls inside this outline, which is '+
+                  'not evidence that the parcel is empty')+
+      '. The occupancy line is an inference from where the tax bill is sent, '+
+      'not a statement of who holds the space.</p>');
+  }
   S.push('</section>');
 
   /* ===== 3. land use, zoning, surroundings, government ===== */
