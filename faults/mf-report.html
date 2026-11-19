@@ -704,6 +704,25 @@ function farRows(far,r){
 function qs(k){var m=new RegExp('[?&]'+k+'=([^&]*)').exec(location.search);
   return m?decodeURIComponent(m[1]):null;}
 
+/* Which candidate list this report is for. Stage 4 writes three of them --
+   the multifamily shortlist, the mixed-use list and the adaptive-reuse list --
+   and RANK IS UNIQUE ONLY WITHIN ONE: mixed-use rank 1 and multifamily rank 1
+   are different parcels. So the list travels on the URL alongside apn and
+   rank, and each list has its own report file rather than sharing one keyed on
+   rank.
+
+   Defaults to the multifamily list, so every link built before the other two
+   existed still resolves to what it always did. */
+var REPORT_LISTS={
+  mf:{rows:'./multifamily.json',    extra:'./mf_report.json',
+      eyebrow:'Multifamily Development Site Report', title:'Multifamily Site Report'},
+  mu:{rows:'./mixed_use.json',      extra:'./mu_report.json',
+      eyebrow:'Mixed-Use Development Site Report',   title:'Mixed-Use Site Report'},
+  ar:{rows:'./adaptive_reuse.json', extra:'./ar_report.json',
+      eyebrow:'Adaptive Reuse Site Report',          title:'Adaptive Reuse Site Report'}
+};
+var RLIST=REPORT_LISTS[qs('list')]||REPORT_LISTS.mf;
+
 /* The candidate row has to be chosen in two places -- once to work out which
    FAR shard to fetch, once to render -- so the selection lives in one function
    rather than being written twice and drifting.
@@ -789,8 +808,8 @@ function loadZone(r){
 }
 
 Promise.all([
-  fetch('./multifamily.json').then(function(r){return r.json();}),
-  fetch('./mf_report.json').then(function(r){return r.json();}).catch(function(){return {};}),
+  fetch(RLIST.rows).then(function(r){return r.json();}),
+  fetch(RLIST.extra).then(function(r){return r.json();}).catch(function(){return {};}),
   fetch('./tapestry.json').then(function(r){return r.json();}).catch(function(){return [];})
 ]).then(function(a){
   var pr=pickRow(a[0]);
@@ -875,7 +894,7 @@ function render(mf,extra,taps,far,zone){
       '<img src="./geonomics-logo.png" alt="Geonomics">'+
       '<button type="button" class="pdf" id="pdf-btn">Export as PDF</button>'+
     '</div>'+
-    '<div class="eyebrow">Multifamily Development Site Report</div>'+
+    '<div class="eyebrow">'+esc(RLIST.eyebrow)+'</div>'+
     '<h1>'+esc(r.addr||('APN '+r.apn))+'</h1>'+
     '<div class="sub">'+esc(r.city||'')+(r.zip?' '+esc(r.zip):'')+
       ' · '+(r.co==='OC'?'Orange County':'Los Angeles County')+
@@ -1299,7 +1318,7 @@ function render(mf,extra,taps,far,zone){
     ' · <a href="./">back to the map</a></footer>');
 
   document.getElementById('out').innerHTML=H.join('')+S.join('');
-  document.title=(r.addr||('APN '+r.apn))+' — Multifamily Site Report';
+  document.title=(r.addr||('APN '+r.apn))+' — '+RLIST.title;
   // The browser's own print path, not a PDF library: every browser offers
   // "Save as PDF" as a print destination, it honours the @page and @media
   // print rules above, and it keeps the text selectable and the figures as

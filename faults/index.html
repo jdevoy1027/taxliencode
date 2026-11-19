@@ -4435,6 +4435,7 @@ map.on('load', function () {
         html += '<div class="pop-row mf-links">' +
           '<a href="./mf-report.html?apn=' + encodeURIComponent(mf.apn || '') +
           '&rank=' + encodeURIComponent(mf.rank) +
+          (mfIsMU ? '&list=mu' : '') +
           '" target="_blank" rel="noopener"><b>Create Report</b></a>' +
           '<div class="mf-hint">Neighbourhood, property, zoning, hazards and ' +
           'geology for this parcel, formatted to print</div></div>';
@@ -4471,6 +4472,14 @@ map.on('load', function () {
       if (aex.length) html += '<div class="pop-row">' + aex.join(' · ') + '</div>';
       if (ar.owner) html += '<div class="pop-row"><b>Owner:</b> ' + esc(ar.owner) + '</div>';
       if (ar.flags) html += '<div class="pop-row" style="color:#8a2b1c">' + esc(ar.flags) + '</div>';
+      if (ar.rank != null) {
+        html += '<div class="pop-row mf-links">' +
+          '<a href="./mf-report.html?apn=' + encodeURIComponent(ar.apn || '') +
+          '&rank=' + encodeURIComponent(ar.rank) + '&list=ar' +
+          '" target="_blank" rel="noopener"><b>Create Report</b></a>' +
+          '<div class="mf-hint">Neighbourhood, property, zoning, hazards and ' +
+          'geology for this parcel, formatted to print</div></div>';
+      }
       if (sch || rf || mf || parc) html += '<div class="pop-sep"></div>';
     }
     if (sch && showSchools) {
