@@ -724,6 +724,48 @@
             differently.</div>
         </div>
         <div class="tr">
+          <input type="checkbox" id="t-mu">
+          <button class="tw" type="button" data-sym="sym-mu" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="mu" tabindex="0" role="button">Mixed-use candidates</span>
+          <span class="cnt">250</span>
+        </div>
+        <div class="sym" id="sym-mu" hidden>
+          <select id="mu-top">
+            <option value="50">Best 50 — the shortlist</option>
+            <option value="100">Best 100</option>
+            <option value="250" selected>Best 250 — everything selected here</option>
+          </select>
+          <div class="symh" style="margin-top:7px">Score, of 90 available</div>
+          <div id="mu-legend"></div>
+          <div class="ctmeta">
+            The multifamily scoring, restricted to Orange County parcels whose
+            zoning is already <b>mixed use</b> &mdash; so housing needs no
+            rezone, and the zoning question the score asks is already settled.
+            2,863 of the scored parcels qualify; the best 250 sites are drawn,
+            carrying 19,873 units of permitted capacity between them.<br>
+            <b>Narrower than the &ldquo;mix&rdquo; pathway used to build the
+            candidate pool</b>, which also admits plain commercial and planned
+            districts as plausible conversions. Every parcel here sits in a
+            district whose own code or name says mixed use.<br>
+            The county's own zoning type field could not be used as it stands:
+            it files 101 codes under &ldquo;Mixed&rdquo;, among them an oil
+            overlay on single-family land, Residential Agriculture, Business
+            Park Industrial and Commercial Industrial, while missing real
+            mixed-use zoning it files as Overlay or Special &mdash; La Habra's
+            /MX overlays, San Clemente's Pier Bowl and Rancho San Clemente
+            specific-plan MU zones, Anaheim's Metro East overlay. The test used
+            instead reads each zone's own code and description; 87 codes and
+            16,489 parcels pass, and tools/oc_mixed_use.py prints both the
+            accepted and the rejected lists.<br>
+            Concentrated in Westminster, Garden Grove, Orange and Brea, the
+            cities that rezoned whole corridors to mixed use. Scores run 67 to
+            83 and sit above the countywide list for exactly that reason.<br>
+            Orange County only: no equivalent zoning read exists for Los
+            Angeles County, whose Assessor concatenates 9,394 distinct zoning
+            strings from 88 city vocabularies.</div>
+        </div>
+        <div class="tr">
           <input type="checkbox" id="t-schools">
           <button class="tw" type="button" data-sym="sym-schools" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
@@ -1297,6 +1339,8 @@ var showBores = false, showBoreLabels = true;
 var showExide = false;
 var showMf = true;
 var mfTop = 500;       // how many ranks the layer draws
+var showMU = false;
+var muTop = 250;       // the whole mixed-use list
 var showFlood = false;
 var showInund = false;
 var showSlide = false;
@@ -2147,6 +2191,44 @@ function mfLegend() {
   }).join('');
 }
 
+// Mixed-use shortlist: the same scores and the same grouping as the
+// multifamily layer, restricted to parcels already in a district whose own
+// code or name says mixed use. Those need no rezone to take housing, so the
+// zoning question category 3 scores is already settled for them -- which is
+// why they score higher on average and need their own breaks.
+//
+// The scores here run 67.4 to 83.0 against the multifamily layer's much wider
+// spread, so reusing MF_BREAKS (80/83/85/87) would put the entire list in one
+// band. These bracket the real distribution: p25 68.5, median 69.9, p75 72.8,
+// p90 75.3.
+//
+// Green, because the sequential ramps on this map are taken -- Reds for
+// assessed land value, YlOrRd for net worth and soil lead, Blues for depth to
+// groundwater and for the multifamily score, purple for sale price, tan for
+// adaptive-reuse building age. Stepped on OKLab lightness 0.94 -> 0.43,
+// monotonic with a minimum step of 0.102, which clears the 0.078 the other
+// ramps here were held to; the darkest step carries white text at 7.8:1.
+var MU_BREAKS = [0, 69, 71, 74, 78];
+var MU_COLORS = ['#e3eee0', '#b3d4ac', '#79b073', '#428a47', '#1b5e2a'];
+function muColorExpr() {
+  var e = ['step', ['get', 'score'], MU_COLORS[0]];
+  for (var i = 1; i < MU_BREAKS.length; i++) e.push(MU_BREAKS[i], MU_COLORS[i]);
+  return e;
+}
+function muFilterExpr() { return ['<=', ['get', 'rank'], muTop]; }
+
+function muLegend() {
+  var h = document.getElementById('mu-legend');
+  if (!h) return;
+  h.innerHTML = MU_BREAKS.map(function (lo, i) {
+    var hi = MU_BREAKS[i + 1];
+    return '<div class="ctrow"><span class="sw"><i style="height:11px;background:' +
+      MU_COLORS[i] + '"></i></span><span>' +
+      (i === 0 ? 'below ' + MU_BREAKS[1] : hi ? lo + ' \u2013 ' + hi : lo + '+') +
+      '</span></div>';
+  }).join('');
+}
+
 // Redfin closed sales, one week of LA County (2026-10-29 .. 2026-11-04).
 // A sequential single-hue ramp, light to dark, because price is a magnitude --
 // purple specifically, because the three value ramps already on this map are
@@ -2439,6 +2521,7 @@ var LAYER_SYM = {
   schools: { title: 'Schools — by level', pal: function () { return 'schools'; } },
   ar: { title: 'Adaptive reuse — by building age', pal: function () { return 'ar'; } },
   mf: { title: 'Multifamily candidates — by score', pal: function () { return 'mf'; } },
+  mu: { title: 'Mixed-use candidates — by score', pal: function () { return 'mu'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
   contours: { title: 'Ground surface elevation contours', pal: function () { return 'contours'; } },
@@ -2490,6 +2573,20 @@ PALETTES.fireSev = withRedraw(
     applyOutline('fhsz');
     fhszLegend();
   });
+
+PALETTES.mu = withRedraw({
+  n: function () { return MU_COLORS.length; },
+  get: function (i) { return MU_COLORS[i]; },
+  set: function (i, c) { MU_COLORS[i] = c; },
+  name: function (i) {
+    var hi = MU_BREAKS[i + 1];
+    return i === 0 ? 'below ' + MU_BREAKS[1]
+         : hi ? MU_BREAKS[i] + ' \u2013 ' + hi : MU_BREAKS[i] + '+';
+  }
+}, function () {
+  if (map.getLayer('mu-fill')) map.setPaintProperty('mu-fill', 'fill-color', muColorExpr());
+  muLegend();
+});
 
 PALETTES.ar = withRedraw({
   n: function () { return AR_BANDS.length; },
@@ -3268,6 +3365,38 @@ function addLayers() {
       }
     });
   }
+  if (!map.getSource('mixeduse')) {
+    map.addSource('mixeduse', { type: 'geojson', data: './mixed_use.geojson' });
+  }
+  if (!map.getLayer('mu-fill')) {
+    map.addLayer({
+      id: 'mu-fill', type: 'fill', source: 'mixeduse',
+      filter: muFilterExpr(),
+      paint: { 'fill-color': muColorExpr(), 'fill-opacity': 0.55 }
+    });
+    map.addLayer({
+      id: 'mu-line', type: 'line', source: 'mixeduse',
+      filter: muFilterExpr(),
+      paint: {
+        'line-color': '#14361c',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 15, 1.4, 18, 2.4]
+      }
+    });
+    map.addLayer({
+      id: 'mu-rank', type: 'symbol', source: 'mixeduse',
+      filter: muFilterExpr(),
+      layout: {
+        'text-field': ['to-string', ['get', 'rank']],
+        'text-font': ['DIN Offc Pro Bold', 'Arial Unicode MS Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 15, 13, 18, 16],
+        'text-allow-overlap': false, 'text-ignore-placement': false
+      },
+      paint: {
+        'text-color': '#ffffff', 'text-halo-color': '#1b5e2a',
+        'text-halo-width': 1.6
+      }
+    });
+  }
   if (!map.getSource('wells')) {
     map.addSource('wells', { type: 'vector', url: 'mapbox://jdevoy.doggr-wells' });
   }
@@ -3948,6 +4077,14 @@ function applyState() {
     map.setLayoutProperty(id, 'visibility', showMf ? 'visible' : 'none');
     map.setFilter(id, mfFilterExpr());
   });
+  ['mu-fill', 'mu-line', 'mu-rank'].forEach(function (id) {
+    if (!map.getLayer(id)) return;
+    map.setLayoutProperty(id, 'visibility', showMU ? 'visible' : 'none');
+    map.setFilter(id, muFilterExpr());
+  });
+  if (map.getLayer('mu-fill')) {
+    map.setPaintProperty('mu-fill', 'fill-color', muColorExpr());
+  }
   if (map.getLayer('bore-dot')) {
     map.setLayoutProperty('bore-dot', 'visibility', showBores ? 'visible' : 'none');
   }
@@ -4119,9 +4256,11 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null, sch = null, ar = null;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null, sch = null, ar = null, mu = null;
+    var mfIsMU = false;
     hits.forEach(function (h) {
       if (h.layer.id === 'mf-fill' && !mf) mf = h.properties;
+      if (h.layer.id === 'mu-fill' && !mu) mu = h.properties;
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
@@ -4146,12 +4285,15 @@ map.on('load', function () {
       if (h.layer.id === 'geo-fill' && !unit) unit = h.properties;
       if (h.layer.id === 'soil-fill' && !soil) soil = h.properties;
     });
+    // A mixed-use hit renders through the multifamily body below: the two
+    // lists share a schema, so only the header has to say which is which.
+    if (!mf && mu && showMU) { mf = mu; mfIsMU = true; }
     if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf && !rf && !sch && !ar) return;
 
     var html = '';
-    if (mf && showMf) {
-      html += '<div class="pop-name">#' + esc(mf.rank) + ' · ' +
-              esc(mf.addr || '') + '</div>';
+    if (mf && (showMf || mfIsMU)) {
+      html += '<div class="pop-name">' + (mfIsMU ? 'Mixed use #' : '#') +
+              esc(mf.rank) + ' · ' + esc(mf.addr || '') + '</div>';
       html += '<div class="pop-row">' + esc(mf.city || '') +
               (mf.apn ? ' · APN ' + esc(mf.apn) : '') +
               (mf.apn_n > 1 ? ' <span style="color:#85857e">(' + mf.apn_n +
@@ -4786,7 +4928,7 @@ map.on('load', function () {
 
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
-var CLICK_LAYERS = ['sch-dot', 'rf-dot', 'ar-fill', 'mf-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
+var CLICK_LAYERS = ['sch-dot', 'rf-dot', 'ar-fill', 'mf-fill', 'mu-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill',
                     'tsu-fill', 'hab-fill', 'fhsz-fill', 'scag-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
@@ -4802,6 +4944,7 @@ var LAYER_HITS = {
   schools:  ['sch-dot'],
   ar:       ['ar-fill'],
   mf:       ['mf-fill'],
+  mu:       ['mu-fill'],
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
   liq:      ['liq-fill'],
@@ -5071,6 +5214,20 @@ document.getElementById('mf-top').addEventListener('change', function () {
   }
   applyState(); saveState();
 });
+document.getElementById('t-mu').addEventListener('change', function () {
+  showMU = this.checked; applyState(); saveState();
+});
+document.getElementById('mu-top').addEventListener('change', function () {
+  muTop = +this.value;
+  // Turning the count up with the layer off is a request to see them.
+  if (!showMU) {
+    showMU = true;
+    var mucb = document.getElementById('t-mu');
+    if (mucb) mucb.checked = true;
+  }
+  applyState(); saveState();
+});
+muLegend();
 document.getElementById('t-ar').addEventListener('change', function () {
   showAR = this.checked; applyState(); saveState();
 });
@@ -6024,7 +6181,7 @@ var LAYER_SRC = {
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
   redfin: ['redfin'], schools: ['schools'], ar: ['adaptive'],
-  mf: ['mf'],
+  mf: ['mf'], mu: ['mixeduse'],
   gwct: ['gwcontours']
 };
 // The GeoJSON sources' files, so the envelope can be computed without reaching
@@ -6034,6 +6191,7 @@ var SRC_URL = {
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
   mf: './multifamily.geojson', redfin: './redfin_sales.geojson',
   schools: './schools.geojson', adaptive: './adaptive_reuse.geojson',
+  mixeduse: './mixed_use.geojson',
   flood: './flood.geojson', inund: './inundation.geojson',
   tsunami: './tsunami.geojson', habitat: './habitat.geojson', fhsz: './fhsz.geojson',
   gwcontours: './gw_contours.geojson',
@@ -9418,6 +9576,7 @@ var LAYER_FLAGS = [
   ['schools', 't-schools', function (v) { showSchools = v; }, function () { return showSchools; }],
   ['ar', 't-ar', function (v) { showAR = v; }, function () { return showAR; }],
   ['mf', 't-mf', function (v) { showMf = v; }, function () { return showMf; }],
+  ['mu', 't-mu', function (v) { showMU = v; }, function () { return showMU; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
   ['faults', 't-faults', function (v) { showFaults = v; }, function () { return showFaults; }]
 ];
