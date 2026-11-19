@@ -579,6 +579,7 @@
         <button id="m-lucodes">Land use codes…</button>
         <button id="m-tapestry">Tapestry segments…</button>
         <button id="m-mf">Multifamily candidates…</button>
+        <button id="m-mu">Mixed-use candidates…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -5997,6 +5998,7 @@ function tapRender(q) {
 }
 
 var MF_DATA = null;
+var MU_DATA = null;
 
 function mfRender(q) {
   q = (q || '').trim().toLowerCase();
@@ -6094,6 +6096,122 @@ function openMfDlg() {
     });
 }
 document.getElementById('m-mf').addEventListener('click', openMfDlg);
+
+// The mixed-use table. Same shape as the multifamily one -- the two lists
+// share a schema -- with two differences that matter to a reader: the whole
+// 250 are listed rather than a top 50, because this list IS the shortlist,
+// and the zoning district gets its own column, since being in one is the
+// reason the parcel is on the list at all.
+function muRender(q) {
+  q = (q || '').trim().toLowerCase();
+  var host = document.getElementById('mu-body');
+  var rows = MU_DATA.rows.filter(function (r) {
+    if (!q) return true;
+    return [r.addr, r.city, r.apn, r.owner, r.gp_lbl, r.zoning, r.sp]
+      .some(function (v) { return v && String(v).toLowerCase().indexOf(q) >= 0; });
+  });
+  host.innerHTML = rows.map(function (r) {
+    var pct = Math.max(0, Math.min(100, 100 * r.score / MU_DATA.max_score));
+    return '<tr>' +
+      '<td class="lun"><b>' + r.rank + '</b></td>' +
+      '<td><a href="#" data-mu="' + r.rank + '">' + esc(r.addr || '') + '</a>' +
+      '<div style="color:#85857e;font-size:11px">' + esc(r.city || '') +
+      ' · APN ' + esc(r.apn || '') + '</div></td>' +
+      '<td class="lun">' + Number(r.area).toLocaleString() + '</td>' +
+      '<td class="lun">' + (r.cap_units ? Number(r.cap_units).toLocaleString() : '—') + '</td>' +
+      '<td>' + esc(r.zoning || '—') + '</td>' +
+      '<td class="lun">' + (r.bstate === 'unreported' ? 'unreported'
+                            : (r.vacant ? 'vacant' : (r.yr || '—'))) + '</td>' +
+      '<td class="lun" style="min-width:86px">' +
+        '<div style="display:flex;align-items:center;gap:5px">' +
+        '<span style="flex:1;height:6px;background:#ececeb;border-radius:3px;overflow:hidden">' +
+        '<i style="display:block;height:6px;width:' + pct.toFixed(0) +
+        '%;background:#428a47"></i></span>' +
+        '<b>' + r.score + '</b></div></td>' +
+      '<td class="lun mf-sv">' + (r.lat != null
+        ? '<a href="' + mfStreetView(r.lat, r.lon) + '" target="_blank" ' +
+          'rel="noopener">Street&nbsp;View</a>' : '—') + '</td>' +
+      '</tr>';
+  }).join('') ||
+    '<tr><td colspan="8" style="padding:16px;color:#85857e">Nothing matches that.</td></tr>';
+  // Capacity of what is SHOWN, not of the whole list: with a filter applied
+  // the list total reads as the filter's total and overstates it.
+  var units = rows.reduce(function (a, r) { return a + (r.cap_units || 0); }, 0);
+  document.getElementById('mu-count').textContent =
+    rows.length + ' of ' + MU_DATA.rows.length + ' shown · ' +
+    Number(units).toLocaleString() + ' units of permitted capacity in those · ' +
+    Number(MU_DATA.scored).toLocaleString() + ' parcels scored countywide';
+
+  host.querySelectorAll('a[data-mu]').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var r = MU_DATA.rows.filter(function (x) { return x.rank === +a.dataset.mu; })[0];
+      if (!r || r.lon == null) return;
+      // Zooming to a site in a layer that is switched off would land on an
+      // empty map, so the click turns it on the way the multifamily one does.
+      if (!showMU) {
+        showMU = true;
+        var cb = document.getElementById('t-mu');
+        if (cb) cb.checked = true;
+        applyState(); saveState();
+      }
+      closeDlg();
+      map.flyTo({ center: [r.lon, r.lat], zoom: 17.2 });
+    });
+  });
+}
+
+function openMuDlg() {
+  MENU.hidden = true;
+  openDlg('<h2>Mixed-use candidates</h2><div class="bd">' +
+    '<div class="fld">' +
+      '<input id="mu-q" type="text" placeholder="Filter by address, city, APN, owner, zone or designation" ' +
+      'autocomplete="off" autocapitalize="none" spellcheck="false">' +
+      '<div class="hint" id="mu-count">loading…</div>' +
+    '</div>' +
+    '<div class="dwrap" style="max-height:52vh;overflow:auto">' +
+      '<table class="lutab"><thead><tr><th class="lun">#</th><th>Site</th>' +
+      '<th class="lun">Lot sq ft</th><th class="lun">Units</th>' +
+      '<th>Zone</th><th class="lun">Built</th><th class="lun">Score</th>' +
+      '<th class="lun">Look</th>' +
+      '</tr></thead><tbody id="mu-body"></tbody></table>' +
+    '</div>' +
+    '<div class="hint">The Multifamily_Criteria.docx scoring, restricted to ' +
+    'Orange County parcels already zoned <b>mixed use</b> — so housing needs ' +
+    'no rezone, and the zoning question the score asks is already settled. ' +
+    'That is why these score above the countywide list. <b>Out of 90, not ' +
+    '100</b>, for the same reason as the multifamily table: height, setback ' +
+    'and parking standards are in no layer here. Units are what the general ' +
+    'plan permits (density × acreage).<br>' +
+    '<b>Narrower than the “mix” pathway</b> used to build the candidate pool, ' +
+    'which also admits plain commercial and planned districts as plausible ' +
+    'conversions. Every parcel here is in a district whose own code or name ' +
+    'says mixed use — 87 codes over 16,489 parcels, tested on the zone\'s own ' +
+    'code and description rather than on the county\'s zoning type field, ' +
+    'which files oil overlays, agriculture and business parks under “Mixed” ' +
+    'while missing the /MX overlays and specific-plan MU zones. ' +
+    'Click an address to zoom to it.' +
+    '</div></div>' +
+    '<div class="ft"><button class="cx" id="mu-close">Close</button></div>', 'wide');
+  document.getElementById('mu-close').addEventListener('click', closeDlg);
+
+  function wire() {
+    var inp = document.getElementById('mu-q');
+    muRender('');
+    inp.addEventListener('input', function () { muRender(inp.value); });
+    inp.focus();
+  }
+  if (MU_DATA) { wire(); return; }
+  fetch('./mixed_use.json').then(function (r) { return r.json(); })
+    .then(function (j) { MU_DATA = j; wire(); })
+    .catch(function () {
+      document.getElementById('mu-body').innerHTML =
+        '<tr><td colspan="8" style="padding:16px;color:#8a2b1c">' +
+        'Could not load mixed_use.json.</td></tr>';
+      document.getElementById('mu-count').textContent = '';
+    });
+}
+document.getElementById('m-mu').addEventListener('click', openMuDlg);
 
 function openTapDlg(preset) {
   MENU.hidden = true;
