@@ -608,6 +608,10 @@ function farRows(far,r){
       out.rows.push(['Permitted floor area ratio','none published \u2014 see below']);
     }
     var d3min=(row[7]||0)/10, d3max=(row[8]||0)/10;
+    // Carried out of here so the capacity badge and the land-use table can
+    // prefer this jurisdiction's own adopted density over SCAG's silence.
+    if(d3max>0) out.den={min:d3min,max:d3max};
+    if(row[10]) out.cap={min:row[9]||0,max:row[10]};
     if(d3max>0){
       out.rows.push(['Permitted density',
         (d3min>0?num(d3min)+' \u2013 ':'up to ')+num(d3max)+' units per acre']);
@@ -729,7 +733,7 @@ function qs(k){var m=new RegExp('[?&]'+k+'=([^&]*)').exec(location.search);
 /* Stamped at deploy time. Shown in the footer so a stale page can be
    identified on sight, and appended to the data fetches so a current script
    never reads a cached report file from an earlier build. */
-var BUILD='20261120-0059';
+var BUILD='20261120-0103';
 
 var REPORT_LISTS={
   mf:{rows:'./multifamily.json',    extra:'./mf_report.json',
@@ -870,6 +874,9 @@ function render(mf,extra,taps,far,zone){
     return;
   }
   var x=extra[String(r.rank)]||{}, b=x.block||{};
+  // Both are needed by the header badge, which is rendered before the
+  // floor-area section, so they are computed once here and reused.
+  var FRB=farRows(far,r), CI=capInfo(r,x,FRB);
   // The supporting data is keyed on RANK, and a re-score renumbers every rank.
   // When that happened the page rendered one parcel's address over another
   // parcel's neighbourhood, hazards and schools, and said nothing: a report for
@@ -931,12 +938,7 @@ function render(mf,extra,taps,far,zone){
       badge('Rank','#'+r.rank,'of '+(mf.scored!=null?num(mf.scored):'')+' scored')+
       badge('Score',(r.score!=null?r.score:'—'),'of '+(mf.max_score||90))+
       badge('Site area',(r.acres!=null?r.acres:'—'),'acres')+
-      (r.cap_units>0
-        ? badge('Capacity',num(r.cap_units),'units at '+num(r.du_acre)+'/ac')
-        : badge('Capacity',(x.bench&&x.bench.units?num(x.bench.units):'—'),
-                x.bench&&x.bench.units
-                  ? 'estimated, no density prescribed'
-                  : 'no density prescribed'))+
+      badge('Capacity',(CI.units!=null?num(CI.units):'—'),CI.note)+
       badge('Land value',usd(r.land),'assessor')+
     '</div></header>');
 
@@ -1233,19 +1235,31 @@ function render(mf,extra,taps,far,zone){
   // comparing two sites needs to know which figure each was scored on.
   // A density of zero is not a density of zero: on these parcels the plan
   // declines to set one, and printing "0 du/acre" asserts the opposite.
-  var noDen=!(r.du_acre>0);
-  lu.push(['Permitted density', noDen
-    ? '<b>none prescribed</b> <span class="sub">the governing plan sets no '+
-      'density for this parcel, which is not the same as a density of zero</span>'
-    : num(r.du_acre)+' du/acre'+
+  if(CI.src==='scag'){
+    lu.push(['Permitted density',num(r.du_acre)+' du/acre'+
       (r.dens_src?' <span style="color:#7a7a72;font-size:12px">('+esc(r.dens_src)+
         ')</span>':'')]);
-  lu.push(['Implied capacity', noDen
-    ? (x.bench&&x.bench.units
-        ? '<b>'+num(x.bench.units)+' units estimated</b> <span class="sub">from '+
-          'comparable built projects, not an entitlement \u2014 see below</span>'
-        : '<span class="sub">none, because no density is prescribed</span>')
-    : num(r.cap_units)+' units']);
+    lu.push(['Implied capacity',num(CI.units)+' units']);
+  } else if(CI.src==='city'){
+    lu.push(['Permitted density','<b>'+
+      (CI.denMin?num(CI.denMin)+' – ':'up to ')+num(CI.den)+' du/acre</b> '+
+      '<span class="sub">from this jurisdiction\'s own adopted table; SCAG\'s '+
+      'regional layer carries no density for this parcel</span>']);
+    lu.push(['Implied capacity','<b>'+num(CI.units)+'</b> units']);
+  } else if(CI.src==='bench'){
+    lu.push(['Permitted density','<b>none prescribed</b> <span class="sub">the '+
+      'governing plan sets no density for this parcel, which is not the same '+
+      'as a density of zero</span>']);
+    lu.push(['Implied capacity','<b>'+num(CI.units)+' units estimated</b> '+
+      '<span class="sub">from comparable built projects, not an entitlement '+
+      '\u2014 see below</span>']);
+  } else {
+    lu.push(['Permitted density','<b>none prescribed</b> <span class="sub">the '+
+      'governing plan sets no density for this parcel, which is not the same '+
+      'as a density of zero</span>']);
+    lu.push(['Implied capacity','<span class="sub">none, because no density '+
+      'is prescribed</span>']);
+  }
   lu.push(['Specific plan',r.sp?esc(r.sp):'none recorded']);
   lu.push(['Pathway tier',r.tier==='mf'?'multifamily by right':'conversion pathway']);
   S.push(tbl(lu));
@@ -1273,7 +1287,7 @@ function render(mf,extra,taps,far,zone){
     'which is what makes parcels comparable. Where they disagree, the '+
     "jurisdiction's own code governs.</div>");
 
-  var FR=farRows(far,r);
+  var FR=FRB;
   if(FR.rows.length||FR.note){
     S.push('<h3>Floor area ratio</h3>');
     if(FR.rows.length) S.push(tbl(FR.rows));
@@ -1465,6 +1479,30 @@ function render(mf,extra,taps,far,zone){
   var pb=document.getElementById('pdf-btn');
   if(pb) pb.addEventListener('click',function(){ window.print(); });
 }
+/* What to report as capacity, and from which source.
+
+   Three cases, in order of preference. The list row's own figure, which is
+   SCAG's; then this jurisdiction's adopted table, carried on the floor-area
+   index row the page already fetched, used where SCAG has nothing -- that is
+   the better source and the one the rest of the project publishes; then the
+   comparable-built estimate, where the governing plan prescribes no density at
+   all. A zero is never reported as a capacity: it is a different claim from
+   "none prescribed" and it is the wrong one. */
+function capInfo(r,x,FR){
+  if(r&&r.cap_units>0)
+    return {units:r.cap_units,den:r.du_acre,note:'units at '+num(r.du_acre)+'/ac',
+            src:'scag'};
+  if(FR&&FR.cap&&FR.cap.max>0)
+    return {units:FR.cap.max,denMin:FR.den?FR.den.min:null,
+            den:FR.den?FR.den.max:null,
+            note:'units at '+(FR.den?num(FR.den.max):'?')+'/ac, city table',
+            src:'city'};
+  if(x&&x.bench&&x.bench.units>0)
+    return {units:x.bench.units,den:x.bench.du_acre,
+            note:'estimated, no density prescribed',src:'bench'};
+  return {units:null,note:'no density prescribed',src:'none'};
+}
+
 function badge(k,v,s){return '<div class="badge"><div class="k">'+esc(k)+
   '</div><div class="v">'+esc(v)+(s?' <small>'+esc(s)+'</small>':'')+'</div></div>';}
 function tbl(rows){return '<table>'+rows.map(function(r){
