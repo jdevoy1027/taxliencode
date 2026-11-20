@@ -2204,13 +2204,15 @@ function mfLegend() {
 //
 // The scores here run 64.5 to 83.0 against the multifamily layer's much wider
 // spread, so reusing MF_BREAKS (80/83/85/87) would put the entire list in one
-// band. These bracket the real distribution of the 500: p20 65.5, p40 66.8,
-// p60 68.2, p80 70.7, p90 73.4, filling the five bands 131/147/126/68/28.
+// band. These bracket the real distribution of the 500 and fill the five
+// bands 84/150/130/111/25, no band over 30%.
 //
-// They were re-cut when the cap went from 250 to 500. The list now reaches
-// further down the ranking -- 64.5 against 67.4 -- and the old breaks
-// (69/71/74/78) left 335 of the 500 in the lightest band, two thirds of the
-// layer in one colour.
+// Re-cut twice, both times because the bottom of the list moved. Raising the
+// cap from 250 to 500 took the floor from 67.4 to 64.5, and the original
+// breaks (69/71/74/78) then left 335 of the 500 in the lightest band. Fixing
+// the Special/Overlay pathway brought better-scoring parcels in and pushed the
+// floor back up to 66.1, which left the lightest band EMPTY. A dead band is as
+// wrong as an overfull one, so the breaks follow the data each time.
 //
 // Green, because the sequential ramps on this map are taken -- Reds for
 // assessed land value, YlOrRd for net worth and soil lead, Blues for depth to
@@ -2218,7 +2220,7 @@ function mfLegend() {
 // adaptive-reuse building age. Stepped on OKLab lightness 0.94 -> 0.43,
 // monotonic with a minimum step of 0.102, which clears the 0.078 the other
 // ramps here were held to; the darkest step carries white text at 7.8:1.
-var MU_BREAKS = [0, 66, 68, 71, 75];
+var MU_BREAKS = [0, 67, 69, 72, 76];
 var MU_COLORS = ['#e3eee0', '#b3d4ac', '#79b073', '#428a47', '#1b5e2a'];
 function muColorExpr() {
   var e = ['step', ['get', 'score'], MU_COLORS[0]];
