@@ -729,13 +729,14 @@
           <button class="tw" type="button" data-sym="sym-mu" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
           <span class="lbl" data-layer="mu" tabindex="0" role="button">Mixed-use candidates</span>
-          <span class="cnt">250</span>
+          <span class="cnt">500</span>
         </div>
         <div class="sym" id="sym-mu" hidden>
           <select id="mu-top">
             <option value="50">Best 50 — the shortlist</option>
             <option value="100">Best 100</option>
-            <option value="250" selected>Best 250 — everything selected here</option>
+            <option value="250">Best 250</option>
+            <option value="500" selected>Best 500 — everything selected here</option>
           </select>
           <div class="symh" style="margin-top:7px">Score, of 90 available</div>
           <div id="mu-legend"></div>
@@ -743,8 +744,10 @@
             The multifamily scoring, restricted to Orange County parcels whose
             zoning is already <b>mixed use</b> &mdash; so housing needs no
             rezone, and the zoning question the score asks is already settled.
-            2,863 of the scored parcels qualify; the best 250 sites are drawn,
-            carrying 19,873 units of permitted capacity between them.<br>
+            2,863 of the scored parcels qualify and 2,285 survive the
+            grouping of adjoining common-ownership parcels; the best 500 sites
+            are drawn, carrying 33,768 units of permitted capacity between
+            them.<br>
             <b>Narrower than the &ldquo;mix&rdquo; pathway used to build the
             candidate pool</b>, which also admits plain commercial and planned
             districts as plausible conversions. Every parcel here sits in a
@@ -760,8 +763,9 @@
             16,489 parcels pass, and tools/oc_mixed_use.py prints both the
             accepted and the rejected lists.<br>
             Concentrated in Westminster, Garden Grove, Orange and Brea, the
-            cities that rezoned whole corridors to mixed use. Scores run 67 to
-            83 and sit above the countywide list for exactly that reason.<br>
+            cities that rezoned whole corridors to mixed use. Scores run 64.5
+            to 83 and sit above the countywide list, because mixed-use zoning
+            settles the zoning question the score asks.<br>
             Orange County only: no equivalent zoning read exists for Los
             Angeles County, whose Assessor concatenates 9,394 distinct zoning
             strings from 88 city vocabularies.</div>
@@ -1341,7 +1345,7 @@ var showExide = false;
 var showMf = true;
 var mfTop = 500;       // how many ranks the layer draws
 var showMU = false;
-var muTop = 250;       // the whole mixed-use list
+var muTop = 500;       // the whole mixed-use list
 var showFlood = false;
 var showInund = false;
 var showSlide = false;
@@ -2198,10 +2202,15 @@ function mfLegend() {
 // zoning question category 3 scores is already settled for them -- which is
 // why they score higher on average and need their own breaks.
 //
-// The scores here run 67.4 to 83.0 against the multifamily layer's much wider
+// The scores here run 64.5 to 83.0 against the multifamily layer's much wider
 // spread, so reusing MF_BREAKS (80/83/85/87) would put the entire list in one
-// band. These bracket the real distribution: p25 68.5, median 69.9, p75 72.8,
-// p90 75.3.
+// band. These bracket the real distribution of the 500: p20 65.5, p40 66.8,
+// p60 68.2, p80 70.7, p90 73.4, filling the five bands 131/147/126/68/28.
+//
+// They were re-cut when the cap went from 250 to 500. The list now reaches
+// further down the ranking -- 64.5 against 67.4 -- and the old breaks
+// (69/71/74/78) left 335 of the 500 in the lightest band, two thirds of the
+// layer in one colour.
 //
 // Green, because the sequential ramps on this map are taken -- Reds for
 // assessed land value, YlOrRd for net worth and soil lead, Blues for depth to
@@ -2209,7 +2218,7 @@ function mfLegend() {
 // adaptive-reuse building age. Stepped on OKLab lightness 0.94 -> 0.43,
 // monotonic with a minimum step of 0.102, which clears the 0.078 the other
 // ramps here were held to; the darkest step carries white text at 7.8:1.
-var MU_BREAKS = [0, 69, 71, 74, 78];
+var MU_BREAKS = [0, 66, 68, 71, 75];
 var MU_COLORS = ['#e3eee0', '#b3d4ac', '#79b073', '#428a47', '#1b5e2a'];
 function muColorExpr() {
   var e = ['step', ['get', 'score'], MU_COLORS[0]];
@@ -6188,7 +6197,8 @@ function openMuDlg() {
     '<div class="hint">The Multifamily_Criteria.docx scoring, restricted to ' +
     'Orange County parcels already zoned <b>mixed use</b> — so housing needs ' +
     'no rezone, and the zoning question the score asks is already settled. ' +
-    'That is why these score above the countywide list. <b>Out of 90, not ' +
+    'That is why these score above the countywide list. 2,285 distinct sites ' +
+    'qualify after grouping; the best 500 are listed. <b>Out of 90, not ' +
     '100</b>, for the same reason as the multifamily table: height, setback ' +
     'and parking standards are in no layer here. Units are what the general ' +
     'plan permits (density × acreage).<br>' +
