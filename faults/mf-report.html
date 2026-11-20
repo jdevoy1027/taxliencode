@@ -1258,6 +1258,40 @@ function render(mf,extra,taps,far,zone){
     if(FR.note) S.push('<div class="'+(FR.rows.length?'note':'gap')+'">'+FR.note+'</div>');
   }
 
+  /* Where the specific plan grants no per-parcel density there is no permitted
+     unit count to report, so the capacity line was blank. This is an estimate
+     from what comparable projects in the SAME plan actually built -- the median
+     of them, applied to this lot. It is not an entitlement and is kept out of
+     the permitted-units row above on purpose. */
+  var bm=x.bench;
+  if(bm&&bm.units){
+    S.push('<h3>Estimated units from comparable built projects</h3>');
+    S.push(tbl([
+      ['Estimated units on this lot','<b>'+num(bm.units)+'</b>'],
+      ['Density used',num(bm.du_acre)+' du/ac <span class="sub">the median of '+
+        bm.n+' project'+(bm.n>1?'s':'')+' built in the '+esc(bm.plan)+
+        ' Specific Plan</span>'],
+      ['Lot area used',num(bm.sqft!=null?bm.sqft:Math.round(bm.acres*43560))+
+        ' sq ft · '+bm.acres.toFixed(2)+' acres'],
+      ['The projects',esc(bm.projects)]
+    ]));
+    S.push('<p class="sub"><b>This is an estimate from comparables, not a '+
+      'permitted maximum.</b> '+esc(bm.plan)+' grants no density per parcel '+
+      '\u2014 the Land Use Element states that for some specific plans "FAR '+
+      'and density are not prescribed for individual properties or '+
+      'developments" \u2014 so there is no entitlement figure to report and '+
+      'this does not appear in the permitted-units row above. The figures are '+
+      'from Table B-4 of the 2021-2029 Housing Element, "Past Performance of '+
+      'Residential Development at Maximum Density". What a project actually '+
+      'secures comes from the plan\'s development standards and a '+
+      'discretionary review, not from this arithmetic: the city plans its own '+
+      'capacity at 80 per cent of maximum, and notes that its 100 du/ac '+
+      'projects sat on corner lots with wide street frontages while an '+
+      'interior lot with narrow frontage "may have achieved approximately 80 '+
+      'du/acre". Density here is per NET acre, and the lot area used is the '+
+      'recorded gross, so the figure is an upper bound.</p>');
+  }
+
   S.push('<h3>Expansion onto surrounding parcels</h3>');
   var ex=[];
   ex.push(['Adjoining parcels in common ownership',num(r.asm_n)]);
