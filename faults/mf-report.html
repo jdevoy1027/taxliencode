@@ -925,7 +925,12 @@ function render(mf,extra,taps,far,zone){
       badge('Rank','#'+r.rank,'of '+(mf.scored!=null?num(mf.scored):'')+' scored')+
       badge('Score',(r.score!=null?r.score:'—'),'of '+(mf.max_score||90))+
       badge('Site area',(r.acres!=null?r.acres:'—'),'acres')+
-      badge('Capacity',num(r.cap_units),'units at '+num(r.du_acre)+'/ac')+
+      (r.cap_units>0
+        ? badge('Capacity',num(r.cap_units),'units at '+num(r.du_acre)+'/ac')
+        : badge('Capacity',(x.bench&&x.bench.units?num(x.bench.units):'—'),
+                x.bench&&x.bench.units
+                  ? 'estimated, no density prescribed'
+                  : 'no density prescribed'))+
       badge('Land value',usd(r.land),'assessor')+
     '</div></header>');
 
@@ -1220,10 +1225,21 @@ function render(mf,extra,taps,far,zone){
   // reaches 56% of candidates and Orange's 15%, because Orange's 2019 layer
   // carries 690,288 rows against roughly 987,000 present-day parcels. A reader
   // comparing two sites needs to know which figure each was scored on.
-  lu.push(['Permitted density',(r.du_acre!=null?num(r.du_acre)+' du/acre':'—')+
-    (r.dens_src?' <span style="color:#7a7a72;font-size:12px">('+esc(r.dens_src)+
-      ')</span>':'')]);
-  lu.push(['Implied capacity',num(r.cap_units)+' units']);
+  // A density of zero is not a density of zero: on these parcels the plan
+  // declines to set one, and printing "0 du/acre" asserts the opposite.
+  var noDen=!(r.du_acre>0);
+  lu.push(['Permitted density', noDen
+    ? '<b>none prescribed</b> <span class="sub">the governing plan sets no '+
+      'density for this parcel, which is not the same as a density of zero</span>'
+    : num(r.du_acre)+' du/acre'+
+      (r.dens_src?' <span style="color:#7a7a72;font-size:12px">('+esc(r.dens_src)+
+        ')</span>':'')]);
+  lu.push(['Implied capacity', noDen
+    ? (x.bench&&x.bench.units
+        ? '<b>'+num(x.bench.units)+' units estimated</b> <span class="sub">from '+
+          'comparable built projects, not an entitlement \u2014 see below</span>'
+        : '<span class="sub">none, because no density is prescribed</span>')
+    : num(r.cap_units)+' units']);
   lu.push(['Specific plan',r.sp?esc(r.sp):'none recorded']);
   lu.push(['Pathway tier',r.tier==='mf'?'multifamily by right':'conversion pathway']);
   S.push(tbl(lu));
