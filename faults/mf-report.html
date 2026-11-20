@@ -733,7 +733,7 @@ function qs(k){var m=new RegExp('[?&]'+k+'=([^&]*)').exec(location.search);
 /* Stamped at deploy time. Shown in the footer so a stale page can be
    identified on sight, and appended to the data fetches so a current script
    never reads a cached report file from an earlier build. */
-var BUILD='20261120-0103';
+var BUILD='20261120-1214';
 
 var REPORT_LISTS={
   mf:{rows:'./multifamily.json',    extra:'./mf_report.json',
@@ -1075,8 +1075,23 @@ function render(mf,extra,taps,far,zone){
   // column here means unreported, not empty ground.
   var unrep = r.bstate==='unreported';
   pb.push(['Year built',r.yr?r.yr:(unrep?'not reported by the Assessor':'no building of record')]);
-  pb.push(['Building area',r.bsqft?num(r.bsqft)+' sq ft'
+  /* Say which measure this is. The Assessor's figure is LIVING AREA on 97% of
+     Orange records, a residential measure that on commercial property can be a
+     quarter of the building actually standing: 18400 Beach Boulevard recorded
+     1,530 sq ft against a measured footprint of 6,216 on one storey, and its
+     floor area ratio printed 0.06 instead of 0.24. Where the measured
+     footprint times the storey count is larger it is used instead, and a
+     reader comparing two sites needs to know which number each one is. */
+  pb.push(['Building area',r.bsqft
+            ?num(r.bsqft)+' sq ft'+(r.bsrc?' <span class="sub">'+esc(r.bsrc)+
+               (/footprint/.test(r.bsrc)
+                 ? ', because the Assessor\'s living-area figure is smaller '+
+                   'than the building\'s own measured footprint'
+                 : '')+'</span>':'')
             :(unrep?'not reported by the Assessor':'none of record')]);
+  if(r.bsqft&&r.area) pb.push(['Floor area ratio, as built',
+    (r.bsqft/r.area).toFixed(2)+(r.bsrc?' <span class="sub">on the '+
+      esc(r.bsrc)+'</span>':'')]);
   pb.push(['Assessed land',usd(r.land)]);
   pb.push(['Assessed improvements',usd(r.impr)]);
   pb.push(['Owner of record',esc(r.owner||'—')]);
