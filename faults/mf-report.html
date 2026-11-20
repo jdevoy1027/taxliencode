@@ -558,14 +558,26 @@ function farRows(far,r){
   if(!far) return out;
   var row=far.row, M=far.meta;
   if(!row){
-    out.note='<b>No floor area ratio is published for this parcel in the '+
-      'sources used here.</b> Those are the City of Los Angeles zoning layer '+
-      'with Ordinance 184,802 inside the City, Title 22 with the County zoning '+
-      'layer on unincorporated land, and SCAG\'s 2019 regional land use layer '+
-      'everywhere else in both counties. SCAG carries a floor area ratio for '+
-      'only 13.5% of Los Angeles County and 9.0% of Orange, concentrated in '+
-      'commercial and industrial zones, and this parcel is not among them. Its '+
-      'own jurisdiction governs floor area in its own code.';
+    // Which sources were tried depends on which county the parcel is in, and
+    // naming the wrong county's code stack is worse than saying nothing.
+    out.note=(r&&r.co==='OC')
+      ? '<b>No floor area ratio is published for this parcel in the sources '+
+        'used here.</b> For Orange County those are each city\'s own adopted '+
+        'general plan or zoning code, transcribed per jurisdiction, the '+
+        'County\'s Table III-1 on unincorporated land, and SCAG\'s 2019 '+
+        'regional land use layer where neither reaches. 61.6% of Orange '+
+        'County parcels carry a figure from their own jurisdiction\'s adopted '+
+        'plan and 86.1% carry either a figure or a stated reason, but this '+
+        'parcel has neither: no designation could be resolved for it. Its own '+
+        'jurisdiction governs floor area in its own code.'
+      : '<b>No floor area ratio is published for this parcel in the sources '+
+        'used here.</b> For Los Angeles County those are the City of Los '+
+        'Angeles zoning layer with Ordinance 184,802 inside the City, Title 22 '+
+        'with the County zoning layer on unincorporated land, and SCAG\'s 2019 '+
+        'regional land use layer elsewhere. SCAG carries a floor area ratio '+
+        'for only 13.5% of Los Angeles County, concentrated in commercial and '+
+        'industrial zones, and this parcel is not among them. Its own '+
+        'jurisdiction governs floor area in its own code.';
     return out;
   }
   var sq=function(n){return num(n)+' sq ft';};
@@ -762,8 +774,18 @@ function pickRow(mf){
    Orange was excluded outright until it had an index of its own. */
 var FAR_SRC={10:{dir:'./far/',book:4}, 8:{dir:'./far-oc/',book:3}};
 
+/* The index is chosen by APN LENGTH, so the APN has to be reduced to digits
+   first. The candidate lists carry Orange APNs formatted -- "203-562-14" --
+   and that string is ten characters, exactly the length of a bare Los Angeles
+   AIN like "3014005019". So every Orange parcel was being looked up in the
+   LOS ANGELES shards, finding nothing, and falling through to a note that
+   explains the City of Los Angeles ordinance stack to a reader in
+   Westminster. Stripping to digits gives 8 for Orange and 10 for Los Angeles,
+   which is what the keys mean. */
+function apnDigits(v){ return String(v==null?'':v).replace(/[^0-9]/g,''); }
+
 function loadFar(r){
-  var ain=r?String(r.apn||''):'';
+  var ain=r?apnDigits(r.apn):'';
   var cfg=FAR_SRC[ain.length];
   if(!r||!cfg) return Promise.resolve(null);
   return fetch(cfg.dir+'meta.json').then(function(x){return x.json();})
@@ -785,7 +807,7 @@ function loadFar(r){
    the county this is the only land use standard on offer. */
 var ZONE_SRC={8:{dir:'./zoning-oc/',book:3}};
 function loadZone(r){
-  var ain=r?String(r.apn||''):'';
+  var ain=r?apnDigits(r.apn):'';
   var cfg=ZONE_SRC[ain.length];
   if(!r||!cfg) return Promise.resolve(null);
   return fetch(cfg.dir+'meta.json').then(function(x){return x.json();})
