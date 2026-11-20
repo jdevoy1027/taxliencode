@@ -2,6 +2,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Multifamily Site Report</title>
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
 <!-- GEO_FAMILY / GEO_COLORS: the same geology lookups the map uses, so a unit
      code is described here exactly as it is described there. -->
 <script src="./palette.js"></script>
@@ -725,6 +726,11 @@ function qs(k){var m=new RegExp('[?&]'+k+'=([^&]*)').exec(location.search);
 
    Defaults to the multifamily list, so every link built before the other two
    existed still resolves to what it always did. */
+/* Stamped at deploy time. Shown in the footer so a stale page can be
+   identified on sight, and appended to the data fetches so a current script
+   never reads a cached report file from an earlier build. */
+var BUILD='20261120-0059';
+
 var REPORT_LISTS={
   mf:{rows:'./multifamily.json',    extra:'./mf_report.json',
       eyebrow:'Multifamily Development Site Report', title:'Multifamily Site Report'},
@@ -830,9 +836,9 @@ function loadZone(r){
 }
 
 Promise.all([
-  fetch(RLIST.rows).then(function(r){return r.json();}),
-  fetch(RLIST.extra).then(function(r){return r.json();}).catch(function(){return {};}),
-  fetch('./tapestry.json').then(function(r){return r.json();}).catch(function(){return [];})
+  fetch(RLIST.rows+'?v='+BUILD).then(function(r){return r.json();}),
+  fetch(RLIST.extra+'?v='+BUILD).then(function(r){return r.json();}).catch(function(){return {};}),
+  fetch('./tapestry.json?v='+BUILD).then(function(r){return r.json();}).catch(function(){return [];})
 ]).then(function(a){
   var pr=pickRow(a[0]);
   return Promise.all([loadFar(pr),loadZone(pr)])
@@ -1446,6 +1452,7 @@ function render(mf,extra,taps,far,zone){
     'County assessors · demographics from census block groups · hazards from CGS, '+
     'FEMA, DSOD, CAL FIRE and USFWS · geology CGS, soils SSURGO, groundwater DWR.'+
     '<br>Centroid '+(+r.lat).toFixed(6)+', '+(+r.lon).toFixed(6)+
+    ' · report build '+BUILD+
     ' · <a href="./">back to the map</a></footer>');
 
   document.getElementById('out').innerHTML=H.join('')+S.join('');
