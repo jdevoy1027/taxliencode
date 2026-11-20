@@ -744,10 +744,18 @@
             The multifamily scoring, restricted to Orange County parcels whose
             zoning is already <b>mixed use</b> &mdash; so housing needs no
             rezone, and the zoning question the score asks is already settled.
-            2,863 of the scored parcels qualify and 2,285 survive the
-            grouping of adjoining common-ownership parcels; the best 500 sites
-            are drawn, carrying 33,768 units of permitted capacity between
+            3,703 of the scored parcels qualify; the best 500 sites are
+            drawn, carrying 37,528 units of permitted capacity between
             them.<br>
+            <b>Huntington Beach enters on its General Plan designation, not
+            its zoning.</b> The county parcel file records all nineteen of its
+            specific plans as the bare string &ldquo;Specific Plan
+            Designation&rdquo;, so the zoning test finds 2 parcels against the
+            1,403 the city actually designates Mixed Use. Those come from the
+            city's own General Plan layer. It is a weaker claim than the rest
+            of the set &mdash; a designation is what the city intends, a zone
+            is what is permitted today &mdash; and each parcel's basis says
+            so.<br>
             <b>Narrower than the &ldquo;mix&rdquo; pathway used to build the
             candidate pool</b>, which also admits plain commercial and planned
             districts as plausible conversions. Every parcel here sits in a
@@ -2205,14 +2213,15 @@ function mfLegend() {
 // The scores here run 64.5 to 83.0 against the multifamily layer's much wider
 // spread, so reusing MF_BREAKS (80/83/85/87) would put the entire list in one
 // band. These bracket the real distribution of the 500 and fill the five
-// bands 84/150/130/111/25, no band over 30%.
+// bands 133/141/116/83/27, no band over 28%.
 //
 // Re-cut twice, both times because the bottom of the list moved. Raising the
 // cap from 250 to 500 took the floor from 67.4 to 64.5, and the original
 // breaks (69/71/74/78) then left 335 of the 500 in the lightest band. Fixing
 // the Special/Overlay pathway brought better-scoring parcels in and pushed the
-// floor back up to 66.1, which left the lightest band EMPTY. A dead band is as
-// wrong as an overfull one, so the breaks follow the data each time.
+// floor back up to 66.1, which left the lightest band EMPTY. Adding Huntington
+// Beach on its General Plan designation moved it again, to 66.5. A dead band is
+// as wrong as an overfull one, so the breaks follow the data each time.
 //
 // Green, because the sequential ramps on this map are taken -- Reds for
 // assessed land value, YlOrRd for net worth and soil lead, Blues for depth to
@@ -2220,7 +2229,7 @@ function mfLegend() {
 // adaptive-reuse building age. Stepped on OKLab lightness 0.94 -> 0.43,
 // monotonic with a minimum step of 0.102, which clears the 0.078 the other
 // ramps here were held to; the darkest step carries white text at 7.8:1.
-var MU_BREAKS = [0, 67, 69, 72, 76];
+var MU_BREAKS = [0, 68, 70, 73, 76];
 var MU_COLORS = ['#e3eee0', '#b3d4ac', '#79b073', '#428a47', '#1b5e2a'];
 function muColorExpr() {
   var e = ['step', ['get', 'score'], MU_COLORS[0]];
