@@ -580,7 +580,7 @@
         <button id="m-tapestry">Tapestry segments…</button>
         <button id="m-mf">Multifamily candidates…</button>
         <button id="m-mu">Mixed-use candidates…</button>
-        <button id="m-rv">Revised Orange list…</button>
+        <button id="m-rv">Orange 5–8 acre sites…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -729,7 +729,7 @@
           <input type="checkbox" id="t-rv">
           <button class="tw" type="button" data-sym="sym-rv" aria-expanded="false"
                   aria-label="Show symbology">&#9654;</button>
-          <span class="lbl" data-layer="rv" tabindex="0" role="button">Revised Orange list</span>
+          <span class="lbl" data-layer="rv" tabindex="0" role="button">Orange 5&ndash;8 acre sites</span>
           <span class="cnt">500</span>
         </div>
         <div class="sym" id="sym-rv" hidden>
@@ -742,19 +742,29 @@
           <div class="symh" style="margin-top:7px">Score, of 90 available</div>
           <div id="rv-legend"></div>
           <div class="ctmeta">
-            The multifamily scoring with four further criteria: <b>at least five
-            acres</b>, assembly onto adjoining commonly-owned parcels allowed to
-            reach it, <b>street frontage on at least one side</b>, and <b>other
-            residential land within 500 feet</b>, with mixed-use zoning counting
-            as residential.<br>
-            2,154 of the 48,450 Orange candidates pass; 500 sites are drawn
-            after grouping adjoining common ownership, carrying 86,430 units of
-            permitted capacity. Site areas run 5.00 to 74.67 acres, median
-            8.45.<br>
-            <b>320 reach five acres on their own and 180 only with their
-            neighbours.</b> Those are different propositions — one is a site,
-            the other a site plus a negotiation — so every row carries its own
-            acreage and its acreage with assembly, and the panel shows both.<br>
+            The multifamily scoring with four further criteria: a site of
+            <b>five to eight acres</b>, assembly onto adjoining commonly-owned
+            parcels allowed to reach it, <b>street frontage on at least one
+            side</b>, and <b>other residential land within 500 feet</b>, with
+            mixed-use zoning counting as residential.<br>
+            1,137 of the 48,450 Orange candidates pass; 500 sites are drawn
+            after grouping adjoining common ownership, carrying 56,157 units of
+            permitted capacity.<br>
+            <b>341 are five to eight acres on their own and 159 are under five
+            and reach the band with their neighbours.</b> Those are different
+            propositions — one is a site, the other a site plus a negotiation —
+            so every row carries both figures and the panel shows both.<br>
+            <b>The band is tested two ways and either qualifies.</b> Testing
+            only the combined figure would be perverse: a six-acre parcel whose
+            owner also holds forty adjoining acres has a combined figure of
+            forty-six, and would be thrown out of a five-to-eight list for the
+            size of its owner's OTHER holdings. So a parcel qualifies if its own
+            area is in the band, whatever else its owner holds, or if it is
+            under five acres and reaches the band with its adjoining
+            commonly-owned neighbours. On this pool the two readings differ by
+            330 parcels. That is why some rows show a site figure above eight
+            acres: their own area is in band and the surplus is their owner's to
+            use or not.<br>
             <b>Frontage is a proxy and deliberately so.</b> Measuring true
             frontage means knowing which boundary faces a public street and no
             layer here says. The test is metres to the nearest public street —
@@ -2302,10 +2312,12 @@ function muLegend() {
 // adjoining commonly-owned neighbours, a public street within 20 m, and other
 // residential or mixed-use land within 500 ft.
 //
-// Its scores are bottom-weighted -- 64.2 to 83.7 with a p80 of 71.1 -- so the
-// breaks are cut on its own percentiles rather than on round intervals, which
-// would have left two thirds of the layer in one band. These fill
-// 121/128/94/96/61, no band over 26%.
+// Its scores run 58.9 to 83.0 with a p80 of 69.6 -- lower than the unbounded
+// version of this list, because capping sites at eight acres removes the large
+// high-scoring ones, so the list reaches further down the ranking. Cut on its
+// own percentiles rather than round intervals: these fill 117/74/120/98/91,
+// no band over 24%. The previous breaks put 54% in one band once the cap went
+// on, which is why they moved with it.
 //
 // Teal, because every other sequential ramp here is taken: Reds for assessed
 // land value, YlOrRd for net worth and soil lead, Blues for groundwater depth
@@ -2313,7 +2325,7 @@ function muLegend() {
 // building age, green for the mixed-use score. Stepped on OKLab lightness
 // 0.94 -> 0.44, monotonic, minimum step 0.095 against the 0.078 the other
 // ramps here were held to; the darkest step carries white text at 7.4:1.
-var RV_BREAKS = [0, 66, 68, 70, 73];
+var RV_BREAKS = [0, 62, 64, 67, 70];
 var RV_COLORS = ['#dff0ee', '#a8d8d3', '#66b8b1', '#2e8d87', '#14605c'];
 function rvColorExpr() {
   var e = ['step', ['get', 'score'], RV_COLORS[0]];
@@ -2627,7 +2639,7 @@ var LAYER_SYM = {
   ar: { title: 'Adaptive reuse — by building age', pal: function () { return 'ar'; } },
   mf: { title: 'Multifamily candidates — by score', pal: function () { return 'mf'; } },
   mu: { title: 'Mixed-use candidates — by score', pal: function () { return 'mu'; } },
-  rv: { title: 'Revised Orange list — by score', pal: function () { return 'rv'; } },
+  rv: { title: 'Orange 5–8 acre sites — by score', pal: function () { return 'rv'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
   contours: { title: 'Ground surface elevation contours', pal: function () { return 'contours'; } },
@@ -6447,7 +6459,7 @@ function rvRender(q) {
   document.getElementById('rv-count').textContent =
     rows.length + ' of ' + RV_DATA.rows.length + ' shown · ' +
     Number(units).toLocaleString() + ' units in those · ' + needasm +
-    ' need assembly to reach five acres';
+    ' need assembly to reach the band';
 
   host.querySelectorAll('a[data-rv]').forEach(function (a) {
     a.addEventListener('click', function (ev) {
@@ -6468,7 +6480,7 @@ function rvRender(q) {
 
 function openRvDlg() {
   MENU.hidden = true;
-  openDlg('<h2>Revised Orange list</h2><div class="bd">' +
+  openDlg('<h2>Orange 5&ndash;8 acre sites</h2><div class="bd">' +
     '<div class="fld">' +
       '<input id="rv-q" type="text" placeholder="Filter by address, city, APN, owner, zone or designation" ' +
       'autocomplete="off" autocapitalize="none" spellcheck="false">' +
@@ -6485,12 +6497,14 @@ function openRvDlg() {
     'criteria: at least five acres, assembly onto adjoining commonly-owned ' +
     'parcels allowed to reach it, street frontage on one side, and other ' +
     'residential land within 500 feet with mixed-use zoning counting as ' +
-    'residential. 2,154 of 48,450 Orange candidates pass; these are the best ' +
+    'residential. 1,137 of 48,450 Orange candidates pass; these are the best ' +
     '500 after grouping common ownership.<br>' +
-    '<b>Site acres is the figure the five-acre test was applied to</b> — the ' +
-    'parcel plus its adjoining commonly-owned neighbours. Own acres is the ' +
-    'parcel by itself. Where they differ the site exists only as an ' +
-    'assemblage, which is a negotiation rather than a listing.<br>' +
+    '<b>The band is tested on own acres where those are in range, and on ' +
+    'site acres only where assembly was needed to reach it.</b> A six-acre ' +
+    'parcel is not excluded because its owner also holds forty adjoining ' +
+    'acres, which is why some site figures exceed eight. Where own acres is ' +
+    'under five the site exists only as an assemblage, which is a negotiation ' +
+    'rather than a listing.<br>' +
     '<b>Street is a proxy</b>: metres to the nearest public street centreline, ' +
     'arterials and local streets only. An abutting parcel sits about 9 m from ' +
     'one, so anything up to 20 m fronts a street without this claiming to ' +
