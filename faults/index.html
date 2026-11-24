@@ -580,6 +580,7 @@
         <button id="m-tapestry">Tapestry segments…</button>
         <button id="m-mf">Multifamily candidates…</button>
         <button id="m-mu">Mixed-use candidates…</button>
+        <button id="m-rv">Revised Orange list…</button>
         <button id="m-contour">Contour…</button>
         <button id="m-xsect">Cross-section…</button>
         <button id="m-gwdepth">Depth to groundwater…</button>
@@ -723,6 +724,51 @@
             score awards full marks to a lot with no building at all, so vacant
             land crowds standing structures out. Scored the same way, selected
             differently.</div>
+        </div>
+        <div class="tr">
+          <input type="checkbox" id="t-rv">
+          <button class="tw" type="button" data-sym="sym-rv" aria-expanded="false"
+                  aria-label="Show symbology">&#9654;</button>
+          <span class="lbl" data-layer="rv" tabindex="0" role="button">Revised Orange list</span>
+          <span class="cnt">500</span>
+        </div>
+        <div class="sym" id="sym-rv" hidden>
+          <select id="rv-top">
+            <option value="50">Best 50 — the shortlist</option>
+            <option value="100">Best 100</option>
+            <option value="250">Best 250</option>
+            <option value="500" selected>Best 500 — everything selected here</option>
+          </select>
+          <div class="symh" style="margin-top:7px">Score, of 90 available</div>
+          <div id="rv-legend"></div>
+          <div class="ctmeta">
+            The multifamily scoring with four further criteria: <b>at least five
+            acres</b>, assembly onto adjoining commonly-owned parcels allowed to
+            reach it, <b>street frontage on at least one side</b>, and <b>other
+            residential land within 500 feet</b>, with mixed-use zoning counting
+            as residential.<br>
+            2,154 of the 48,450 Orange candidates pass; 500 sites are drawn
+            after grouping adjoining common ownership, carrying 86,430 units of
+            permitted capacity. Site areas run 5.00 to 74.67 acres, median
+            8.45.<br>
+            <b>320 reach five acres on their own and 180 only with their
+            neighbours.</b> Those are different propositions — one is a site,
+            the other a site plus a negotiation — so every row carries its own
+            acreage and its acreage with assembly, and the panel shows both.<br>
+            <b>Frontage is a proxy and deliberately so.</b> Measuring true
+            frontage means knowing which boundary faces a public street and no
+            layer here says. The test is metres to the nearest public street —
+            TIGER arterials and local streets, with freeways, private roads,
+            alleys and parking aisles excluded. Those are centrelines, so a
+            parcel abutting a 60-foot street sits about 9 m from one, the median
+            of the whole distribution; 20 m therefore means it abuts a street
+            without claiming which side. A parcel with no measurement is
+            rejected rather than passed.<br>
+            Residential proximity counts 638,248 parcels: the 620,356 the county
+            zones Residential plus the 17,892 in the audited mixed-use set,
+            since a mixed-use district carries housing. Measured centre to
+            centre, which understates adjacency on large parcels.<br>
+            Orange County only.</div>
         </div>
         <div class="tr">
           <input type="checkbox" id="t-mu">
@@ -1354,6 +1400,8 @@ var showMf = true;
 var mfTop = 500;       // how many ranks the layer draws
 var showMU = false;
 var muTop = 500;       // the whole mixed-use list
+var showRV = false;
+var rvTop = 500;       // the whole revised Orange list
 var showFlood = false;
 var showInund = false;
 var showSlide = false;
@@ -2250,6 +2298,42 @@ function muLegend() {
   }).join('');
 }
 
+// The revised Orange County list: five acres on the parcel or with its
+// adjoining commonly-owned neighbours, a public street within 20 m, and other
+// residential or mixed-use land within 500 ft.
+//
+// Its scores are bottom-weighted -- 64.2 to 83.7 with a p80 of 71.1 -- so the
+// breaks are cut on its own percentiles rather than on round intervals, which
+// would have left two thirds of the layer in one band. These fill
+// 121/128/94/96/61, no band over 26%.
+//
+// Teal, because every other sequential ramp here is taken: Reds for assessed
+// land value, YlOrRd for net worth and soil lead, Blues for groundwater depth
+// and the multifamily score, purple for sale price, tan for adaptive-reuse
+// building age, green for the mixed-use score. Stepped on OKLab lightness
+// 0.94 -> 0.44, monotonic, minimum step 0.095 against the 0.078 the other
+// ramps here were held to; the darkest step carries white text at 7.4:1.
+var RV_BREAKS = [0, 66, 68, 70, 73];
+var RV_COLORS = ['#dff0ee', '#a8d8d3', '#66b8b1', '#2e8d87', '#14605c'];
+function rvColorExpr() {
+  var e = ['step', ['get', 'score'], RV_COLORS[0]];
+  for (var i = 1; i < RV_BREAKS.length; i++) e.push(RV_BREAKS[i], RV_COLORS[i]);
+  return e;
+}
+function rvFilterExpr() { return ['<=', ['get', 'rank'], rvTop]; }
+
+function rvLegend() {
+  var h = document.getElementById('rv-legend');
+  if (!h) return;
+  h.innerHTML = RV_BREAKS.map(function (lo, i) {
+    var hi = RV_BREAKS[i + 1];
+    return '<div class="ctrow"><span class="sw"><i style="height:11px;background:' +
+      RV_COLORS[i] + '"></i></span><span>' +
+      (i === 0 ? 'below ' + RV_BREAKS[1] : hi ? lo + ' \u2013 ' + hi : lo + '+') +
+      '</span></div>';
+  }).join('');
+}
+
 // Redfin closed sales, one week of LA County (2026-10-29 .. 2026-11-04).
 // A sequential single-hue ramp, light to dark, because price is a magnitude --
 // purple specifically, because the three value ramps already on this map are
@@ -2543,6 +2627,7 @@ var LAYER_SYM = {
   ar: { title: 'Adaptive reuse — by building age', pal: function () { return 'ar'; } },
   mf: { title: 'Multifamily candidates — by score', pal: function () { return 'mf'; } },
   mu: { title: 'Mixed-use candidates — by score', pal: function () { return 'mu'; } },
+  rv: { title: 'Revised Orange list — by score', pal: function () { return 'rv'; } },
   soils: { title: 'Soils — by order', pal: function () { return 'soils'; } },
   geo: { title: 'Geology — by unit', pal: function () { return 'geo'; } },
   contours: { title: 'Ground surface elevation contours', pal: function () { return 'contours'; } },
@@ -2594,6 +2679,20 @@ PALETTES.fireSev = withRedraw(
     applyOutline('fhsz');
     fhszLegend();
   });
+
+PALETTES.rv = withRedraw({
+  n: function () { return RV_COLORS.length; },
+  get: function (i) { return RV_COLORS[i]; },
+  set: function (i, c) { RV_COLORS[i] = c; },
+  name: function (i) {
+    var hi = RV_BREAKS[i + 1];
+    return i === 0 ? 'below ' + RV_BREAKS[1]
+         : hi ? RV_BREAKS[i] + ' \u2013 ' + hi : RV_BREAKS[i] + '+';
+  }
+}, function () {
+  if (map.getLayer('rv-fill')) map.setPaintProperty('rv-fill', 'fill-color', rvColorExpr());
+  rvLegend();
+});
 
 PALETTES.mu = withRedraw({
   n: function () { return MU_COLORS.length; },
@@ -3418,6 +3517,38 @@ function addLayers() {
       }
     });
   }
+  if (!map.getSource('ocrevised')) {
+    map.addSource('ocrevised', { type: 'geojson', data: './oc_revised.geojson' });
+  }
+  if (!map.getLayer('rv-fill')) {
+    map.addLayer({
+      id: 'rv-fill', type: 'fill', source: 'ocrevised',
+      filter: rvFilterExpr(),
+      paint: { 'fill-color': rvColorExpr(), 'fill-opacity': 0.55 }
+    });
+    map.addLayer({
+      id: 'rv-line', type: 'line', source: 'ocrevised',
+      filter: rvFilterExpr(),
+      paint: {
+        'line-color': '#0d3f3c',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 15, 1.4, 18, 2.4]
+      }
+    });
+    map.addLayer({
+      id: 'rv-rank', type: 'symbol', source: 'ocrevised',
+      filter: rvFilterExpr(),
+      layout: {
+        'text-field': ['to-string', ['get', 'rank']],
+        'text-font': ['DIN Offc Pro Bold', 'Arial Unicode MS Bold'],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 15, 13, 18, 16],
+        'text-allow-overlap': false, 'text-ignore-placement': false
+      },
+      paint: {
+        'text-color': '#ffffff', 'text-halo-color': '#14605c',
+        'text-halo-width': 1.6
+      }
+    });
+  }
   if (!map.getSource('wells')) {
     map.addSource('wells', { type: 'vector', url: 'mapbox://jdevoy.doggr-wells' });
   }
@@ -4098,6 +4229,14 @@ function applyState() {
     map.setLayoutProperty(id, 'visibility', showMf ? 'visible' : 'none');
     map.setFilter(id, mfFilterExpr());
   });
+  ['rv-fill', 'rv-line', 'rv-rank'].forEach(function (id) {
+    if (!map.getLayer(id)) return;
+    map.setLayoutProperty(id, 'visibility', showRV ? 'visible' : 'none');
+    map.setFilter(id, rvFilterExpr());
+  });
+  if (map.getLayer('rv-fill')) {
+    map.setPaintProperty('rv-fill', 'fill-color', rvColorExpr());
+  }
   ['mu-fill', 'mu-line', 'mu-rank'].forEach(function (id) {
     if (!map.getLayer(id)) return;
     map.setLayoutProperty(id, 'visibility', showMU ? 'visible' : 'none');
@@ -4277,11 +4416,12 @@ map.on('load', function () {
     var hits = map.queryRenderedFeatures(e.point, {
       layers: clickableLayers()
     });
-    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null, sch = null, ar = null, mu = null;
-    var mfIsMU = false;
+    var fault = null, unit = null, soil = null, bore = null, blk = null, ap = null, parc = null, well = null, water = null, liq = null, pipe = null, syn = null, exide = null, flood = null, inund = null, slide = null, tsu = null, hab = null, fhsz = null, scag = null, mf = null, rf = null, sch = null, ar = null, mu = null, rv = null;
+    var mfIsMU = false, mfIsRV = false;
     hits.forEach(function (h) {
       if (h.layer.id === 'mf-fill' && !mf) mf = h.properties;
       if (h.layer.id === 'mu-fill' && !mu) mu = h.properties;
+      if (h.layer.id === 'rv-fill' && !rv) rv = h.properties;
       if (h.layer.id === 'well-dot' && !well) well = h.properties;
       if (h.layer.id === 'water-dot' && !water) water = h.properties;
       if ((h.layer.id === 'pc-fill' || h.layer.id === 'pc2-fill') && !parc) parc = h.properties;
@@ -4309,11 +4449,13 @@ map.on('load', function () {
     // A mixed-use hit renders through the multifamily body below: the two
     // lists share a schema, so only the header has to say which is which.
     if (!mf && mu && showMU) { mf = mu; mfIsMU = true; }
+    if (!mf && rv && showRV) { mf = rv; mfIsRV = true; }
     if (!fault && !unit && !soil && !bore && !blk && !ap && !liq && !pipe && !parc && !well && !water && !syn && !exide && !flood && !inund && !slide && !tsu && !hab && !fhsz && !scag && !mf && !rf && !sch && !ar) return;
 
     var html = '';
-    if (mf && (showMf || mfIsMU)) {
-      html += '<div class="pop-name">' + (mfIsMU ? 'Mixed use #' : '#') +
+    if (mf && (showMf || mfIsMU || mfIsRV)) {
+      html += '<div class="pop-name">' +
+              (mfIsMU ? 'Mixed use #' : mfIsRV ? 'Revised #' : '#') +
               esc(mf.rank) + ' · ' + esc(mf.addr || '') + '</div>';
       html += '<div class="pop-row">' + esc(mf.city || '') +
               (mf.apn ? ' · APN ' + esc(mf.apn) : '') +
@@ -4455,7 +4597,7 @@ map.on('load', function () {
         html += '<div class="pop-row mf-links">' +
           '<a href="./mf-report.html?apn=' + encodeURIComponent(mf.apn || '') +
           '&rank=' + encodeURIComponent(mf.rank) +
-          (mfIsMU ? '&list=mu' : '') +
+          (mfIsMU ? '&list=mu' : mfIsRV ? '&list=rv' : '') +
           '" target="_blank" rel="noopener"><b>Create Report</b></a>' +
           '<div class="mf-hint">Neighbourhood, property, zoning, hazards and ' +
           'geology for this parcel, formatted to print</div></div>';
@@ -4958,7 +5100,7 @@ map.on('load', function () {
 
 // What a click reports. Filtered to layers that exist AND are currently visible,
 // so a switched-off layer never answers.
-var CLICK_LAYERS = ['sch-dot', 'rf-dot', 'ar-fill', 'mf-fill', 'mu-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
+var CLICK_LAYERS = ['sch-dot', 'rf-dot', 'ar-fill', 'mf-fill', 'mu-fill', 'rv-fill', 'exide-dot', 'bore-dot', 'faults-hit', 'geo-fill', 'soil-fill', 'cb-fill',
                     'ap-fill', 'liq-fill', 'sld-fill', 'flood-fill', 'inund-fill',
                     'tsu-fill', 'hab-fill', 'fhsz-fill', 'scag-fill', 'pipe-line', 'pc-fill', 'pc2-fill',
                     'well-dot', 'water-dot', 'syn-dot'];
@@ -4975,6 +5117,7 @@ var LAYER_HITS = {
   ar:       ['ar-fill'],
   mf:       ['mf-fill'],
   mu:       ['mu-fill'],
+  rv:       ['rv-fill'],
   faults:   ['faults-hit'],
   ap:       ['ap-fill'],
   liq:      ['liq-fill'],
@@ -5244,6 +5387,19 @@ document.getElementById('mf-top').addEventListener('change', function () {
   }
   applyState(); saveState();
 });
+document.getElementById('t-rv').addEventListener('change', function () {
+  showRV = this.checked; applyState(); saveState();
+});
+document.getElementById('rv-top').addEventListener('change', function () {
+  rvTop = +this.value;
+  if (!showRV) {
+    showRV = true;
+    var rvcb = document.getElementById('t-rv');
+    if (rvcb) rvcb.checked = true;
+  }
+  applyState(); saveState();
+});
+rvLegend();
 document.getElementById('t-mu').addEventListener('change', function () {
   showMU = this.checked; applyState(); saveState();
 });
@@ -6028,6 +6184,7 @@ function tapRender(q) {
 
 var MF_DATA = null;
 var MU_DATA = null;
+var RV_DATA = null;
 
 function mfRender(q) {
   q = (q || '').trim().toLowerCase();
@@ -6243,6 +6400,124 @@ function openMuDlg() {
 }
 document.getElementById('m-mu').addEventListener('click', openMuDlg);
 
+// The revised Orange table. Two acreage columns, because 180 of the 500 reach
+// five acres only with their adjoining commonly-owned parcels and the row
+// would otherwise show a 0.38-acre site against a five-acre criterion. The
+// site column is the one the criterion was applied to; "own" is what the
+// parcel is by itself, and the gap between them is a negotiation.
+function rvRender(q) {
+  q = (q || '').trim().toLowerCase();
+  var host = document.getElementById('rv-body');
+  var rows = RV_DATA.rows.filter(function (r) {
+    if (!q) return true;
+    return [r.addr, r.city, r.apn, r.owner, r.gp_lbl, r.zoning, r.sp]
+      .some(function (v) { return v && String(v).toLowerCase().indexOf(q) >= 0; });
+  });
+  host.innerHTML = rows.map(function (r) {
+    var pct = Math.max(0, Math.min(100, 100 * r.score / RV_DATA.max_score));
+    var asm = (r.site_acres != null && r.acres != null && r.site_acres > r.acres + 0.01);
+    return '<tr>' +
+      '<td class="lun"><b>' + r.rank + '</b></td>' +
+      '<td><a href="#" data-rv="' + r.rank + '">' + esc(r.addr || '') + '</a>' +
+      '<div style="color:#85857e;font-size:11px">' + esc(r.city || '') +
+      ' · APN ' + esc(r.apn || '') + '</div></td>' +
+      '<td class="lun">' + (r.site_acres != null ? r.site_acres : '—') +
+        (asm ? '<div style="color:#85857e;font-size:11px">with ' +
+               (r.asm_n || 0) + ' adjoining</div>' : '') + '</td>' +
+      '<td class="lun">' + (r.acres != null ? r.acres : '—') + '</td>' +
+      '<td class="lun">' + (r.cap_units ? Number(r.cap_units).toLocaleString() : '—') + '</td>' +
+      '<td class="lun">' + (r.street_m != null ? Number(r.street_m).toFixed(0) + ' m' : '—') + '</td>' +
+      '<td class="lun" style="min-width:86px">' +
+        '<div style="display:flex;align-items:center;gap:5px">' +
+        '<span style="flex:1;height:6px;background:#ececeb;border-radius:3px;overflow:hidden">' +
+        '<i style="display:block;height:6px;width:' + pct.toFixed(0) +
+        '%;background:#2e8d87"></i></span>' +
+        '<b>' + r.score + '</b></div></td>' +
+      '<td class="lun mf-sv">' + (r.lat != null
+        ? '<a href="' + mfStreetView(r.lat, r.lon) + '" target="_blank" ' +
+          'rel="noopener">Street&nbsp;View</a>' : '—') + '</td>' +
+      '</tr>';
+  }).join('') ||
+    '<tr><td colspan="8" style="padding:16px;color:#85857e">Nothing matches that.</td></tr>';
+  var units = rows.reduce(function (a, r) { return a + (r.cap_units || 0); }, 0);
+  // Those that NEED the assembly, not merely those that have some: a
+  // six-acre parcel with an adjoining neighbour qualifies on its own.
+  var needasm = rows.filter(function (r) {
+    return (r.acres || 0) < 5.0; }).length;
+  document.getElementById('rv-count').textContent =
+    rows.length + ' of ' + RV_DATA.rows.length + ' shown · ' +
+    Number(units).toLocaleString() + ' units in those · ' + needasm +
+    ' need assembly to reach five acres';
+
+  host.querySelectorAll('a[data-rv]').forEach(function (a) {
+    a.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      var r = RV_DATA.rows.filter(function (x) { return x.rank === +a.dataset.rv; })[0];
+      if (!r || r.lon == null) return;
+      if (!showRV) {
+        showRV = true;
+        var cb = document.getElementById('t-rv');
+        if (cb) cb.checked = true;
+        applyState(); saveState();
+      }
+      closeDlg();
+      map.flyTo({ center: [r.lon, r.lat], zoom: 17.2 });
+    });
+  });
+}
+
+function openRvDlg() {
+  MENU.hidden = true;
+  openDlg('<h2>Revised Orange list</h2><div class="bd">' +
+    '<div class="fld">' +
+      '<input id="rv-q" type="text" placeholder="Filter by address, city, APN, owner, zone or designation" ' +
+      'autocomplete="off" autocapitalize="none" spellcheck="false">' +
+      '<div class="hint" id="rv-count">loading…</div>' +
+    '</div>' +
+    '<div class="dwrap" style="max-height:52vh;overflow:auto">' +
+      '<table class="lutab"><thead><tr><th class="lun">#</th><th>Site</th>' +
+      '<th class="lun">Site acres</th><th class="lun">Own acres</th>' +
+      '<th class="lun">Units</th><th class="lun">Street</th>' +
+      '<th class="lun">Score</th><th class="lun">Look</th>' +
+      '</tr></thead><tbody id="rv-body"></tbody></table>' +
+    '</div>' +
+    '<div class="hint">The Multifamily_Criteria.docx scoring with four further ' +
+    'criteria: at least five acres, assembly onto adjoining commonly-owned ' +
+    'parcels allowed to reach it, street frontage on one side, and other ' +
+    'residential land within 500 feet with mixed-use zoning counting as ' +
+    'residential. 2,154 of 48,450 Orange candidates pass; these are the best ' +
+    '500 after grouping common ownership.<br>' +
+    '<b>Site acres is the figure the five-acre test was applied to</b> — the ' +
+    'parcel plus its adjoining commonly-owned neighbours. Own acres is the ' +
+    'parcel by itself. Where they differ the site exists only as an ' +
+    'assemblage, which is a negotiation rather than a listing.<br>' +
+    '<b>Street is a proxy</b>: metres to the nearest public street centreline, ' +
+    'arterials and local streets only. An abutting parcel sits about 9 m from ' +
+    'one, so anything up to 20 m fronts a street without this claiming to ' +
+    'know which side. <b>Out of 90, not 100</b>, for the same reason as the ' +
+    'other tables. Click an address to zoom to it.' +
+    '</div></div>' +
+    '<div class="ft"><button class="cx" id="rv-close">Close</button></div>', 'wide');
+  document.getElementById('rv-close').addEventListener('click', closeDlg);
+
+  function wire() {
+    var inp = document.getElementById('rv-q');
+    rvRender('');
+    inp.addEventListener('input', function () { rvRender(inp.value); });
+    inp.focus();
+  }
+  if (RV_DATA) { wire(); return; }
+  fetch('./oc_revised.json').then(function (r) { return r.json(); })
+    .then(function (j) { RV_DATA = j; wire(); })
+    .catch(function () {
+      document.getElementById('rv-body').innerHTML =
+        '<tr><td colspan="8" style="padding:16px;color:#8a2b1c">' +
+        'Could not load oc_revised.json.</td></tr>';
+      document.getElementById('rv-count').textContent = '';
+    });
+}
+document.getElementById('m-rv').addEventListener('click', openRvDlg);
+
 function openTapDlg(preset) {
   MENU.hidden = true;
   openDlg('<h2>Tapestry segments</h2><div class="bd">' +
@@ -6329,7 +6604,7 @@ var LAYER_SRC = {
   parcels: ['parcels', 'parcels_oc'], blocks: ['blocks'], soils: ['soils'],
   geo: ['geology'], syn: ['synergy'], contours: ['contours'], exide: ['exide'],
   redfin: ['redfin'], schools: ['schools'], ar: ['adaptive'],
-  mf: ['mf'], mu: ['mixeduse'],
+  mf: ['mf'], mu: ['mixeduse'], rv: ['ocrevised'],
   gwct: ['gwcontours']
 };
 // The GeoJSON sources' files, so the envelope can be computed without reaching
@@ -6339,7 +6614,7 @@ var SRC_URL = {
   bores: './boreholes.geojson', synergy: './synergy.geojson', exide: './exide.geojson',
   mf: './multifamily.geojson', redfin: './redfin_sales.geojson',
   schools: './schools.geojson', adaptive: './adaptive_reuse.geojson',
-  mixeduse: './mixed_use.geojson',
+  mixeduse: './mixed_use.geojson', ocrevised: './oc_revised.geojson',
   flood: './flood.geojson', inund: './inundation.geojson',
   tsunami: './tsunami.geojson', habitat: './habitat.geojson', fhsz: './fhsz.geojson',
   gwcontours: './gw_contours.geojson',
@@ -9725,6 +10000,7 @@ var LAYER_FLAGS = [
   ['ar', 't-ar', function (v) { showAR = v; }, function () { return showAR; }],
   ['mf', 't-mf', function (v) { showMf = v; }, function () { return showMf; }],
   ['mu', 't-mu', function (v) { showMU = v; }, function () { return showMU; }],
+  ['rv', 't-rv', function (v) { showRV = v; }, function () { return showRV; }],
   ['boreLabels', 't-bore-labels', function (v) { showBoreLabels = v; }, function () { return showBoreLabels; }],
   ['faults', 't-faults', function (v) { showFaults = v; }, function () { return showFaults; }]
 ];
